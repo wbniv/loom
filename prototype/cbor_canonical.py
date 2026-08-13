@@ -55,7 +55,9 @@ def encode(value) -> bytes:
             out += encode(item)
         return out
     if isinstance(value, dict):
-        keys_sorted = sorted(value.keys(), key=lambda k: encode(k))
+        # RFC 8949 core deterministic order: shorter encoded keys first,
+        # then bytewise lexical order among keys of equal encoded length.
+        keys_sorted = sorted(value.keys(), key=lambda k: (len(encode(k)), encode(k)))
         out = _encode_head(5, len(value))
         for k in keys_sorted:
             out += encode(k) + encode(value[k])

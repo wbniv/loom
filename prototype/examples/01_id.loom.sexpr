@@ -1,7 +1,1 @@
-; id : I64 -> I64 = lambda x. x
-; SPEC.md SS4.4 worked example — the transcoded hash MUST equal
-; #76c62727b181b5f71e6206a08a5bbe8b005f227b446f6f8b311fe792901e0605.
-
-(def
-  (fn I64 () I64)
-  (lam I64 (var 0)))
+(def (fn I64 () I64) (lam I64 (var 0)))

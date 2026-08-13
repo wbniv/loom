@@ -1,11 +1,1 @@
-; log_and_return : I64 -{clock}-> I64 = lambda x. let _ = perform clock 0 () in x
-; Exercises: non-empty effect row (SS2.3 `fn`), `let`, `perform`, byte-string
-; ability hash. Ability hash is a prototype fixture:
-;   0xf19b55c9... = sha256("loom-proto:ability:clock") — not a real store hash.
-
-(def
-  (fn I64 (0xf19b55c9f2eb5e15cad6a38051a49e030870d256dd8773084f2e04c0d6fcc623) I64)
-  (lam I64
-    (let Unit
-      (perform 0xf19b55c9f2eb5e15cad6a38051a49e030870d256dd8773084f2e04c0d6fcc623 0 ())
-      (var 1))))
+(def (fn I64 (0xf19b55c9f2eb5e15cad6a38051a49e030870d256dd8773084f2e04c0d6fcc623) I64) (lam I64 (let Unit (perform 0xf19b55c9f2eb5e15cad6a38051a49e030870d256dd8773084f2e04c0d6fcc623 0 ()) (var 1))))

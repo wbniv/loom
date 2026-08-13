@@ -1,12 +1,1 @@
-; flip : Bit -> Bit, for a 2-constructor data type Bit = Zero | One
-; Exercises: `data` type (SS2.3), `match`/`con` terms (SS2.1).
-; `Bit` is a prototype fixture hash: 0x94b9c46d... = sha256("loom-proto:data:Bit").
-
-(def
-  (fn (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ())
-      ()
-      (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ()))
-  (lam (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ())
-    (match (var 0)
-      ((0 0 (con 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 1 ()))
-       (1 0 (con 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 0 ()))))))
+(def (fn (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ()) () (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ())) (lam (data 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 ()) (match (var 0) ((0 0 (con 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 1 ())) (1 0 (con 0x94b9c46db550cb13f1eecbfc04f2d0dce2ef9991e00a6358af8d342c64f4e0d4 0 ()))))))

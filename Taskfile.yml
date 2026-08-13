@@ -9,6 +9,11 @@ includes:
 silent: true
 
 tasks:
+  grammar:test:
+    desc: Validate the canonical Loom surface with llama.cpp's GBNF validator
+    cmds:
+      - python3 prototype/validate_gbnf.py "${LOOM_GBNF_VALIDATOR:-}"
+
   todo:lint:
     desc: Check TODO.md against the four-bucket + delegation-tier spec
     cmds:

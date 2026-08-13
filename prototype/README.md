@@ -1,75 +1,94 @@
-# Loom prototype — S-expression isomorph + canonical-CBOR transcoder
+# Loom prototype — canonical S-expression surface + CBOR transcoder
 
-Implements the `TODO.md` item "Prototype the S-expression isomorph grammar
-(SPEC.md SS8.4)": the emission surface an agent would actually decode under
-a constrained-decoding harness, plus the deterministic transcoder from that
-surface to the canonical CBOR bytes that carry identity (SS4.2–4.4).
+This directory implements the canonical, prior-rich emission surface proposed
+by `SPEC.md` §8.4 and the deterministic conversion between that surface and the
+IR encoded as canonical CBOR.
 
-**Status: working prototype, not a store.** No typechecker, no evidence
-lattice, no oracle — just the one mechanism SS8.4 licenses to exist outside
-canonical bytes: a total, deterministic isomorphism.
+**Status: working syntax/identity prototype, not a store.** There is no
+typechecker, evidence lattice, oracle, or scope checker here.
 
 ## Run it
 
-```
+```sh
 cd prototype
-python3 -m unittest test_roundtrip -v      # 3 tests, all pass
+python3 -m unittest test_roundtrip -v
 python3 transcode.py examples/01_id.loom.sexpr
 ```
 
-## What's here
+## Canonical-surface contract
+
+The machine-emission surface has exactly one rendering for each supported IR:
+
+- spacing is fixed and the definition occupies one line;
+- one final newline is permitted for an ordinary text file;
+- comments are not part of the surface;
+- hashes are 32 bytes written as 64 lowercase hex digits;
+- indices are canonical nonnegative decimal integers;
+- `i64` values use canonical decimal spelling and are range-checked;
+- `f64` values use their exact eight IEEE-754 bytes as 16 lowercase hex digits,
+  with one permitted quiet-NaN representation;
+- byte literals use an arbitrary even number of lowercase hex digits;
+- text uses JSON string escapes and must already be NFC-normalized;
+- effect hashes are unique and sorted bytewise, optionally followed by one
+  `(tyvar n)` row variable.
+
+`transcode.parse_source` rejects noncanonical aliases rather than silently
+normalizing them. `transcode.def_to_surface` is the inverse renderer. Tests
+exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
+
+## Files
 
 | File | Role |
 |---|---|
-| `cbor_canonical.py` | Encoder for RFC 8949 SS4.2.1's deterministic CBOR subset (definite lengths, minimal-length ints, sorted map keys, no tags/indefinite forms). Stdlib only. |
-| `sexpr.py` | Trivial S-expression reader — nested lists of atoms, no semantics. |
-| `transcode.py` | Maps the S-expression surface onto the exact node tag tables in SPEC.md SS2.1 (terms), SS2.3 (types), SS2.2 (literals), SS4.3 (def objects: `[0, type, term]`). `identity()` is sha256 over the encoded def object, matching SS4.3's definition verbatim. |
-| `loom.gbnf` | llama.cpp-style grammar for the same surface — the artifact a real constrained-decoding harness would load. |
-| `examples/*.loom.sexpr` | Four defs exercising every term/type tag reachable without a standard library. |
-| `test_roundtrip.py` | Pins example 1 to the exact SS4.4 worked-example hash/bytes; checks every example transcodes deterministically and produces a distinct identity. |
+| `cbor_canonical.py` | RFC 8949 deterministic encoder for the Python values used by Loom objects. |
+| `sexpr.py` | Bounds-safe lexer and structural reader with source-offset errors. |
+| `transcode.py` | Validates the surface, maps all term/type/literal tags to IR, renders IR back to its canonical surface, encodes definitions, and computes identity. |
+| `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
+| `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
+| `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
+| `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
 
-## Verified against SPEC.md SS4.4
+The example fixtures are:
 
-`examples/01_id.loom.sexpr` transcodes to the *exact* 19-byte encoding and
-hash the spec's worked example gives by hand:
+1. `01_id`: the §4.4 identity function.
+2. `02_effect_row`: a nonempty effect row with `perform` and `let`.
+3. `03_refinement`: a refinement predicate and constrained hole.
+4. `04_match_con`: construction and matching for a fixture data type.
 
-```
+The hashes in examples 2–4 are prototype fixtures rather than store content.
+
+## Golden identity check
+
+`examples/01_id.loom.sexpr` must encode to the exact 19 bytes and SHA-256
+identity specified in `SPEC.md` §4.4:
+
+```text
 bytes = 83008402820002808200028303820002820000
 hash  = #76c62727b181b5f71e6206a08a5bbe8b005f227b446f6f8b311fe792901e0605
 ```
 
-`test_roundtrip.py::test_worked_example_matches_spec_4_4` asserts this
-byte-for-byte — a regression in the encoder cannot pass silently.
+## Boundary of the result
 
-The other three examples exercise machinery SS4.4 doesn't touch:
-non-empty effect rows + `perform`/`let` (02), `refine` + `hole` + `ref`/`app`
-predicates (03), and a two-constructor `data` type with `match`/`con` (04).
-Ability/data hashes there are prototype fixtures — `sha256("loom-proto:…")`
-labels, not real store content, since no store exists yet.
+The prototype demonstrates a canonical syntactic representation and preserves
+identity through deterministic transcoding. The grammar constrains node shape;
+the transcoder additionally enforces field domains and canonical spellings.
 
-## What this does and doesn't prove, re: SPEC.md SS8.4
+It deliberately does not establish scope correctness, constructor or operation
+existence, exhaustiveness, typing, termination, refinements, or evidence. Those
+remain responsibilities of the stateful decoder and oracle described in
+`SPEC.md` §§3, 6, and 8.
 
-**Confirms:**
-- A prior-rich surface can be a real, total, deterministic isomorph of
-  canonical CBOR — not just an SS8.4 assertion. Every example round-trips
-  byte-identically on repeat transcoding (`test_every_example_transcodes_deterministically`).
-- The grammar-level shape constraint (arity, keyword choice) is expressible
-  as an ordinary CFG (`loom.gbnf`), consistent with SS8.4's claim that
-  syntactic masking is commodity-tier.
+The repository does not vendor llama.cpp. To run production GBNF conformance,
+point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:
 
-**Does not confirm** (SS8.2's honest limits, unchanged by this prototype):
-- Scope correctness (`var` index < binder depth) needs a stateful mask
-  beyond what a CFG expresses — `loom.gbnf`'s header says so explicitly.
-- Type-directed pruning, refinement checking, and evidence are not
-  implemented here at all; `transcode.py` will happily encode a
-  type-incorrect or unscoped term, exactly as a bare CBOR encoder would.
-  This prototype is the SS8.1/SS8.4 layer only, not the SS3/SS6 oracle.
+```sh
+LOOM_GBNF_VALIDATOR=/path/to/test-gbnf-validator task grammar:test
+```
 
-## One spec gap this surfaced
+This is model-free. The harness checks canonical examples and additional surface
+variants, then confirms that representative noncanonical forms are rejected.
 
-SPEC.md SS2.2 gives the literal node shape as `[2, k, v]` uniformly but
-never says what `v` is for `unit` (kind 0), which has no natural payload.
-This implementation encodes `(lit unit)` as the 2-element array `[2, 0]`
-(`v` omitted rather than null-padded) — see `transcode.py`'s `term_to_ir`.
-SPEC.md SS2.2 now carries a one-line note recording this as the canonical
-form, found by trying to implement the encoder rather than by inspection.
+## Spec clarification found during implementation
+
+The unit literal has no payload. Its canonical node is the two-element array
+`[2, 0]`, represented by `(lit unit)`, as now recorded in `SPEC.md` §2.2.

@@ -1,65 +1,53 @@
-# loom.gbnf — llama.cpp-style grammar for the Loom S-expression isomorph
-# surface (SPEC.md SS8.4). Constrains sampling to well-formed *shapes* only:
-# node arity and keyword choice, matching the term/type tag tables in
-# SPEC.md SS2.1/SS2.3 and the literal-kind table in SS2.2.
-#
-# What this grammar CANNOT enforce (SPEC.md SS8.2's honest limit, restated
-# for this concrete artifact): `var` index < enclosing binder depth, `match`
-# arm exhaustiveness, `con` constructor-index bounds against its `data`
-# definition, and every type/refinement obligation. Those need either a
-# stateful logit processor tracking traversal depth (scope) or the oracle
-# at check time (typing, refinements) — see prototype/README.md. A CFG only
-# ever buys syntactic well-formedness; transcode.py's test suite is what
-# currently stands in for the rest.
+# Canonical Loom generation surface. Whitespace and spelling are deliberately
+# fixed so each accepted string is the renderer's normal form. The optional
+# final newline accommodates ordinary text files. Row ordering, scope, typing,
+# exhaustiveness, and semantic obligations remain transcoder/oracle checks.
 
-root       ::= ws "(" ws "def" ws type ws term ws ")" ws
+root        ::= "(def " type " " term ")" "\n"?
 
-# --- types (SPEC.md SS2.3) --------------------------------------------------
-type       ::= base-kw
-             | "(" ws "base" ws base-kw ws ")"
-             | "(" ws "data" ws hash ws "(" ws type-list ws ")" ws ")"
-             | "(" ws "fn" ws type ws "(" ws hash-list ws ")" ws type ws ")"
-             | "(" ws "refine" ws type ws term ws ")"
-             | "(" ws "cap" ws hash ws ")"
-             | "(" ws "tyvar" ws int ws ")"
-             | "(" ws "forall" ws type ws ")"
-base-kw    ::= "Unit" | "Bool" | "I64" | "F64" | "Text" | "Bytes"
-type-list  ::= "" | type (ws type)*
+type        ::= (base
+              | "(data " hash " " type-list ")"
+              | "(fn " type " " row " " type ")"
+              | "(refine " type " " term ")"
+              | "(cap " hash ")"
+              | "(tyvar " uint ")"
+              | "(forall " type ")")
+base        ::= "Unit" | "Bool" | "I64" | "F64" | "Text" | "Bytes"
+type-list   ::= "(" (type (" " type)*)? ")"
+row         ::= "(" (hash (" " hash)* (" " row-var)? | row-var)? ")"
+row-var     ::= "(tyvar " uint ")"
 
-# --- terms (SPEC.md SS2.1) --------------------------------------------------
-term       ::= "(" ws "var" ws int ws ")"
-             | "(" ws "ref" ws hash ws ")"
-             | literal
-             | "(" ws "lam" ws type ws term ws ")"
-             | "(" ws "app" ws term ws term ws ")"
-             | "(" ws "let" ws type ws term ws term ws ")"
-             | "(" ws "con" ws hash ws int ws "(" ws term-list ws ")" ws ")"
-             | "(" ws "match" ws term ws "(" ws arm-list ws ")" ws ")"
-             | "(" ws "perform" ws hash ws int ws "(" ws term-list ws ")" ws ")"
-             | "(" ws "handle" ws hash ws term ws "(" ws op-list ws ")" ws term ws ")"
-             | "(" ws "fix" ws type ws term ws term ws ")"
-             | "(" ws "hole" ws type ws "(" ws term-list ws ")" ws ")"
-term-list  ::= "" | term (ws term)*
-arm        ::= "(" ws int ws int ws term ws ")"
-arm-list   ::= "" | arm (ws arm)*
-op         ::= "(" ws int ws term ws ")"
-op-list    ::= "" | op (ws op)*
+term        ::= ("(var " uint ")"
+              | "(ref " hash ")"
+              | literal
+              | "(lam " type " " term ")"
+              | "(app " term " " term ")"
+              | "(let " type " " term " " term ")"
+              | "(con " hash " " uint " " term-list ")"
+              | "(match " term " " arm-list ")"
+              | "(perform " hash " " uint " " term-list ")"
+              | "(handle " hash " " term " " op-list " " term ")"
+              | "(fix " type " " term " " term ")"
+              | "(hole " type " " term-list ")")
+term-list   ::= "(" (term (" " term)*)? ")"
+arm         ::= "(" uint " " uint " " term ")"
+arm-list    ::= "(" (arm (" " arm)*)? ")"
+op          ::= "(" uint " " term ")"
+op-list     ::= "(" (op (" " op)*)? ")"
 
-# --- literals (SPEC.md SS2.2) -----------------------------------------------
-literal    ::= "(" ws "lit" ws "unit" ws ")"
-             | "(" ws "lit" ws "bool" ws bool ws ")"
-             | "(" ws "lit" ws "i64" ws int ws ")"
-             | "(" ws "lit" ws "f64" ws float ws ")"
-             | "(" ws "lit" ws "text" ws string ws ")"
-             | "(" ws "lit" ws "bytes" ws hash ws ")"
-bool       ::= "true" | "false"
-
-# --- lexical -----------------------------------------------------------------
-hash-list  ::= "" | hash (ws hash)*
-hash       ::= "0x" hexdigit{64}
-hexdigit   ::= [0-9a-fA-F]
-int        ::= "-"? [0-9]+
-float      ::= "-"? [0-9]+ "." [0-9]+ ("e" ("+"|"-")? [0-9]+)?
-             | "nan"
-string     ::= "\"" ([^"\\] | "\\" .)* "\""
-ws         ::= [ \t\n\r]*
+literal     ::= ("(lit unit)"
+              | "(lit bool " bool ")"
+              | "(lit i64 " i64 ")"
+              | "(lit f64 " f64 ")"
+              | "(lit text " string ")"
+              | "(lit bytes " bytes ")")
+bool        ::= "true" | "false"
+uint        ::= "0" | [1-9] [0-9]*
+i64         ::= "0" | "-"? [1-9] [0-9]*
+hash        ::= "0x" lower-hex{64}
+f64         ::= "0x" lower-hex{16}
+bytes       ::= "0x" (lower-hex lower-hex)*
+lower-hex   ::= [0-9a-f]
+string      ::= "\"" string-char* "\""
+string-char ::= [^"\\\x00-\x1f] | "\\" (["\\/bfnrt] | "u" hex{4})
+hex         ::= [0-9a-fA-F]
