@@ -39,22 +39,29 @@ Check conformance with `task todo:lint`.
   [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
   space, two normative rules, wrong turn expensive.)
 
-- [T4] **Build the masked-generation experiment substrate and harness.** Per the
-  [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md): the
-  disposable store-shaped resolver (immutable hash-keyed objects, unified
-  decl/def-type resolution, corpus retrieval + few-shot prompt construction) and
-  the incremental parser/type-state masking interface — the per-token
-  prefix-feasibility API layered as GBNF syntax then §8.2 type state, recording
-  which checker operations can and cannot run per token. Three conditions
-  (unconstrained / GBNF / GBNF+type-masking) runnable with one command across the
-  four corpus regimes. No namespaces, leases, policy admission, persistence, or GC.
-  (T4: the incremental type-state interface is new design; the rest is assembly.)
+- [T3] **Build experiment Phase A: resolver, harness, conditions 1–3.** Per the
+  [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md) R2.1:
+  the disposable store-shaped resolver, prompt construction per corpus regime, the
+  task set including held-out compositional tasks, and conditions
+  unconstrained / GBNF / GBNF+rejection-sampling runnable with one command under
+  the shared token-budget rule. Needs no per-token masking. Output includes the
+  failure distribution by checker layer that gates Phase B. Dispatch after the
+  obligation-pipeline merge (typecheck surface). (T3: assembly plus task-set
+  judgment against a settled plan.)
+
+- [T4] **Build experiment Phase B: the incremental type-state masker (gated on
+  Phase A's failure profile).** The per-token prefix-feasibility API — GBNF syntax
+  layer plus the §8.2 type-state subset, prioritized by whichever checker layer
+  Phase A shows killing most GBNF-valid generations; record which checker
+  operations cannot run per token. Then run condition 4 and complete the R5
+  comparison against rejection sampling. (T4: the genuinely new design; do not
+  dispatch before Phase A reports.)
 
 - [T5] **Select the experiment's model and hardware.** Needs the operator: a local
   GGUF under llama.cpp is the natural path (`loom.gbnf` is llama.cpp-format) —
-  which model, what hardware, what token budget per definition. Record in the
-  experiment plan before running; the run itself is gated on this plus the
-  substrate. (T5: needs a human and hardware.)
+  which model, what hardware, what total token budget per task. Record in the
+  experiment plan before running; gates the Phase A run. (T5: needs a human and
+  hardware.)
 
 - [T4] **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag

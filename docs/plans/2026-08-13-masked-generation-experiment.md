@@ -42,22 +42,48 @@ it:
 - Explicitly out: namespaces, leases, policy admission, persistence, garbage
   collection.
 
-### R2 — Three comparable generation conditions
+### R2 — Four comparable generation conditions
 
 1. Unconstrained generation.
 2. GBNF syntax-constrained generation.
-3. Syntax plus type-directed masking.
+3. GBNF plus definition-level rejection sampling: generate under the grammar,
+   run the full (already-fast) checker on each completed definition, redraw on
+   rejection with §8.3-style narrowing. **This is type-masking's real economic
+   rival** — if it matches condition 4 on accepted definitions per token, the
+   per-token masker does not pay regardless of its correctness gains.
+4. Syntax plus type-directed masking.
 
 Comparable means: same model, same sampling parameters, same prompts, same
-task set, same budget per definition.
+task set, and one budget rule for all conditions: a **fixed total token budget
+per task**, counting accepted definitions within it. This is load-bearing —
+masked decoding never fails at syntax, so its failures land late and
+expensive, while unconstrained fails early and cheap; per-attempt budgets
+would make the conditions incomparable. Throughput falls out of the same rule.
+
+### R2.1 — Two-phase execution
+
+**Phase A** runs conditions 1–3 across all four regimes. It needs none of the
+substrate's hard part (llama.cpp samples under GBNF natively; the resolver and
+prompt work is assembly), answers five of R6's seven questions on its own, and
+produces the input Phase B's design needs: the **failure distribution by
+checker layer** for GBNF-valid generations. **Phase B** builds the incremental
+type-state masker *against that profile* — pruning first whatever layer
+actually kills most generations — then runs condition 4. Building the masker
+before seeing the distribution risks building an expensive pruner for the
+wrong layer.
 
 ### R3 — Measurements
 
 - Canonical parse acceptance; scope correctness; reference resolution;
   type-check acceptance (the four contract layers as a funnel).
 - Semantic task success — did it produce the *asked-for* definition, not just
-  a valid one.
-- Tokens and redraws per accepted definition.
+  a valid one. **Operationalized now, not at analysis time**: for
+  corpus-drawn tasks, identity match against the pinned fixture bytes; for
+  held-out compositional tasks, the mechanical floor is checked-tier plus
+  exact type match, supplemented by a hand-scored rubric on a fixed sample —
+  this metric is partly human, stated here so it cannot be silently dropped
+  mid-run.
+- Tokens and redraws per accepted definition (under R2's shared budget rule).
 - Generation latency, especially masking overhead (this feeds the
   masking-overhead Watch item and the language re-evaluation's trigger (d)
   profiling).
@@ -91,19 +117,51 @@ collapsing diversity.
 - Whether hashes and de Bruijn indices damage generation quality.
 - Whether richer projections are needed during prompting.
 
+## Predictions (pre-registered)
+
+Written before any run, so surprises are visible as surprises:
+
+1. GBNF takes canonical parse acceptance to ~100%; unconstrained parse
+   acceptance stays under ~30% in the no-example regime.
+2. The dominant post-syntax failure layer for GBNF-valid generations is
+   **reference resolution** in low-example regimes (64-hex hashes cannot be
+   guessed) and **scope** (de Bruijn indices) once examples supply the hashes.
+3. De Bruijn index errors are the single largest scope-error source, bearing
+   on R6's hashes-and-indices question.
+4. Condition 3 (rejection sampling) is competitive with condition 4 at
+   current definition sizes — the honest prediction that threatens the
+   per-token masker; masking must beat it on accepted-per-token to justify
+   §8.2's complexity.
+5. Python-side masking overhead is material relative to local decode speed
+   (trigger (d)'s number lands above the threshold) but is dominated by model
+   latency, not checker latency, in Phase A.
+6. Masking reduces diversity mildly but does not collapse it; the
+   repeated-definition rate rises most in the full-corpus regime
+   (memorization pressure), not from masking.
+
 ## Work
 
+Phase A:
+
 - [ ] Substrate: unified hash-keyed resolver over the existing registries.
-- [ ] Substrate: incremental syntax mask (GBNF prefix-feasibility) exposed as a
-  per-token API.
-- [ ] Substrate: incremental type-state layer over it (§8.2 subset — the
-  checker operations that can run per token; record which cannot).
 - [ ] Harness: prompt construction per corpus regime; task set including
-  held-out compositional tasks; the three conditions runnable with one command.
+  held-out compositional tasks; conditions 1–3 runnable with one command
+  under the shared token-budget rule.
 - [ ] Model/hardware selection recorded before running (T5 — needs the
   operator: local GGUF under llama.cpp is the natural path since `loom.gbnf`
   is llama.cpp-format).
-- [ ] Run; produce the results report against R3's metrics and R6's questions.
+- [ ] Run Phase A; report R3 metrics per condition × regime; produce the
+  failure distribution by checker layer.
+
+Phase B (gated on Phase A's failure profile):
+
+- [ ] Substrate: incremental syntax mask (GBNF prefix-feasibility) exposed as
+  a per-token API.
+- [ ] Substrate: incremental type-state layer over it (§8.2 subset,
+  prioritized by Phase A's profile — the checker operations that can run per
+  token; record which cannot).
+- [ ] Run condition 4; complete the R3 report and the R5 comparison against
+  condition 3.
 - [ ] Record the store-shaping conclusions explicitly for the store plan that
   follows.
 
@@ -125,8 +183,10 @@ model identity and sampling parameters, and rerunnable conditions.
 
 ## Completion criteria
 
-- The three conditions run end-to-end on the same task set with recorded,
-  reproducible configurations.
+- All four conditions run end-to-end on the same task set with recorded,
+  reproducible configurations, under the shared budget rule.
+- Each pre-registered prediction is scored true/false/partial in the results
+  report.
 - Every R3 metric is reported per condition × regime.
 - Every R6 question has an evidenced answer or an explicit "not answerable
   yet, because…".
