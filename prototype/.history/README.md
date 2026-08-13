@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/a413e7e) | Add policy-object validation and satisfaction-checking prototype |
 | [2026-08-13](https://github.com/wbniv/loom/commit/a19d194) | Close effect-consistency review follow-ups |
 | [2026-08-13](https://github.com/wbniv/loom/commit/749804c) | Define the refinement-to-SMT-LIB translation rules |
 | [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
@@ -13,6 +14,11 @@
 | [2026-08-12](https://github.com/wbniv/loom/commit/7474944) | Prototype Loom S-expression transcoder |
 
 <!--history-meta v1
+a413e7e	author	Will Norris
+a413e7e	added	15
+a413e7e	deleted	0
+a413e7e	files	1
+a413e7e	body	Close the namespace-policy plan's recorded residual risk that §5.3.1/§5.3.2\nhad no executable check: prototype/policies.py canonically validates policy\nobjects, checks E ⊒ R requirement satisfaction (§6.1.2) and domination\n(§5.3.2), and pins the default-policy hash plus the §12 worked example's\narithmetic as tests.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 a19d194	author	Will Norris
 a19d194	added	21
 a19d194	deleted	0

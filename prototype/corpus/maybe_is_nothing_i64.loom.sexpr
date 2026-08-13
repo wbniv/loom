@@ -1,0 +1,1 @@
+(def (fn (data 0x3ff2104702aeeb53b4dfbc5a09c0441df19f12883e6cf66e21a3bd85420b4e2f (I64)) () Bool) (lam (data 0x3ff2104702aeeb53b4dfbc5a09c0441df19f12883e6cf66e21a3bd85420b4e2f (I64)) (match (var 0) ((0 0 (lit bool true)) (1 1 (lit bool false))))))

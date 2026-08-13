@@ -52,9 +52,11 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
+| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the seed-set manifest, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
+| `corpus/*.loom.sexpr` | Bootstrap-corpus seed definitions. Descriptions are manifest data in `corpus_registry.py`, not prose here. |
 | `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
 | `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
 | `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
@@ -63,6 +65,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
+| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the three recorded expressiveness limits. |
 
 The example fixtures are:
 
@@ -75,6 +78,26 @@ The example fixtures are:
 
 The hashes in examples 2–4 are prototype fixtures rather than store content;
 example 5 uses the pinned builtin clock declaration.
+
+## The bootstrap corpus
+
+`corpus/` is a separate, growing set with different provenance from `examples/`:
+these are definitions hand-transpiled from the Unison base library to seed
+`SPEC.md` §13 open problem 1, per the
+[bootstrap-corpus plan](../docs/plans/2026-08-13-bootstrap-corpus.md). Each entry
+in `corpus_registry.MANIFEST` carries a name path, spec text, source attribution,
+a pinned identity, and the validation **tier** it is expected to reach — `checked`
+(parse, scope, references, and the type-directed match layer) or `structural`
+(the first three, with the deferred layer's reason recorded). `test_corpus.py`
+enforces the tier in both directions, so a `structural` entry that starts passing
+the match layer fails the suite rather than keeping a stale deferral.
+
+Transpiling the seed set established three limits of v0.1 by construction, each
+pinned by a negative test: a *definition* cannot be polymorphic, because `forall`
+binds only inside the type and a `lam` annotation cannot name the bound variable;
+`Bool` has no elimination form, so there is no conditional; and `fix` and `ref`
+have no typing rule in the match layer yet. The first tranche is consequently
+monomorphic, branch-free, and recursion-free.
 
 ## Golden identity check
 
