@@ -36,6 +36,15 @@ Check conformance with `task todo:lint`.
   multi-definition selection judgment plus a tool-threshold call, against a settled
   plan.)
 
+- [T3] **Build corpus tranche 4: the refinement slice.** F*-sourced
+  refinement-carrying definitions, transpiled type-first, non-dependent arrows only —
+  the first tranche to generate `ensures` obligations and exercise §3.2.1 end to end
+  (VC generation is refinement subtyping only, so scope what an obligation can
+  actually discharge today and record the rest). See
+  [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T3: source selection judgment
+  plus the first obligations, against a settled plan; dispatch after tranche 3
+  merges — same corpus files.)
+
 ## Watch
 
 - Re-evaluate the production implementation language, then migrate the validation
