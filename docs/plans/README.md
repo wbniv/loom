@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Refinement-to-SMT-LIB translation rules](2026-08-13-refinement-smtlib-translation.md) | Implemented; PASS |
 | 2026-08-13 | [Effect documentation and fixture consistency](2026-08-13-effect-documentation-fixture-consistency.md) | Implemented; PASS |
 | 2026-08-13 | [Effect purity soundness](2026-08-13-effect-purity-soundness.md) | Implemented; PASS |
 | 2026-08-13 | [Effect-directed typing](2026-08-13-effect-directed-typing.md) | Implemented; PASS |

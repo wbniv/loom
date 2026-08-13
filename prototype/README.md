@@ -50,6 +50,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
 | `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
+| `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -59,6 +60,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
+| `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 
 The example fixtures are:
 
@@ -107,6 +109,22 @@ effects require checking against an annotated row — and operation-less
 abilities such as `div` cannot be handled. Row polymorphism and other
 unsupported nodes raise an explicit path-aware error until their typing rules
 are implemented.
+
+`refinements.py` implements the `SPEC.md` §3.2.1 translation rules. It takes a
+verification condition — a de Bruijn context, Bool hypotheses, and a Bool goal,
+with the refined value at term index 0 — and emits exactly one canonical
+SMT-LIB refutation script per input, with `subtype_script` covering the one
+verification-condition producer §3.3 defines. Base types map to `Int`, `Bool`,
+and three uninterpreted sorts; applied data types are monomorphized to
+`Loom.D<sha256>` datatypes keyed by the canonical CBOR of the refinement-erased
+type; stored references become uninterpreted functions unless a caller-supplied
+interpretation table maps them onto a closed allowlist of Core and Ints symbols,
+with linearity checked at each call site. Everything else — `lam`, `perform`,
+`handle`, `fix`, `hole`, partial application, effectful references, function and
+capability sorts, polymorphic constructors — raises a path-aware `SmtError`
+rather than being approximated. The module emits and structurally validates
+text; it neither links nor shells out to a solver, so `unsat` is still asserted
+by a human running the script, not by this prototype.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:
