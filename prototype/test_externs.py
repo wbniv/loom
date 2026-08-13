@@ -144,6 +144,7 @@ class ExternShapeTest(unittest.TestCase):
 class ExternCapabilityHonestyTest(unittest.TestCase):
     FFI = prelude.HASHES["ffi"]
     NET = prelude.HASHES["net"]
+    CLOCK = prelude.HASHES["clock"]
 
     def test_an_effectful_extern_must_take_a_matching_cap_parameter(self):
         # `Bytes -{ffi}> Bytes` with no cap: rejected, because §2.4's blast-radius
@@ -186,6 +187,26 @@ class ExternCapabilityHonestyTest(unittest.TestCase):
 
     def test_direct_capabilities_authorize_the_current_and_later_arrows(self):
         obj = [7, [2, [4, self.FFI], [self.FFI], [2, BYTES, [self.FFI], BYTES]], ARTIFACT, "call"]
+        check_extern_definition(obj)
+
+    def test_a_callback_only_extern_is_unwritable(self):
+        # `fn (fn (cap clock) () Unit) {clock} Unit` (§5.1.3): the extern
+        # invokes an effectful callback, so `clock` occurs in the extern's own
+        # row, but the only `cap clock` in sight is buried in the callback's
+        # domain rather than taken directly — rejected, same as any other
+        # buried cap.
+        callback = [2, [4, self.CLOCK], [], [0, 0]]
+        obj = [7, [2, callback, [self.CLOCK], [0, 0]], ARTIFACT, "call"]
+        with self.assertRaises(DeclarationError) as ctx:
+            check_extern_definition(obj)
+        self.assertIn("matching direct cap parameter", str(ctx.exception))
+
+    def test_a_callback_extern_with_its_own_direct_cap_is_accepted(self):
+        # Same callback and the same row, but the extern also takes `cap
+        # clock` directly, earlier in the spine — it now holds the authority
+        # it exercises when it invokes the callback.
+        callback = [2, [4, self.CLOCK], [], [0, 0]]
+        obj = [7, [2, [4, self.CLOCK], [], [2, callback, [self.CLOCK], [0, 0]]], ARTIFACT, "call"]
         check_extern_definition(obj)
 
     def test_the_five_assumed_base_externs_are_pure_typed(self):
