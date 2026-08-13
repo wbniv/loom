@@ -66,7 +66,7 @@ applying them.
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration and extern definition objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
-| `typecheck.py` | Partial bidirectional checker: nominal matches, effects/handlers, `if`, `fix`/`ref`, and first-order instantiation. |
+| `typecheck.py` | Partial bidirectional checker: nominal matches, effects/handlers, `if`, `fix`/`ref`, first-order instantiation, and opt-in §3.3 refinement subsumption. |
 | `matches.py` | Compatibility import shim for the checker's former name. |
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script, rejects everything outside the decidable fragment, and records which abstractions the translation used. |
@@ -87,6 +87,7 @@ applying them.
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 | `test_fix_ref.py` | Recursive-binder, measure-shape and measure-position, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
 | `test_instantiation.py` | First-order `forall` instantiation: monomorphic and polymorphic-caller instantiation via a typed `let`, the `corpus/maybe/mapPoly`-at-`I64` proof definition, and inconsistent-binding/unbound-`tyvar`/structural-mismatch/row-variable rejection tests. |
+| `test_subsumption.py` | §3.3 refinement subsumption: with-collector success and the exact emitted condition, without-collector rejection unchanged, erased-shape disagreement rejecting regardless of a collector, both `φ = true` directions for a missing predicate, per-position emission within one type comparison, and the reflexive no-op case. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_obligations.py` | The §3.2.1 outcome table, one test per exactness condition (uninterpreted reference, opaque sort, erased refinement, idealizing symbol, unbounded `Int` binder), generator faithfulness, and the emission pipeline's typecheck-before-emit ordering. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
@@ -179,13 +180,25 @@ Apache-2.0 [FStarLang/FStar](https://github.com/FStarLang/FStar) standard
 library — and the first to carry `refine` types and §6.2 obligations, per the
 [tranche-4 plan](../docs/plans/2026-08-13-corpus-tranche-4.md). Six entries:
 `math/abs`, `list/lengthNat`, `nat/widenPos`, `list/consNat`, `nat/applyPos`,
-and `nat/select`, of which the first three are `structural`. They are
-`structural` for one reason worth stating plainly: `typecheck.py` implements no
-§3.3 refinement subsumption, so a term meets a `refine` type only by structural
-equality — a plain `I64` inhabits neither `{n | 0 ≤ n}` nor `{n | 0 < n}`, and
-`{n | 0 < n}` does not flow into `{n | 0 ≤ n}`. What *does* work is a refinement
-flowing through unchanged, including inside a `(data …)` type argument, which is
-what keeps the other three at `checked`.
+and `nat/select`, **all now `checked`**. The first three used to be
+`structural` — `typecheck.py` implemented no §3.3 refinement subsumption, so a
+term met a `refine` type only by structural equality, and a plain `I64`
+inhabited neither `{n | 0 ≤ n}` nor `{n | 0 < n}`, nor did `{n | 0 < n}` flow
+into `{n | 0 ≤ n}`. The
+[refinement-subsumption plan](../docs/plans/2026-08-13-refinement-subsumption.md)
+closes that: a checking-mode mismatch that survives refinement erasure — the
+two types agree once every `refine` node is stripped — is admitted as
+`{x:T|φ} <: {x:T|ψ}` and emits a subtyping obligation instead of being
+rejected, opt-in via a caller-supplied `obligations` collector so every call
+site that existed before that plan is unaffected. `corpus/nat/widenPos`'s
+pinned obligation and what the checker now emits at its one subsumption site
+are the same verification condition, byte for byte; `corpus/math/abs` and
+`corpus/list/lengthNat` reach `checked` the same way, but the checker's
+automatic obligation at their sites is a strictly weaker (and, on a live
+solver, refuted) claim than the hand-authored one already pinned for each —
+see that plan's R4 for why, and `test_corpus.py`'s
+`test_math_abs_and_lengthnat_checker_emitted_obligations_differ_from_the_pin`
+for where it is pinned rather than smoothed over.
 
 `CorpusEntry.obligations` is the tranche's new manifest field, enforced in both
 directions like `tier` and `effect_free`: a `refine` in an entry's type may not
@@ -283,6 +296,25 @@ against the expected type (SPEC.md §3.1.3); synthesis position is untouched, so
 a quantified reference in application position still synthesizes its
 quantified type verbatim. Row polymorphism and other unsupported nodes raise an
 explicit path-aware error until their typing rules are implemented.
+
+A structural mismatch that survives one more test is SPEC.md §3.3's
+subsumption rather than a type error: erase every `refine` node from both the
+synthesized and expected type (recursively, including inside `data` type
+arguments and `fn` domains/codomains, exactly as §3.2.1's own erasure works)
+and compare what remains. Erasure disagreement is a genuine mismatch, reported
+exactly as before. Erasure agreement means the two types differ only by their
+refinement predicates, at one or more positions — walked in parallel, one
+subtype obligation per position, a missing predicate on either side standing
+for `true` (§3.2.1: "a bare `T` is `{x:T|true}`"). This never calls a solver
+(SPEC.md §3.2.1's R1, [obligation-pipeline plan](../docs/plans/2026-08-13-obligation-pipeline.md));
+it only fires when the caller supplies `MatchChecker`/`validate_source` an
+`obligations` collector list, into which every admitted site's
+`obligations.VerificationCondition` is appended. With no collector — every
+call site that predates the
+[refinement-subsumption plan](../docs/plans/2026-08-13-refinement-subsumption.md)
+— subsumption never fires and a mismatch is rejected exactly as it always
+was, which is what makes the change a MINOR contract bump (`typecheck`
+1.0 → 1.1) rather than a MAJOR one.
 
 `refinements.py` implements the `SPEC.md` §3.2.1 translation rules. It takes a
 verification condition — a de Bruijn context, Bool hypotheses, and a Bool goal,

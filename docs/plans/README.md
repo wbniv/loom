@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [§3.3 subsumption in `typecheck.py`](2026-08-13-refinement-subsumption.md) | Implemented; PASS |
 | 2026-08-13 | [The obligation pipeline, and what a `sat` verdict means](2026-08-13-obligation-pipeline.md) | Implemented; PASS |
 | 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Designed; substrate pending |
 | 2026-08-13 | [Boolean and comparison base externs](2026-08-13-boolean-base-externs.md) | Implemented; PASS |

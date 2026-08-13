@@ -88,7 +88,12 @@ class CorpusFixtureTest(unittest.TestCase):
                 resolver = corpus_registry.reference_type(self.registry)
                 if entry.tier == "checked":
                     self.assertEqual(entry.deferred, "")
-                    matches.validate_source(source, self.registry, resolver)
+                    # A collector is threaded unconditionally: it is what lets
+                    # a `refine`-mismatched checked entry reach `checked` at
+                    # all (SPEC.md §3.3 subsumption is opt-in), and it is
+                    # harmless for every other entry, which needs no
+                    # subsumption and leaves the collector empty.
+                    matches.validate_source(source, self.registry, resolver, obligations=[])
                 else:
                     self.assertNotEqual(entry.deferred, "", "a structural entry must record why")
                     with self.assertRaises(matches.TypingError):
@@ -307,6 +312,55 @@ class CorpusObligationTest(unittest.TestCase):
                     self.assertEqual(emitted.script, obligation.script(self.registry))
                     self.assertEqual(emitted.outcome(obligation.verdict), obligation.outcome)
 
+    def test_widenpos_pinned_obligation_is_now_checker_emitted(self):
+        # The refinement-subsumption plan's closure: corpus/nat/widenPos's
+        # pinned obligation was hand-authored while typecheck.py implemented
+        # no §3.3 subsumption; the fixture's *whole* body is `(var 0)`
+        # checked at `pos` against the declared `nat` codomain, which is now
+        # exactly the checker's one subsumption site for this definition. The
+        # pin and the checker-emitted condition must therefore agree, and
+        # they do — without either the script or its hash moving.
+        entry = next(item for item in MANIFEST if item.name_path == "corpus/nat/widenPos")
+        sink: list = []
+        resolver = corpus_registry.reference_type(self.registry)
+        matches.validate_source(entry.source_text(), self.registry, resolver, obligations=sink)
+        self.assertEqual(len(sink), 1, "widenPos's body has exactly one subsumption site")
+        obligation_id, condition = sink[0]
+        self.assertTrue(obligation_id.startswith("subsumption@"))
+        pinned = entry.obligations[0]
+        self.assertEqual(pinned.producer, "subtype")
+        self.assertEqual(condition, pinned.condition())
+        emitted = obligations.emit_condition(obligation_id, condition, self.registry,
+                                              corpus_registry.SMT_SIGNATURES, corpus_registry.SMT_INTERPRETATION)
+        self.assertEqual(emitted.script_hash, pinned.script_hash)
+        self.assertEqual(emitted.script, pinned.script(self.registry))
+
+    def test_math_abs_and_lengthnat_checker_emitted_obligations_differ_from_the_pin(self):
+        # The other two re-tiered fixtures are the opposite finding, stated so
+        # it cannot be smoothed over: their pinned obligations are authored
+        # body summaries the checker cannot reproduce, because typecheck.py
+        # has no body-VC generation (§3.2.1) and so nothing feeds the `if`
+        # condition (math/abs) or `List.size`'s meaning (lengthNat) into what
+        # it emits. Automatic subsumption still admits both definitions —
+        # typing never consults a verdict (§3.2.1 R1) — but the condition it
+        # emits is the strictly weaker `{v:I64|true} <: {v:I64|-1<v}` at each
+        # site, which is a different (and, on a live solver, false) claim
+        # from the pinned one. The manifest's pinned `obligations` tuples for
+        # these two are therefore left untouched by this plan.
+        resolver = corpus_registry.reference_type(self.registry)
+        for name_path, expected_sites in (("corpus/math/abs", 2), ("corpus/list/lengthNat", 1)):
+            entry = next(item for item in MANIFEST if item.name_path == name_path)
+            with self.subTest(fixture=entry.fixture):
+                sink: list = []
+                matches.validate_source(entry.source_text(), self.registry, resolver, obligations=sink)
+                self.assertEqual(len(sink), expected_sites)
+                pinned = entry.obligations[0]
+                for _, condition in sink:
+                    self.assertEqual(condition.producer, obligations.PRODUCER_SUBTYPING)
+                    self.assertEqual(condition.hypotheses, ([2, 1, True],),
+                                      "a bare I64 actual carries no refinement, so weaker = true (§3.2.1)")
+                    self.assertNotEqual(condition, pinned.condition())
+
     def test_producer_agrees_with_the_fixtures_own_refinement_predicates(self):
         # Both directions on `producer`, derived rather than trusted. §3.2.1's
         # one specified producer is refinement subtyping, and a subtyping pair
@@ -461,13 +515,19 @@ class ExpressivenessLimitTest(unittest.TestCase):
         references.validate_source(source, self.registry)
         matches.validate_source(source, self.registry, corpus_registry.reference_type(self.registry))
 
-    def test_a_term_meets_a_refine_type_only_by_structural_equality(self):
-        # Tranche 4's limit (SPEC.md §3.3): refinement subtyping is specified
-        # and its verification condition is generated (`refinements.py`), but
-        # the type-directed layer implements no subsumption rule, so `{x|0<x}`
-        # does not flow into `{x|-1<x}` and no plain `I64` inhabits either.
-        # Lifting this must turn three tranche-4 entries from `structural` to
-        # `checked`, so the plan gets revisited rather than the tier going stale.
+    def test_a_term_meets_a_refine_type_only_by_structural_equality_without_a_sink(self):
+        # Tranche 4's original limit (SPEC.md §3.3): refinement subtyping is
+        # specified and its verification condition is generated
+        # (`refinements.py`), but the type-directed layer, called the way
+        # every caller called it before the
+        # [refinement-subsumption plan](../docs/plans/2026-08-13-refinement-subsumption.md),
+        # performs no subsumption — `{x|0<x}` does not flow into `{x|-1<x}`
+        # and no plain `I64` inhabits either. That plan made subsumption
+        # opt-in via an `obligations` collector rather than lifting this
+        # outright, precisely so this no-collector behaviour stays pinned: a
+        # caller that does not ask for obligations gets exactly this
+        # rejection, unchanged. `test_subsumption.py` covers the collector
+        # path this test deliberately does not exercise.
         lt = corpus_registry.EXTERN_HASHES["I64.lt"]
         nat = [3, I64, [4, [4, [1, lt], [2, 2, -1]], [0, 0]]]
         pos = [3, I64, [4, [4, [1, lt], [2, 2, 0]], [0, 0]]]

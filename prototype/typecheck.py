@@ -23,6 +23,11 @@ MEASURE_RESULT = [0, 2]
 
 BOOL = [0, 1]
 
+#: §3.2.1: "a bare T is {x:T|true}" — the literal Bool term `true` (term tag 2
+#: `lit`, kind 1 `bool`). Stands in for a missing refinement predicate on
+#: whichever side of a §3.3 subsumption comparison carries no `refine` node.
+TRUE_TERM = [2, 1, True]
+
 
 @dataclass(frozen=True)
 class TypingError(ValueError):
@@ -85,10 +90,102 @@ def constructor_fields(registry: DeclarationRegistry, data_type, constructor: in
     return [instantiate_type(field, data_type[2], data_type[1], f"{path}.fields[{i}]") for i, field in enumerate(constructors[constructor])]
 
 
+def _erase_refinements(ir):
+    """§3.2.1: `refine T φ` becomes the sort of `T`, recursively, including
+    inside data type arguments and function domains/codomains — the same
+    erasure the SMT-LIB translator performs on sorts, reused here to decide
+    whether two types disagree *only* on their refinement predicates.
+    """
+    tag = ir[0]
+    if tag == 3:
+        return _erase_refinements(ir[1])
+    if tag == 1:
+        return [1, ir[1], [_erase_refinements(argument) for argument in ir[2]]]
+    if tag == 2:
+        return [2, _erase_refinements(ir[1]), list(ir[2]), _erase_refinements(ir[3])]
+    return copy.deepcopy(ir)
+
+
+@dataclass(frozen=True)
+class _SubsumptionSite:
+    """One position where an `actual` and `expected` type disagree only by a
+    refinement predicate — §3.3's `{x:T|φ} <: {x:T|ψ}`, `T` already erased.
+    """
+
+    path: str
+    base: list
+    weaker: list
+    stronger: list
+
+
+def _subsumption_sites(actual, expected, path: str) -> list[_SubsumptionSite] | None:
+    """Walk `actual` and `expected` in parallel looking for §3.3 subsumption.
+
+    Returns `None` when the two types disagree once refinements are erased —
+    a mismatch no amount of subsumption can repair, so the caller's ordinary
+    structural-equality failure is the honest answer. Otherwise returns every
+    position where a `refine` predicate differs, walking *into* both a
+    `refine`'s own base type and the substructure of `data` arguments and `fn`
+    domains/codomains, because a type may carry more than one such position
+    (SPEC.md §3.2.1's translation unit is per position, not per type).
+    """
+    if _erase_refinements(actual) != _erase_refinements(expected):
+        return None
+    return _walk_subsumption_sites(actual, expected, path)
+
+
+def _walk_subsumption_sites(actual, expected, path: str) -> list[_SubsumptionSite]:
+    if actual == expected:
+        return []
+    actual_refined = actual[0] == 3
+    expected_refined = expected[0] == 3
+    if actual_refined or expected_refined:
+        # §3.3's missing-predicate cases fold into one rule: a side with no
+        # `refine` node here is `{x:T|true}` (§3.2.1), never a silently
+        # dropped obligation.
+        base_actual = actual[1] if actual_refined else actual
+        base_expected = expected[1] if expected_refined else expected
+        weaker = actual[2] if actual_refined else TRUE_TERM
+        stronger = expected[2] if expected_refined else TRUE_TERM
+        sites = []
+        if weaker != stronger:
+            sites.append(_SubsumptionSite(path, _erase_refinements(base_actual), weaker, stronger))
+        # A refinement's own base type can itself carry a further mismatch
+        # (a refined element inside a refined data type argument, say), so
+        # the walk continues into it rather than stopping at this position.
+        sites.extend(_walk_subsumption_sites(base_actual, base_expected, f"{path}.base"))
+        return sites
+    tag = actual[0]
+    if tag == 1:
+        return [site for index, (a, e) in enumerate(zip(actual[2], expected[2]))
+                for site in _walk_subsumption_sites(a, e, f"{path}.args[{index}]")]
+    if tag == 2:
+        return [*_walk_subsumption_sites(actual[1], expected[1], f"{path}.domain"),
+                *_walk_subsumption_sites(actual[3], expected[3], f"{path}.codomain")]
+    # Tags 0 (base), 4 (cap), 5 (tyvar), 6 (forall) carry no substructure a
+    # refinement could hide inside; erasure agreement already forced
+    # `actual == expected` above for any of them, so this is unreachable for
+    # a legitimate pair and is kept only as a defensive fallback.
+    return []
+
+
 class MatchChecker:
-    def __init__(self, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None):
+    def __init__(self, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None,
+                 obligations: list | None = None):
         self.registry = registry
         self.reference_type = reference_type
+        #: §3.3/§3.2.1 R1: typing never calls a solver, it only *emits*. This
+        #: is the collector a caller opts into to receive
+        #: `(obligation_id, obligations.VerificationCondition)` pairs for
+        #: every subsumption site admitted while checking one definition.
+        #: `None` (the default) means no caller wants them, and — critically —
+        #: also means subsumption itself does not fire: `_subsume` below falls
+        #: through to the same structural-equality failure this layer raised
+        #: before this rule existed, so the no-collector path stays exactly as
+        #: strict as it always was (CONTRACTS.md's MINOR bump, not a MAJOR
+        #: one: nothing previously accepted changes, and the new acceptance
+        #: is opt-in).
+        self.obligations = obligations
 
     def check_definition(self, ir) -> None:
         check_definition(ir, self.registry.operation_arity)
@@ -141,7 +238,34 @@ class MatchChecker:
         if isinstance(actual, list) and actual and actual[0] == 6:
             self._instantiate(actual, expected, path)
             return
+        if self._subsume(actual, expected, path):
+            return
         _fail(path, f"type mismatch: expected {expected!r}, got {actual!r}")
+
+    def _subsume(self, actual, expected, path: str) -> bool:
+        """§3.3: `{x:T|φ} <: {x:T|ψ}` is the only subtyping in the language,
+        and the check does not run during typing (SPEC.md §3.2.1's R1) — a
+        subsumption site is *admitted* against an obligation the typechecker
+        emits, not against a verdict. So this either fully succeeds (erasure
+        agrees and a collector was supplied, in which case every differing
+        position becomes an emitted obligation and typing proceeds) or fully
+        declines (returns `False`, leaving the caller's structural-equality
+        failure as the answer) — it never partially subsumes.
+        """
+        if self.obligations is None:
+            return False
+        sites = _subsumption_sites(actual, expected, path)
+        if sites is None:
+            return False
+        # Imported lazily: `obligations.py` imports this module at module
+        # scope (`emit_definition` typechecks before it emits), so a
+        # module-level import here would try to bind a name in whichever of
+        # the two modules is still mid-import, depending on load order.
+        from obligations import subtyping_condition
+        for site in sites:
+            condition = subtyping_condition(site.base, site.weaker, site.stronger)
+            self.obligations.append((f"subsumption@{site.path}", condition))
+        return True
 
     def synth(self, term, environment: list, ambient: tuple[bytes, ...], path: str):
         tag = term[0]
@@ -465,7 +589,17 @@ class MatchChecker:
             _fail(path, f"ability {ability.hex()} has no capability value in scope")
 
 
-def validate_source(source: str, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None):
+def validate_source(source: str, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None,
+                     obligations: list | None = None):
+    """Parse and type-check one definition.
+
+    `obligations`, when given a list, is threaded to `MatchChecker` as its
+    §3.3 subsumption collector: on return it holds every
+    `(obligation_id, obligations.VerificationCondition)` pair the checker
+    admitted while checking this definition, in emission order. Left `None`
+    (the default), subsumption does not fire and this call behaves exactly as
+    it did before that rule existed.
+    """
     ir = parse_source(source)
-    MatchChecker(registry, reference_type).check_definition(ir)
+    MatchChecker(registry, reference_type, obligations).check_definition(ir)
     return ir
