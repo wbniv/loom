@@ -21,11 +21,12 @@ import tempfile
 import unittest
 
 import corpus_registry
+import obligations
 import refinements
 import typecheck as matches
 import references
 import scope
-from corpus_registry import MANIFEST, TIERS, VERDICTS
+from corpus_registry import MANIFEST, OUTCOMES, TIERS, VERDICTS
 from declarations import declaration_hash
 from transcode import def_to_surface, parse_source, transcode_source
 
@@ -218,6 +219,17 @@ def _has_refinement(node) -> bool:
     return False
 
 
+def _refinement_predicates(node, found=None) -> list:
+    """Every `φ` occurring as the predicate of a `refine T φ` node in a type."""
+    found = [] if found is None else found
+    if isinstance(node, list):
+        if node and node[0] == 3 and len(node) == 3 and isinstance(node[1], list):
+            found.append(node[2])
+        for child in node:
+            _refinement_predicates(child, found)
+    return found
+
+
 class CorpusObligationTest(unittest.TestCase):
     """The §3.2.1 verification conditions tranche 4's `ensures` claims produce.
 
@@ -269,16 +281,66 @@ class CorpusObligationTest(unittest.TestCase):
                             corpus_registry.SMT_SIGNATURES, corpus_registry.SMT_INTERPRETATION)
 
     def test_every_verdict_is_declared_and_a_sat_says_why(self):
-        # The other direction on `verdict`: a `sat` is §3.2.1's *refutation* of
-        # the verification condition as v0.1 builds it, never a shrug, so it
-        # must record which fact the VC shape could not carry.
+        # `verdict` is the raw solver answer and stays a fact. The other
+        # direction on it: a `sat` is never a shrug, so it must record which
+        # fact the verification condition could not carry — whether that fact
+        # makes the model an artifact (undischarged) or not (refuted).
         for entry in MANIFEST:
             for obligation in entry.obligations:
                 with self.subTest(fixture=entry.fixture, obligation=obligation.name):
                     self.assertIn(obligation.verdict, VERDICTS)
+                    self.assertIn(obligation.outcome, OUTCOMES)
+                    self.assertIn(obligation.producer, obligations.PRODUCERS)
                     if obligation.verdict == "sat":
                         self.assertNotEqual(obligation.note, "",
-                                            "a refuted obligation must record what is missing")
+                                            "a sat obligation must record what is missing")
+
+    def test_pinned_outcomes_are_what_the_rule_derives(self):
+        # §3.2.1's three-way outcome, recomputed from a freshly emitted script
+        # rather than trusted: the manifest may not pin an outcome the rule does
+        # not produce, and may not silence one it does.
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                with self.subTest(fixture=entry.fixture, obligation=obligation.name):
+                    emitted = obligation.emit(self.registry)
+                    self.assertEqual(emitted.script_hash, obligation.script_hash)
+                    self.assertEqual(emitted.script, obligation.script(self.registry))
+                    self.assertEqual(emitted.outcome(obligation.verdict), obligation.outcome)
+
+    def test_producer_agrees_with_the_fixtures_own_refinement_predicates(self):
+        # Both directions on `producer`, derived rather than trusted. §3.2.1's
+        # one specified producer is refinement subtyping, and a subtyping pair
+        # is exactly a pair of predicates that both occur on `refine` nodes in
+        # the definition's own type. A hand-authored body summary never does —
+        # so the manifest cannot relabel one to buy itself a refutation.
+        for entry in MANIFEST:
+            predicates = _refinement_predicates(parse_source(entry.source_text())[1])
+            for obligation in entry.obligations:
+                with self.subTest(fixture=entry.fixture, obligation=obligation.name):
+                    from_type = (obligation.weaker in predicates
+                                 and obligation.stronger in predicates)
+                    self.assertEqual(
+                        from_type, obligation.producer == obligations.PRODUCER_SUBTYPING,
+                        f"{entry.name_path}: producer/refinement-predicate mismatch")
+
+    def test_no_sat_obligation_is_refuted_and_the_exact_one_is_named(self):
+        # The whole point of the three-way rule: every `sat` in this corpus is a
+        # true claim, so none may come out `refuted`. The second half is the
+        # finding that must not be smoothed — corpus/nat/select's script *is*
+        # translation-exact, and only generator faithfulness saves it, because
+        # its Γ drops refinements the definition's type carries.
+        translation_exact = set()
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                emitted = obligation.emit(self.registry)
+                if obligation.verdict == "sat":
+                    self.assertEqual(obligation.outcome, obligations.OUTCOME_UNDISCHARGED,
+                                     f"{entry.name_path}: a true claim was refuted")
+                if emitted.exactness.translation_faithful:
+                    translation_exact.add((entry.name_path, obligation.verdict))
+        self.assertIn(("corpus/nat/select", "sat"), translation_exact,
+                      "corpus/nat/select's sat is translation-exact; if that stopped "
+                      "being true the recorded finding needs revisiting")
 
     def test_one_verification_condition_is_one_memo_ledger_row(self):
         # §3.2.1: "the obligation's name never enters the script, so two

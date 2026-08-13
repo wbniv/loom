@@ -37,6 +37,19 @@ INTERPRETED_SYMBOLS = (
     "abs", "and", "distinct", "div", "ite", "mod", "not", "or",
 )
 
+#: The half of the allowlist whose SMT-LIB meaning *coincides* with the Loom
+#: operation an interpretation-table entry maps onto it, so a model over these
+#: symbols reads back as a real Loom valuation (SPEC.md §3.2.1, translation
+#: faithfulness condition 4). Boolean structure and the order relations qualify.
+FAITHFUL_SYMBOLS = ("<", "<=", "=", "=>", ">", ">=", "and", "distinct", "ite", "not", "or")
+
+#: The other half: SMT-LIB `Int` is unbounded and Loom's `I64` wraps, so these
+#: agree with the operation they interpret only while no intermediate value
+#: leaves the I64 domain — which no syntactic check can establish. Their presence
+#: makes a script inexact, and that is the countermodel side of the `Int`
+#: fidelity limit §3.2.1 already states for proofs.
+IDEALIZING_SYMBOLS = ("*", "+", "-", "abs", "div", "mod")
+
 TERM_FRAGMENT_TAGS = (0, 1, 2, 4, 5, 6, 7, 12)
 
 
@@ -58,8 +71,46 @@ class Value:
     numeral: int | None = None
 
 
+@dataclass(frozen=True)
+class Abstractions:
+    """What the translator abstracted away while emitting one script.
+
+    Facts, not policy: this module reports what it did and takes no position on
+    what the report means. `obligations.py` holds SPEC.md §3.2.1's exactness
+    rule, so the five conditions have exactly one place that decides them and
+    exactly one walk that observes them — a second traversal recomputing these
+    could silently disagree with the translation it is describing.
+    """
+
+    #: Reference symbols that became `declare-fun`. The solver invents a
+    #: function for each; the real definition or extern computes something else.
+    uninterpreted: tuple[str, ...] = ()
+    #: Opaque sorts that became `declare-sort` — `F64`, `Text`, `Bytes`.
+    opaque_sorts: tuple[str, ...] = ()
+    #: A `refine` node reached sort position and its predicate was dropped.
+    erased_refinement: bool = False
+    #: Interpreted symbols this script actually used, sorted.
+    interpreted: tuple[str, ...] = ()
+    #: A `match` bound a field at sort `Int`, which no domain axiom bounds.
+    unbounded_int_binder: bool = False
+
+    @property
+    def idealizing(self) -> tuple[str, ...]:
+        """The used symbols whose `Int` meaning departs from `I64`'s."""
+        return tuple(symbol for symbol in self.interpreted if symbol in IDEALIZING_SYMBOLS)
+
+
 def _fail(path: str, message: str) -> None:
     raise SmtError(path, message)
+
+
+def _contains_refinement(ir) -> bool:
+    """Whether a type node carries a `refine` anywhere erasure would drop it."""
+    if not isinstance(ir, list) or not ir:
+        return False
+    if ir[0] == 3:
+        return True
+    return any(_contains_refinement(item) for item in ir)
 
 
 def _form(head: str, arguments) -> str:
@@ -108,10 +159,27 @@ class ObligationTranslator:
         self._context: list[tuple[str, str]] = []
         self._functions: dict[str, tuple[list[str], str]] = {}
         self._binder = 0
+        self._erased_refinement = False
+        self._used_symbols: set[str] = set()
+        self._unbounded_int_binder = False
+
+    def abstractions(self) -> Abstractions:
+        """What this translator abstracted away on its most recent script."""
+        return Abstractions(
+            uninterpreted=tuple(sorted(self._functions)),
+            opaque_sorts=tuple(sorted(self._opaque)),
+            erased_refinement=self._erased_refinement,
+            interpreted=tuple(sorted(self._used_symbols)),
+            unbounded_int_binder=self._unbounded_int_binder,
+        )
 
     # ---------------------------------------------------------------- sorts
 
     def sort(self, ir, path: str) -> str:
+        # Every path into erasure runs through here, so this is the one place a
+        # dropped predicate can be observed (SPEC.md §3.2.1, condition 3).
+        if _contains_refinement(ir):
+            self._erased_refinement = True
         return self._sort(erase_type(ir, path), path)
 
     def _sort(self, ir, path: str) -> str:
@@ -293,6 +361,7 @@ class ObligationTranslator:
         numeral = None
         if symbol == "-" and arity == 1 and values[0].numeral is not None:
             numeral = -values[0].numeral
+        self._used_symbols.add(symbol)
         return Value(_form(symbol, [value.text for value in values]), result_sort, numeral)
 
     def _fresh(self) -> str:
@@ -317,6 +386,9 @@ class ObligationTranslator:
         alternative = self.term(ir[3], environment, f"{path}.else")
         if consequent.sort != alternative.sort:
             _fail(f"{path}.else", f"expected sort {consequent.sort}, got {alternative.sort}")
+        # §3.2.1: `if` costs the trusted theory surface nothing because `ite` is
+        # already admitted — so it is recorded like any other use of it.
+        self._used_symbols.add("ite")
         return Value(_form("ite", [condition.text, consequent.text, alternative.text]), consequent.sort)
 
     def _constructor(self, ir, environment, path: str) -> Value:
@@ -371,6 +443,11 @@ class ObligationTranslator:
             if arm[1] != len(field_sorts):
                 _fail(arm_path, f"binder count {arm[1]} does not match constructor field count {len(field_sorts)}")
             binders = [self._fresh() for _ in field_sorts]
+            # The I64 domain axiom is emitted for context variables only, so an
+            # `Int`-sorted field binder ranges over all of `Int` (§3.2.1,
+            # condition 5).
+            if SORT_INT in field_sorts:
+                self._unbounded_int_binder = True
             arm_environment = [*reversed(list(zip(binders, field_sorts))), *environment]
             body = self.term(arm[2], arm_environment, f"{arm_path}.body")
             if result_sort is None:

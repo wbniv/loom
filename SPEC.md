@@ -558,14 +558,91 @@ file ending in a single newline:
 8. one `assert` per hypothesis, in order.
 9. `(assert (not <goal>))`, then `(check-sat)`, then `(exit)`.
 
-The script asks for a **refutation**: `unsat` means the goal is valid under the
-hypotheses and the obligation earns `A3 proof` evidence (§6.1) whose payload
-records the solver identity and the script's SHA-256; `sat` refutes the
-obligation and the binding is rejected; `unknown`, a timeout, or a term outside
-this fragment leaves the obligation undischarged, to be covered by weaker
-evidence explicitly. The obligation's name never enters the script, so two
-differently named obligations with the same verification condition share one
-memo-ledger row (§6.4).
+The script asks for a **refutation**, and the solver's answer is a *fact about
+the script*, not yet a decision about the obligation. The decision is three-way:
+the verdict together with the script's **exactness**, defined below.
+
+| Verdict | Exact | Outcome |
+|---|---|---|
+| `unsat` | either | **proved** — the goal is valid under the hypotheses, and the obligation earns `A3 proof` evidence (§6.1) whose payload records the solver identity and the script's SHA-256 |
+| `sat` | yes | **refuted** — the countermodel is validated, so the obligation is false and the binding is rejected |
+| `sat` | no | **undischarged** — the model may be an artifact of the encoding and refutes nothing |
+| `unknown`, a timeout | either | **undischarged** |
+
+A term outside this fragment produces no script and so no verdict; it is
+undischarged as well. An undischarged obligation is covered by weaker evidence
+explicitly (§6). It is never a type error and never a rejection: *this
+verification condition proved nothing either way* is not the claim *this
+proposition is false*, and collapsing the two turns every expressiveness limit
+into a rejection of correct code.
+
+**Exactness.** A model counts as a countermodel of the obligation only when it
+can be read back as a real Loom valuation of the real obligation. A script is
+**exact** when nothing between the obligation and the script introduced an
+abstraction that could invent one. Two independent parts, both decided
+mechanically from what the translator did — no search, no heuristic.
+
+*Generator faithfulness.* The verification condition must come from a producer
+this specification names. v0.1 names one: refinement subtyping, above. A
+condition whose hypotheses are *asserted* rather than derived — the shape a
+hand-written body summary has, and the only shape available until
+verification-condition generation for function bodies exists — is not
+generator-faithful: `H` is not known to carry everything the program establishes
+at that point, so a model may violate a premise the condition never stated.
+
+*Translation faithfulness.* Five conditions on the emitted script:
+
+1. no `declare-fun` was emitted — every `ref` in `H` or `g` had an
+   interpretation-table entry, so the solver invented no function;
+2. no `declare-sort` was emitted — `F64`, `Text`, and `Bytes` never reached sort
+   position, those sorts being uninterpreted, of unrelated cardinality, and in
+   `F64`'s case carrying bitwise rather than IEEE-754 equality;
+3. no `refine` node was dropped in sort position, whether in a context type or
+   inside a data type argument;
+4. every interpreted symbol the script used is one whose SMT-LIB meaning
+   coincides with the operation it interprets — `not and or => = distinct ite`
+   and `< <= > >=` — and none is one of `+ - * div mod abs`, whose `Int` meaning
+   departs from `I64`'s wrapping meaning;
+5. every `Int`-sorted symbol is bounded by the domain axiom of step 7, which is
+   emitted for context variables only: the script's `Int`-sorted symbols are
+   context variables and integer literals, and no `match` binder has sort `Int`.
+
+Exactness does not remove the A0 dependence the interpretation table introduces
+— mapping `I64.lt` onto `<` is a claim about a foreign artifact and stays exactly
+as strong as that extern's justification (§5.1.3). It says that *given* the
+table, the encoding adds no further gap. Condition 4 is the separate matter of
+`Int` differing from `I64` even when the table's entries are right.
+
+Only the `sat` row consults exactness, and the asymmetry is deliberate: an
+abstraction invents a *witness* out of nothing, which is what makes a model
+untrustworthy, whereas an `unsat` remains a proof of a claim conditional on
+whatever the hypotheses assumed. Where a hypothesis was asserted rather than
+derived, that condition is an A0 assumption and is counted as one (§5.1.3,
+§5.3.1) — the same accounting the interpretation table already gets, not a
+second job for this rule.
+
+A stronger validation rule is **reserved**: substitute the model into the
+original Loom terms and evaluate under the real semantics, accepting the
+refutation only when the goal really comes out false. It subsumes conditions 4
+and 5 and admits refutations the syntactic rule refuses, but it needs an
+evaluator, which v0.1 does not specify. The rule above is therefore a floor: a
+checker implementing the stronger one may turn an `undischarged` into a
+`refuted`, never the reverse.
+
+**Who consults the solver.** Type checking never does. The typing layer *emits*
+obligations: at each site that needs one it fixes the verification condition,
+and with it the canonical script and that script's SHA-256 — enough to key the
+memo ledger (§6.4) before any solver has run. A separate **oracle pass**
+discharges them, ledger lookup first and solver call second, and mints the §6.1
+evidence. Admission (§5.3.2) consults that evidence and never the solver.
+Typing therefore stays decidable and terminates on a schedule: a predicate the
+oracle cannot discharge lowers an obligation's *evidence level*, it does not make
+a definition untypeable, and §3.4's two-valued gate stays at admission where a
+policy compares evidence against a requirement.
+
+The obligation's name never enters the script, so two differently named
+obligations with the same verification condition share one memo-ledger row
+(§6.4).
 
 Two fidelity limits are stated rather than hidden. `Int` does not wrap, so a
 proof that depends on 64-bit overflow is unsound — the domain axiom bounds
@@ -579,6 +656,11 @@ the safe direction: the obligation simply does not reach A3.
 Refinement subtyping (`{x:T|φ} <: T`, and `{x:T|φ} <: {x:T|ψ}` when
 `φ ⇒ ψ` is solver-valid) is the only subtyping in the language. No
 inheritance, no variance annotations, no coercions.
+
+The check does not run *during* typing. A subsumption site is admitted against an
+obligation the typechecker emits (§3.2.1); the solver's verdict reaches the
+binding as evidence rather than as a typing precondition, so a predicate the
+oracle cannot discharge lowers assurance instead of rejecting the program.
 
 ### 3.4 Crisp by design — where uncertainty lives
 
@@ -1187,6 +1269,13 @@ namespace policy may demand a `property.no-panic` obligation on everything it
 binds). Obligation ids decompose into a kind and a detail, and the governing
 policy states which obligations it injects and what evidence level each
 obligation must reach; both are specified in §5.3.1.
+
+Obligations are **emitted, not resolved in place**. The typechecker fixes each
+obligation's verification condition and canonical script (§3.2.1) and stops
+there; the oracle pass discharges it afterwards and mints the evidence entry. So
+an obligation exists — carrying A0 if nothing better is available — whether or
+not a solver ever ran, and an obligation the oracle refuses is an evidence
+question for §6.3 and §5.3.2 rather than a typing failure.
 
 ### 6.3 Monotone assurance
 
