@@ -27,14 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:a8aac7b108bbf6425 --> **Implement §3.3 subsumption in typecheck (unblocked by the obligation
-  pipeline).** The design fork is closed: typing emits obligations and never calls
-  a solver, so checking a term against `refine T φ` subsumes via an emitted
-  subtyping VC rather than structural equality. Re-tiers the three structural
-  tranche-4 fixtures to `checked`; typecheck contract MINOR bump per CONTRACTS.md.
-  See [plan](docs/plans/2026-08-13-obligation-pipeline.md) residue 1. (T2: bounded,
-  the seam API exists in obligations.py.)
-
 - [T4] **Build experiment Phase B: the incremental type-state masker (gated on
   Phase A's failure profile).** The per-token prefix-feasibility API — GBNF syntax
   layer plus the §8.2 type-state subset, prioritized by whichever checker layer
@@ -85,6 +77,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [refinement-subsumption] Typing subsumes refine types via emitted
+  VCs behind an opt-in sink; three fixtures re-tiered checked; typecheck 1.1.
+  See [plan](docs/plans/2026-08-13-refinement-subsumption.md).
 - ✅ 2026-08-13 — [experiment-phase-a] Built the Phase A harness: resolver, four
   regimes, 8 proven held-out tasks, 3 conditions, stub-tested funnel and report.
   See [plan](docs/plans/2026-08-13-experiment-phase-a.md).
