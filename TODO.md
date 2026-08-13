@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Define the obligation pipeline: who consults the solver, and what `sat`
+- [wip T4] <!-- agent:aae4acdc6685fd2ab --> **Define the obligation pipeline: who consults the solver, and what `sat`
   means (§3.2.1/§3.3/§6.2 seam; tranche-4 escalations 1+2).** Two entangled calls:
   (a) subtyping VCs are generated but nothing consults them — solver-in-the-typing-
   loop vs obligation emission for a separate oracle pass (the spec's architecture
@@ -39,13 +39,13 @@ Check conformance with `task todo:lint`.
   [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
   space, two normative rules, wrong turn expensive.)
 
-- [T2] **Extend the assumed base with `and`/`or`/`not`/`<=` externs.** §3.2.1's
+- [wip T2] <!-- agent:ada95106301ea4a36 --> **Extend the assumed base with `and`/`or`/`not`/`<=` externs.** §3.2.1's
   allowlist admits them but no extern supplies them, so every corpus predicate is a
   single comparison and `nat` is spelled `-1 < i`. Pinned identities plus
   interpretation rows, the established pattern; directly relieves the
   single-hypothesis limit behind one tranche-4 `sat` case. (T2: pattern repetition.)
 
-- [T3] **Version the validation contracts (parser, scope, reference, type-check).**
+- [wip T3] <!-- agent:a4b8ba9d6f27a9635 --> **Version the validation contracts (parser, scope, reference, type-check).**
   Tranches 3 and 4 both landed with zero IR/tag/spec changes, meeting half of the
   production-language Watch trigger (a); versioned contracts are the remaining gate
   that would make that Watch entry promotable. Define what a contract version
