@@ -101,6 +101,9 @@ B2 (gated on Phase A's report):
 
 ## Verification
 
+Not yet run, deliberately: B1's steps run and get recorded when the B1
+dispatch completes; B2's when B2 does. The triaged inbox deferral points here.
+
 ```sh
 task prototype:test
 python3 -m py_compile prototype/*.py prototype/experiment/*.py

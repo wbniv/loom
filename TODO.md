@@ -180,5 +180,4 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
-- [verify] **2026-08-13-experiment-phase-b** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-13-experiment-phase-b.md](docs/plans/2026-08-13-experiment-phase-b.md)_  <!-- fp:354c93a95639b259 -->
 <!-- END auto-captured-deferrals -->
