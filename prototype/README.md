@@ -45,11 +45,14 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `sexpr.py` | Bounds-safe lexer and structural reader with source-offset errors. |
 | `transcode.py` | Validates the surface, maps all term/type/literal tags to IR, renders IR back to its canonical surface, encodes definitions, and computes identity. |
 | `scope.py` | Checks term/type de Bruijn indices with path-aware errors; handler checks use an injected ability-operation arity resolver. |
+| `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
+| `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
 | `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
 | `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
+| `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
 
 The example fixtures are:
 
@@ -82,10 +85,12 @@ operation parameter counts; the checker refuses to guess when store information
 is absent. `transcode.transcode_source` remains deliberately store-independent
 and does not perform this stateful check.
 
-The prototype does not establish constructor or operation existence beyond that
-handler lookup, exhaustiveness, typing, termination, refinement validity, or
-evidence. Those remain responsibilities of later oracle layers described in
-`SPEC.md` §§3, 6, and 8.
+`references.validate_source` checks nominal declaration existence, kind, and
+explicit `con`/`perform`/`handle` bounds and arities. The prototype does not
+establish match exhaustiveness, typing, termination, refinement validity, or
+evidence. Match constructor and binder validation requires inference of the
+scrutinee type and remains a typechecker responsibility. The remaining oracle
+layers are described in `SPEC.md` §§3, 6, and 8.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:

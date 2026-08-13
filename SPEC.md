@@ -244,8 +244,9 @@ forms. One term, one byte sequence.
 ### 4.3 Identity
 
 A **def object** is `[0, type, term]` (leading `0` is the object-kind tag;
-kinds: 0 def, 1 meta, 2 binding, 3 evidence — the tag makes cross-kind hash
-collisions impossible by construction). The definition's identity is
+kinds: 0 def, 1 meta, 2 binding, 3 evidence, 4 data declaration, 5 ability
+declaration — the tag makes cross-kind hash collisions impossible by
+construction). The definition's identity is
 SHA‑256 over the def object's encoding.
 
 ### 4.4 Worked example (verifiable by hand)
@@ -271,8 +272,40 @@ definition is `#76c62727` in any projection, in every store, forever.
 
 ### 5.1 Objects
 
-Append-only. Four kinds (§4.3). Nothing is ever deleted or garbage
+Append-only. Six kinds (§4.3). Nothing is ever deleted or garbage
 collected in v0.1 — history is the feature (P4), and definitions are small.
+
+#### 5.1.1 Data declarations
+
+A data declaration object is `[4, p, [constructors]]`, where `p` is its type
+parameter count and each constructor is `[field-types]`. Constructor and field
+names are metadata; array order defines the constructor index and field binder
+order used by `con` and `match` (§2.1, §2.3.1).
+
+Field types use the ordinary type encoding under type depth `p`, extended only
+within this declaration by `self = [7, [type-arguments]]`. `self` denotes the
+data declaration currently being hashed and must carry exactly `p` arguments.
+It is forbidden in definitions, ability declarations, and every other object.
+This local form permits recursive data without embedding the declaration's own
+not-yet-computable hash. References to other data declarations continue to use
+ordinary `data = [1, hash, [type-arguments]]`.
+
+#### 5.1.2 Ability declarations
+
+An ability declaration object is `[5, [operations]]`, where each operation is
+`[[parameter-types], result-type]`. Operation and parameter names are metadata;
+array order defines the operation index used by `perform` and `handle`.
+Abilities are monomorphic in v0.1 because `cap` and effect rows carry an ability
+hash without type arguments. Consequently, ability signature types are checked
+at type depth 0 and may not contain `tyvar` or declaration-local `self`.
+
+Both declaration kinds are identified by SHA-256 of their deterministic CBOR
+encoding, exactly like definitions. A checker resolves nominal hashes to these
+objects and must reject missing objects, wrong object kinds, out-of-range
+indices, and constructor/operation argument-count mismatches. A `match` node
+does not carry a data hash, so checking its constructor indices and
+`binder-count` values requires the typechecker to infer the scrutinee's data
+type; declaration lookup alone cannot perform that check.
 
 ### 5.2 Meta objects
 

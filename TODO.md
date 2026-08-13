@@ -86,6 +86,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [declaration-objects] Added hashed data/ability declarations,
+  recursive self types, a verified registry, and nominal bounds/arity checks. See
+  [plan](docs/plans/2026-08-13-declaration-objects-reference-validation.md).
 - ✅ 2026-08-13 — [stateful-scope] Specified every binder convention and added
   path-aware term/type de Bruijn validation with resolved handler arities. See
   [plan](docs/plans/2026-08-13-stateful-scope-validation.md).
