@@ -308,9 +308,14 @@ Where uncertainty *does* live, deliberately — three sanctioned homes:
   carries effects as data. A measurement pipeline in Loom should absolutely
   compute with `Fuzzy F64`; the *typechecking of that pipeline* stays
   two-valued.
-- **In the evidence:** A1 `property` evidence is already a statistical
-  claim, and v0.1 flattens it to a run count — the one place this spec is
-  *less* fuzzy than it ought to be. See open problem 6 (§13).
+- **In the evidence:** A1 `property` evidence is a statistical claim, and it
+  says so numerically — a failure-probability bound at a stated confidence,
+  relative to a stated generator (§6.1.1). This is the epistemic dial turned
+  up, not the referee turned fuzzy: the *bound* is graded, and the
+  accept/refuse decision a policy makes against it stays two-valued, because
+  comparing two exact rationals against a threshold is a boolean question.
+  What remains open is the policy object that states such thresholds — open
+  problem 6 (§13).
 
 ## 4. Canonical form and identity
 
@@ -418,7 +423,11 @@ A binding is `[2, name-path, def-hash, evidence-set, policy-ref, seq]`.
 Name-paths live in **namespaces**, each owned by a single writer at a time
 (a lease held by one agent or principal) — the store itself needs no
 consensus because objects are content-addressed and commutative; only
-binding sequences are serialized, per namespace (P6). Rebinding is the
+binding sequences are serialized, per namespace (P6). `policy-ref` points at
+the namespace policy the binding was cleared against; where that policy states
+an A1 threshold it is a `(bound, confidence, generator)` triple compared per
+§6.1.2, not a run count. The policy object's own format is open (§13).
+Rebinding is the
 entire edit model: "changing" a function means appending a new definition
 and a new binding record with a higher `seq`. Every previous state of every
 namespace remains addressable.
@@ -440,14 +449,85 @@ An evidence object is `[3, obligation-id, kind, payload, result]`. Kinds:
 |---|---|---|---|
 | A3 | `proof` | checked derivation (solver certificate or proof term) | holds for all inputs |
 | A2 | `exhaustive` | domain descriptor + enumeration digest | holds on the entire (finite) stated domain |
-| A1 | `property` | generator hash, seed, run count | held on `n` sampled inputs |
+| A1 | `property` | sampling record + failure-probability bound (below) | fails with probability at most `p`, at confidence `c`, under generator `g` |
 | A0 | `assumption` | principal signature + justification text | trusted, unverified |
 
-Order: `A0 ⊑ A1(n) ⊑ A1(m) ⊑ A2 ⊑ A3` for `n ≤ m`. Every obligation on a
-binding carries exactly one evidence entry; `A0` is legal but loud (every
-projection renders assumptions in front of everything else). The lattice
-grades *knowledge of* a crisp proposition, never the proposition itself —
-this is the only kind of gradation the system permits (§3.4).
+Every obligation on a binding carries exactly one evidence entry; `A0` is
+legal but loud (every projection renders assumptions in front of everything
+else). The lattice grades *knowledge of* a crisp proposition, never the
+proposition itself — this is the only kind of gradation the system permits
+(§3.4).
+
+#### 6.1.1 The A1 payload
+
+The `property` payload is a seven-element array in canonical field order,
+encoded under the deterministic CBOR rules of §4.2:
+
+```
+payload = [generator, seed, runs, failures, bound, confidence, method]
+```
+
+- `generator` — the 32-byte hash of the def object (§4.3) that produced the
+  draws. It identifies the *distribution* the bound is relative to; the
+  generator's own type fixes the sampled domain. Identity here is intensional
+  (§4.1): two extensionally equal generators with different hashes are
+  different generators, and evidence under one says nothing about the other.
+- `seed` — unsigned integer, the seed the generator was driven with. Together
+  with `generator` and `runs` it makes the run reproducible byte for byte.
+- `runs` — unsigned integer `n ≥ 1`, the number of draws taken.
+- `failures` — unsigned integer `k ≤ n`, the number of draws on which the
+  property did not hold.
+- `bound` — a canonical rational `[numerator, denominator]`: an upper bound on
+  the per-draw failure probability under `generator`'s distribution.
+- `confidence` — a canonical rational `[numerator, denominator]`: the
+  confidence level at which `bound` holds (e.g. `[99, 100]`).
+- `method` — unsigned integer naming the estimator family that relates
+  `(runs, failures, confidence)` to `bound`. v0.1 defines exactly one:
+  `0` = Clopper–Pearson exact binomial upper bound. All other values are
+  reserved; a checker that does not recognize a method tag **rejects the
+  evidence object** rather than admitting it at a degraded level.
+
+A **canonical rational** is `[num, den]` with `den ≥ 1`, `0 ≤ num ≤ den`, and
+`gcd(num, den) = 1`, each encoded as a minimal-length unsigned integer. Floats
+never appear: payload bytes are hashed into the memo-ledger key (§6.4), so a
+probability must have exactly one encoding per value.
+
+Evidence supporting an obligation has `failures = 0` — obligations are crisp
+propositions (§3.4), so a failing draw is a refutation, recorded with a false
+`result`, not a weaker positive. For `method = 0` and `k = 0` the bound is
+
+```
+p ≤ 1 − (1 − c)^(1/n)
+```
+
+A checker recomputes the bound from `(method, runs, failures, confidence)` and
+**rejects any payload whose recorded `bound` is smaller than the recomputed
+one, or whose recorded `confidence` is larger than the one the recomputation
+assumed.** Rounding the bound up (or the confidence down) is always sound and
+always permitted, so a limited-precision implementation stays conservative
+rather than becoming non-interoperable. The claim is therefore checkable
+arithmetic, not an assertion the producer is trusted on.
+
+`runs` and `seed` remain in the payload as the observation and its
+reproduction data. They no longer *rank* evidence on their own: `bound`,
+`confidence`, and `generator` do.
+
+#### 6.1.2 Order
+
+Across levels the order is total: `A0 ⊏ A1 ⊏ A2 ⊑ A3`. Within A1 it is
+partial. For payloads `P` and `Q`:
+
+```
+A1(P) ⊑ A1(Q)  iff  Q.generator = P.generator
+                and  Q.bound      ≤ P.bound
+                and  Q.confidence ≥ P.confidence
+```
+
+with the two rational comparisons taken exactly (cross-multiplied integers, no
+float rounding). `A1(Q)` is **strictly stronger** than `A1(P)` when `A1(P) ⊑
+A1(Q)` and at least one of the two inequalities is strict. Payloads over
+different generators are **incomparable** — neither ⊑ the other — and are never
+ordered by run count, sample size, or any other tiebreak.
 
 ### 6.2 Obligations
 
@@ -459,10 +539,27 @@ namespace policy may demand a `no-panic` property on everything it binds).
 ### 6.3 Monotone assurance
 
 A rebind of name-path `p` is **refused** unless, for every obligation name
-shared with the previous binding, the new evidence level ⊒ the old. New
-obligations may enter at any level the policy allows; assurance on what
-already existed never silently decreases. This is the store-level guarantee
-that regeneration churn cannot erode verification over time.
+shared with the previous binding, the new evidence level ⊒ the old, using the
+order of §6.1.2. New obligations may enter at any level the policy allows;
+assurance on what already existed never silently decreases. This is the
+store-level guarantee that regeneration churn cannot erode verification over
+time.
+
+Because A1 is only partially ordered, "not ⊒" now covers two cases, and both
+refuse:
+
+- **Weaker.** Same generator, but a larger bound or a lower confidence.
+- **Incomparable.** A different generator — including a regenerated generator
+  that samples the same domain but hashes differently. The new evidence may be
+  excellent; it simply is not a statement about the distribution the previous
+  binding was cleared against, and the store will not silently substitute one
+  for the other.
+
+Both cases are escapable the same way, and only upward: supply an entry at a
+strictly higher *level* (A2 or A3, which are comparable to every A1 payload),
+or re-run the old generator to produce a comparable A1 payload alongside the
+new one. The refusal is a two-valued gate on numeric inputs (§3.4): the bound
+is graded, the decision is not.
 
 ### 6.4 The memo ledger
 
@@ -616,7 +713,8 @@ passing through unverifiable text.
 ## 12. Worked example — `median`, end to end
 
 Projection of the bound state after promotion (definition `#9c31…` under
-name `stats/median`, policy `stats/POLICY` requiring ⊒ A1(10⁴) on ensures):
+name `stats/median`, policy `stats/POLICY` requiring, on ensures, A1 evidence
+with bound ≤ 5 × 10⁻⁴ at confidence ≥ 99 % under generator `#c1d0…`):
 
 ```
 stats/median : (xs : List F64) -> {x : F64 | isMiddleOf x (sort xs)}
@@ -625,7 +723,8 @@ stats/median : (xs : List F64) -> {x : F64 | isMiddleOf x (sort xs)}
   obligations
     exhaustive-match   A3 proof        (typechecker)          memo #b02f…
     terminates         A3 proof        (measure: len xs)      memo #40aa…
-    ensures.isMiddleOf A1 property     10_000 runs, seed 0x2f41  memo #77b0…
+    ensures.isMiddleOf A1 property     p ≤ 4.61e-4 @ 99%, gen #c1d0…  memo #77b0…
+                                       (10_000 runs, 0 failures, seed 0x2f41)
 = let s = sort xs in
   match odd (len s)
     true  -> s ! (len s / 2)
@@ -634,10 +733,16 @@ stats/median : (xs : List F64) -> {x : F64 | isMiddleOf x (sort xs)}
 
 What the store actually holds: one def object (term + type, hashed), one
 meta object (name, spec, prov), one binding under `stats/` with three
-evidence entries, three memo-ledger rows. A later agent that regenerates
-`median` must beat or match A1(10⁴) on `ensures.isMiddleOf` or its rebind
-is refused (§6.3). A human reviewing this sees every assumption the system
-is making about it — here, none.
+evidence entries, three memo-ledger rows. The recorded bound is the
+Clopper–Pearson value for 10⁴ zero-failure draws at 99 % (4.6041 × 10⁻⁴),
+rounded up to the canonical rational `[461, 1000000]`; the payload's stored
+form is `[#c1d0…, 0x2f41, 10000, 0, [461, 1000000], [99, 100], 0]`. A later
+agent that regenerates `median` must supply evidence ⊒ this entry on
+`ensures.isMiddleOf` — same generator with a bound no larger and a confidence
+no smaller, or A2/A3 — or its rebind is refused (§6.3); a run under a
+*different* generator, however large, is incomparable and also refused. A
+human reviewing this sees every assumption the system is making about it —
+here, none.
 
 ## 13. Non-goals and open problems
 
@@ -661,14 +766,21 @@ IDE affordances.
 5. **Intensional identity** (§4.1) means semantically identical
    definitions duplicate evidence effort; an extensional-equality memo
    layer is future work.
-6. **Confidence-quantified evidence.** Run-count ordering on A1 is a crude
-   proxy — 10⁶ draws from a narrow generator can warrant less than
-   10³ from an adversarial one. Evidence should carry an explicit
-   statistical bound (failure probability at a stated confidence, relative
-   to a stated generator), making policy thresholds numeric rather than
-   positional. This tightens §3.4's epistemic dial without ever making a
-   judgment fuzzy: the *bound* is graded, the *accept/refuse decision*
-   against policy stays two-valued.
+6. **Confidence-quantified evidence — partially resolved.** The A1 payload
+   now carries an explicit bound, confidence, and generator (§6.1.1), ordered
+   as a partial order (§6.1.2) that §6.3 refuses on both weakening *and*
+   incomparability. What remains open: (a) the **namespace policy object**
+   format that states a numeric threshold — §5.3 fixes what a threshold
+   *means*, not how it is encoded, signed, or versioned; (b) **generator
+   comparability** — incomparability across generators is sound but blunt,
+   and there is no way to say one generator dominates another (stochastically
+   or by coverage) short of re-running the old one; (c) **method families
+   beyond Clopper–Pearson**, notably bounds for non-i.i.d. or adaptive
+   generators, and any sound way to *combine* independent runs into one
+   payload; (d) **shrinking and counterexample locality** — a refutation
+   records `failures > 0` but the spec says nothing about carrying the
+   witness. None of these reopens §3.4: the bound is graded, the
+   accept/refuse decision against policy stays two-valued.
 
 ---
 

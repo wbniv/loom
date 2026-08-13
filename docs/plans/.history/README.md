@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
 | [2026-08-13](https://github.com/wbniv/loom/commit/fcb34bf) | Fix effect purity soundness |
 | [2026-08-13](https://github.com/wbniv/loom/commit/233b719) | Add effect-directed typing |
 | [2026-08-13](https://github.com/wbniv/loom/commit/e9944dc) | Add nominal match validation |
@@ -8,6 +9,10 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+7776d05	author	Will Norris
+7776d05	added	1
+7776d05	deleted	0
+7776d05	files	1
 fcb34bf	author	Will Norris
 fcb34bf	added	1
 fcb34bf	deleted	0
