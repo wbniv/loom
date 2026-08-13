@@ -70,7 +70,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
-| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the recorded expressiveness limits (two of them re-pinned as lifted). |
+| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, and the recorded expressiveness limits (two of them re-pinned as lifted). |
 
 The example fixtures are:
 
@@ -131,6 +131,25 @@ of an extern's. The tranche stays monomorphic at `I64`: a genuine
 `forall`-bound element type, would need a second `List.size`-shaped measure
 instantiated at the nested type, which is out of scope here and recorded as
 residue in the tranche-2 plan.
+
+Tranche 3 (the effectful slice) is built on top of it: `clock/now`,
+`rand/bytes`, `clock/stamped`, `rand/withStub`, `clock/nowPair`,
+`sample/nowAndBytes`, and `rand/resample`, all at `checked`, per the
+[tranche-3 plan](../docs/plans/2026-08-13-corpus-tranche-3.md). These are the
+first fixtures whose types carry a nonempty effect row or a `cap`, and they
+exercise §2.4/§3.1.2 as a set rather than singly: `perform` with and without
+arguments, a two-ability closed row (`rand`+`clock`, sorted bytewise), an
+effectful function argument applied under the ambient allowance, a capability
+threaded as an ordinary value into a `ref` whose own type carries a row, a
+handler that discharges its ability and leaves the definition pure to callers,
+and a handler that invokes its continuation twice. Every capability arrives as
+a parameter, because §2.4 makes `cap a` unforgeable in the language; rows are
+closed throughout, since `typecheck._closed_row` refuses a row variable and
+the corpus plan's R2 drops Unison's ability polymorphism outright. The purity
+test that used to assert every fixture was ability-free is now split in two
+and keyed on the manifest's `effect_free` flag — pure entries must be pure,
+entries declaring themselves effectful must actually name an ability — so the
+flag is a claim checked in both directions rather than an exemption.
 
 The instantiation gap that remained after the first lift — v0.1 could write a
 polymorphic definition but not *call* one at a concrete type — is itself now

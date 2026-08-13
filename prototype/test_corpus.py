@@ -88,24 +88,81 @@ class CorpusFixtureTest(unittest.TestCase):
                     with self.assertRaises(matches.TypingError):
                         matches.validate_source(source, self.registry, resolver)
 
-    def test_every_fixture_is_pure_and_capability_free(self):
-        # Nothing in the seed set may smuggle in an effect: the tranche is
-        # arithmetic-free and ability-free by construction (plan R5), and the
-        # empty row on every arrow is what makes that checkable rather than
-        # merely intended.
-        def assert_pure(node, path):
+    @staticmethod
+    def _type_effects(definition_type):
+        """Every nonempty effect row and every `cap` ability in a definition type.
+
+        The definition *type* is the whole audit surface (§2.4: "the row is the
+        static audit surface; the capability is the dynamic blast-radius
+        bound"). Scanning it is not a weaker check than scanning the term: a
+        capability is unforgeable and no term node constructs one, so the only
+        way a `cap a` reaches a closed definition's environment is through its
+        type — and `perform` needs one (§3.1.2). A definition whose type carries
+        no row and no `cap` therefore cannot perform anything, `handle` or no
+        `handle`.
+        """
+        rows: list[list] = []
+        caps: list[bytes] = []
+
+        def walk(node):
             if not isinstance(node, list) or not node:
                 return
             if node[0] == 2 and len(node) == 4:
-                self.assertEqual(node[2], [], f"{path}: nonempty effect row")
+                if node[2]:
+                    rows.append(node[2])
             if node[0] == 4 and len(node) == 2:
-                self.fail(f"{path}: seed definitions carry no capability values")
-            for index, child in enumerate(node):
-                assert_pure(child, f"{path}[{index}]")
+                caps.append(node[1])
+            for child in node:
+                walk(child)
 
+        walk(definition_type)
+        return rows, caps
+
+    def test_every_effect_free_fixture_is_pure_and_capability_free(self):
+        # Tranches 1 and 2 are arithmetic-free and ability-free by construction
+        # (plan R5), and the empty row on every arrow is what makes that
+        # checkable rather than merely intended. Tranche 3 declares itself
+        # effectful in the manifest instead of being exempted from this test:
+        # `effect_free` is data on the entry and the test below asserts the
+        # other direction, so the flag cannot be flipped to silence a failure.
+        for entry in MANIFEST:
+            if not entry.effect_free:
+                continue
+            with self.subTest(fixture=entry.fixture):
+                rows, caps = self._type_effects(parse_source(entry.source_text())[1])
+                self.assertEqual(rows, [], f"{entry.name_path}: nonempty effect row")
+                self.assertEqual(caps, [], f"{entry.name_path}: carries a capability value")
+
+    def test_every_effectful_fixture_carries_the_effects_it_declares(self):
+        # The other direction, so `effect_free=False` is a claim rather than an
+        # exemption: an entry declaring itself effectful must actually mention
+        # an ability — in a row, a capability, or both.
+        for entry in MANIFEST:
+            if entry.effect_free:
+                continue
+            with self.subTest(fixture=entry.fixture):
+                rows, caps = self._type_effects(parse_source(entry.source_text())[1])
+                self.assertTrue(rows or caps,
+                                f"{entry.name_path}: declared effectful but its type names no ability")
+
+    def test_every_fixture_row_is_closed_and_names_only_builtin_abilities(self):
+        # R2's dropped feature, asserted: Unison's ability-polymorphic `{g}` has
+        # no checkable form here, so no row may end in a row variable
+        # (`typecheck._closed_row` refuses one) and every ability named by a row
+        # or a capability is one of §2.4's eight builtins.
+        import prelude
+
+        builtins = set(prelude.HASHES.values())
         for entry in MANIFEST:
             with self.subTest(fixture=entry.fixture):
-                assert_pure(parse_source(entry.source_text())[1], entry.name_path)
+                rows, caps = self._type_effects(parse_source(entry.source_text())[1])
+                for row in rows:
+                    for item in row:
+                        self.assertIsInstance(item, bytes, f"{entry.name_path}: row variable in a row")
+                        self.assertIn(item, builtins, f"{entry.name_path}: row names a non-builtin ability")
+                        self.assertEqual(row, sorted(row), f"{entry.name_path}: row is not sorted bytewise")
+                for ability in caps:
+                    self.assertIn(ability, builtins, f"{entry.name_path}: cap of a non-builtin ability")
 
     def test_few_shot_pairs_carry_spec_text_and_canonical_surface(self):
         pairs = corpus_registry.few_shot_pairs()

@@ -2,7 +2,8 @@
 
 The corpus seeds §13 open problem 1 (prior starvation). Its definitions are
 hand-transpiled from the base library of the MIT-licensed unisonweb/unison
-repository (structural eliminators only); see
+repository — structural eliminators (tranche 1), their recursive companions
+(tranche 2), and ability code against §2.4's builtins (tranche 3); see
 `docs/plans/2026-08-13-bootstrap-corpus.md` for the corpus choice, the mapping
 losses, and the tranche list.
 
@@ -172,6 +173,14 @@ class CorpusEntry:
     ``name_path`` and ``spec`` are exactly what a meta object carries, so the
     (spec-text, canonical-surface) pair a §8.4 few-shot prompt needs is read
     straight off this manifest rather than from a second, invented format.
+
+    ``effect_free`` is the entry's declared position on §2.4: ``True`` means the
+    definition's type mentions no ability row and no capability, so it cannot
+    perform anything (a capability is unforgeable and enters a closed definition
+    only through its type). Tranche 3 is the first tranche to set it ``False``.
+    Like ``tier``, it is enforced in both directions — an ``effect_free`` entry
+    must be pure and an effectful entry must actually carry effects — so the flag
+    can never be used to quietly exempt a fixture from the purity test.
     """
 
     fixture: str
@@ -181,6 +190,7 @@ class CorpusEntry:
     identity: str
     tier: str
     deferred: str = ""
+    effect_free: bool = True
 
     @property
     def path(self) -> Path:
@@ -306,6 +316,104 @@ MANIFEST = (
         ),
         identity="72fe5503bbf99fd187a83b5fd5cca4f6df2c5747fcd0d934457e7c96f6f4e6ed",
         tier="checked",
+    ),
+    # --- Tranche 3: the effectful slice. Closed rows only (R2 drops Unison's
+    # row polymorphism), §2.4 builtin abilities only, and every capability
+    # arrives as a parameter because §2.4 makes `cap a` unforgeable in the
+    # language. `clock/nowPair` is the only entry with a `ref`, into
+    # `corpus/clock/now` above it (docs/plans/2026-08-13-corpus-tranche-3.md).
+    CorpusEntry(
+        fixture="clock_now.loom.sexpr",
+        name_path="corpus/clock/now",
+        spec="The current wall-clock time in Unix-epoch milliseconds.",
+        source=(
+            "Unison (unisonweb/unison, MIT) IO.systemTime, narrowed from the "
+            "broad `{IO}` ability to §2.4's `clock` and taking the explicit "
+            "`cap clock` parameter Unison has no counterpart for"
+        ),
+        identity="1d76cfea633059e7e0523b04b2a25f1bd7681266c2ad9c107fe63ed94b96aabe",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="rand_bytes.loom.sexpr",
+        name_path="corpus/rand/bytes",
+        spec="Draw the requested number of random bytes.",
+        source=(
+            "Unison (unisonweb/unison, MIT) `Random` ability draw; no base "
+            "definition returns a requested count of bytes, so the ability-draw "
+            "shape rather than a named original is what is transpiled"
+        ),
+        identity="f403bb626c6758e31f4d6ffe69b657f210dd40ad1b972249788bfb4c6e4d6181",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="clock_stamped.loom.sexpr",
+        name_path="corpus/clock/stamped",
+        spec="Run a clock-reading action and pair the time it started with its result.",
+        source=(
+            "Unison (unisonweb/unison, MIT) IO.systemTime used as a timing "
+            "wrapper's prefix; the elapsed-time subtraction has no Loom "
+            "arithmetic term (R2), so the start time is paired with the result"
+        ),
+        identity="1b34eac0d6170e358d640f3361f66fdf85f10605542755b4560bc527f6dc5fce",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="rand_with_stub.loom.sexpr",
+        name_path="corpus/rand/withStub",
+        spec="Draw four random bytes under a local handler answering with a fixed stub.",
+        source=(
+            "Unison (unisonweb/unison, MIT) ability-handler idiom for `Random` "
+            "(a handler supplying deterministic answers in place of the "
+            "runtime's); no single base definition is the original, and "
+            "generator state is dropped because Loom v0.1 has no arithmetic (R2)"
+        ),
+        identity="f0f11f45a58849efad599470a01968334bd98c8c9338bd463ceba51933204dc7",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="clock_now_pair.loom.sexpr",
+        name_path="corpus/clock/nowPair",
+        spec="Read the wall clock twice, pairing the two readings.",
+        source=(
+            "Unison (unisonweb/unison, MIT) IO.systemTime called twice in one "
+            "`{IO}` block; the ambient ability becomes an explicit `cap clock` "
+            "threaded by hand into each call of corpus/clock/now"
+        ),
+        identity="39256387522338400d5fd3181c328882c76356d9c50ca40465be88b219c0d642",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="sample_now_and_bytes.loom.sexpr",
+        name_path="corpus/sample/nowAndBytes",
+        spec="Pair the current wall-clock time with eight random bytes.",
+        source=(
+            "Unison (unisonweb/unison, MIT) `{IO}` code reading the clock and "
+            "the random source in one block; §2.4 splits that single Unison "
+            "ability in two, so the row is the closed two-ability row rand+clock"
+        ),
+        identity="8671c61e79cc536d0a4e00ecad9c838547797cdfa5342a876e00285159717105",
+        tier="checked",
+        effect_free=False,
+    ),
+    CorpusEntry(
+        fixture="rand_resample.loom.sexpr",
+        name_path="corpus/rand/resample",
+        spec="Draw random bytes under a handler that resumes twice and recombines both outcomes.",
+        source=(
+            "Unison (unisonweb/unison, MIT) nondeterminism-handler idiom (a "
+            "handler invoking its continuation more than once); no base "
+            "definition is the original, so the multi-shot shape rather than a "
+            "named function is what is transpiled"
+        ),
+        identity="13926e2d25d36dc321a19973fc64a11255751426863707efa2ed164e9a794db0",
+        tier="checked",
+        effect_free=False,
     ),
 )
 
