@@ -339,14 +339,24 @@ declaration a definition names precedes it. `★` marks the four built here.
 | 23 | `list/isEmpty` | `List I64 -> Bool` | `List.isEmpty` |
 | 24 ★ | `list/uncons` | `List I64 -> Maybe (Pair I64 (List I64))` | `List.uncons` |
 
-**Tranche 2 (partially built)** — recursive; measure `(ref #List.size)`
+~~**Tranche 2 (partially built)** — recursive; measure `(ref #List.size)`
 throughout, no `div`: `list/size` (assumed, layer 1), `list/append`,
 `list/reverse`, `list/map`, `list/foldLeft`, `list/foldRight`, `list/concat`,
 `list/flatMap`. These now reach tier `checked` rather than `structural`: the
 match layer types `fix` and `ref`, `fix` names its decreasing argument
 ([measure selection](2026-08-13-measure-selection.md)), and
 `corpus_registry.reference_type()` resolves the assumed base. `list/foldRight` is
-built as the first fixture of this tranche; the rest are still specified only.
+built as the first fixture of this tranche; the rest are still specified only.~~
+Resolved 2026‑08‑13: **tranche 2 is fully built** — see the
+[tranche-2 plan](2026-08-13-corpus-tranche-2.md). `list/append`, `list/reverse`,
+`list/map`, `list/foldLeft`, `list/concat`, and `list/flatMap` join
+`list/foldRight`, all at tier `checked` measuring `(ref #List.size)` with no
+`div`; `list/size` remains the assumed-base extern, never a fixture.
+`list/concat` and `list/flatMap` are the manifest's first entries to `ref`
+another manifest definition (`list/append`) rather than only the assumed base,
+exercising `corpus_registry.reference_type()`'s
+`definition_types.DefinitionTypeRegistry` path for the first time. The tranche
+stays monomorphic at `I64` throughout (residue 5, below).
 
 **Tranche 3** — the effectful slice: Unison ability code against §2.4's eight
 builtins, closed rows only, exercising `perform`, `handle`, and `cap`. This is
@@ -423,6 +433,22 @@ the main checkout the `task` form is equivalent.
    attributions re-sourced to the MIT-licensed
    [unisonweb/unison](https://github.com/unisonweb/unison) main repository (R1
    as amended). No longer blocks scale.
+5. **A generic `List (List I64)` `concat`, or any `List.size`-measured
+   recursion over a `forall`-bound element type, is out of reach of tranche 2
+   as built** (found while building the
+   [tranche-2 plan](2026-08-13-corpus-tranche-2.md)). `list/size`'s pinned
+   extern type is `List I64 -> I64`, not generic — so it cannot serve as the
+   measure for a `fix` recursing over `List (List I64)` or `List a`, and no
+   second, differently-typed `List.size` exists to fill that role. Instantiation
+   (`SPEC.md` §3.1.3) and measure selection (§2.5) are both landed, but nothing
+   has exercised them *together* inside one recursive `fix` — tranche 2 stayed
+   monomorphic at `I64` throughout instead, per its brief. Unblocking a truly
+   generic recursive list operation needs either a `forall`-quantified assumed
+   base (an extern whose type is itself polymorphic, which `declarations.py`'s
+   extern shape check currently refuses outright — `test_externs.
+   ExternShapeTest.test_polymorphic_externs_are_rejected` pins that) or a
+   per-instantiation measure derivation rule. **This is a language‑design call,
+   not a corpus call**, and is not attempted here.
 
 ## Recorded verification
 
