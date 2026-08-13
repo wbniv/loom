@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Build corpus tranche 2: the recursive slice.** Transpile the seven remaining
+- [wip T2] <!-- agent:a55ffe834cc297ea5 --> **Build corpus tranche 2: the recursive slice.** Transpile the seven remaining
   recursive definitions (`list/append`, `list/reverse`, `list/map`, `list/foldLeft`,
   `list/concat`, `list/flatMap`, plus assumed-base wiring for `list/size`) to tier
   `checked`, measure `(ref #List.size)` throughout, no `div`. `list/foldRight` is the
@@ -35,7 +35,7 @@ Check conformance with `task todo:lint`.
   See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T2: repetition of a landed
   pattern against a written tranche list; `foldLeft` exercises the accumulator case.)
 
-- [T2] **State the callback-extern consequence normatively (§5.1.3).** The per-arrow
+- [wip T2] <!-- agent:afe53910e38bb6eea --> **State the callback-extern consequence normatively (§5.1.3).** The per-arrow
   capability rule makes an extern that invokes an effectful callback unwritable
   without a direct cap parameter — correct blast-radius behavior that exists only as
   emergent checker behavior. Add the §5.1.3 sentence plus the accepted
