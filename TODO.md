@@ -27,14 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:a55ffe834cc297ea5 --> **Build corpus tranche 2: the recursive slice.** Transpile the seven remaining
-  recursive definitions (`list/append`, `list/reverse`, `list/map`, `list/foldLeft`,
-  `list/concat`, `list/flatMap`, plus assumed-base wiring for `list/size`) to tier
-  `checked`, measure `(ref #List.size)` throughout, no `div`. `list/foldRight` is the
-  built exemplar; the machinery (fix position field, extern resolver) is all landed.
-  See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T2: repetition of a landed
-  pattern against a written tranche list; `foldLeft` exercises the accumulator case.)
-
 - [T3] **Build corpus tranche 3: the effectful slice.** Unison ability code against
   §2.4's eight builtins, closed rows only, exercising `perform`, `handle`, and `cap`
   at tier `checked` — the tranche where the Unison-over-F* corpus choice pays off.
@@ -45,6 +37,21 @@ Check conformance with `task todo:lint`.
   plan.)
 
 ## Watch
+
+- Re-evaluate the production implementation language, then migrate the validation
+  engine from Python according to that decision. Rust is the current leading
+  candidate, not a predetermined outcome; compare at least Rust and one credible
+  alternative against deterministic performance, memory safety, closed IR types,
+  CBOR/WASM/SMT integration, deployment, ecosystem risk, and implementation cost.
+  Promote this to Open when **either**: (a) two consecutive corpus tranches require
+  no canonical IR/tag changes and the parser, scope, reference, and type-checking
+  contracts are versioned; (b) type-directed masking or validation is integrated
+  into an interactive generation loop; (c) the prototype must run as a persistent
+  or security-sensitive service; or (d) profiling shows Python consumes at least
+  25% of an agreed end-to-end latency budget. Record the language decision before
+  implementation. Keep Python as the differential reference oracle; require the
+  replacement to match acceptance, canonical CBOR bytes, hashes, and pinned fixture
+  identities before it becomes authoritative.
 
 - Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
   pruning is affordable per emitted token is an empirical systems question; revisit
@@ -59,8 +66,8 @@ Check conformance with `task todo:lint`.
   revisit once the memo ledger (§6.4) has real usage data showing this actually costs
   something.
 
-_Nothing being watched. Entries here are plain bullets: what to check, how often, and the
-trigger that promotes it back to Open._
+Entries here are plain bullets: what to check, how often, and the trigger that
+promotes it back to Open.
 
 ## Parked
 
@@ -69,6 +76,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [corpus-tranche-2] Built six recursive fixtures at tier checked with
+  the corpus's first ref dependency chain; concat's monomorphic wall recorded.
+  See [plan](docs/plans/2026-08-13-corpus-tranche-2.md).
 - ✅ 2026-08-13 — [callback-extern] Stated the callback-extern consequence in §5.1.3
   with the accepted/rejected test pair pinning the per-arrow rule's reach.
   See [plan](docs/plans/2026-08-13-callback-extern-consequence.md).
