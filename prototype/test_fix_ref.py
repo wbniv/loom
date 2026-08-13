@@ -6,7 +6,7 @@ import unittest
 
 import prelude
 from declarations import DeclarationRegistry, declaration_hash
-from matches import MatchChecker, TypeDirectionError, validate_source
+from typecheck import MatchChecker, TypingError, validate_source
 
 I64 = [0, 2]
 KEY = b"r" * 32
@@ -35,7 +35,7 @@ class FixTypingTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str, reference_type=None):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry, reference_type)
         self.assertIn(message, str(caught.exception))
 
@@ -134,7 +134,7 @@ class MeasureSelectionTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str, reference_type=None):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry, reference_type)
         self.assertIn(message, str(caught.exception))
 
@@ -200,7 +200,7 @@ class ReferenceTypingTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str, reference_type=None):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry, reference_type)
         self.assertIn(message, str(caught.exception))
 

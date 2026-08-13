@@ -733,10 +733,11 @@ foreign artifact that type is a claim about, and the ABI selector naming the
 entry point inside it.
 
 - `type` — the extern's Loom signature, checked at term depth 0 and type depth 0.
-  Declaration-local `self` (§5.1.1) is forbidden, and so is `forall`: v0.1 has no
-  term-level type application, so a polymorphic extern could never be used at an
-  instance. `tyvar` and row variables are consequently out of scope everywhere in
-  it, and every row is closed by construction.
+  Declaration-local `self` (§5.1.1) is forbidden, and so is `forall`: although
+  §3.1.3 can instantiate quantified references in checking position, v0.1
+  foreign ABI entries are deliberately monomorphic and define no ABI-level
+  monomorphization contract. `tyvar` and row variables are consequently out of
+  scope everywhere in it, and every row is closed by construction.
 - `artifact` — the 32-byte content hash pinning the foreign artifact (a WASM
   component in v0.1). A host supplying a primitive that has no artifact bytes
   pins the published 32-byte identity of its ABI instead; the reference corpus
@@ -757,9 +758,13 @@ never enter identity, as for every other kind.
 **The declared effect row is the assumption.** An extern's arrows may carry any
 row. The *empty* row is the strongest claim the object makes: it asserts that the
 foreign artifact is pure, total, and deterministic — unverifiable by construction,
-and precisely what the mandatory A0 evidence below is signed for. For every
-ability `a` occurring in any row of the type, the type must also take a `cap a`
-parameter in some domain position. Otherwise §2.4's blast-radius bound would be
+and precisely what the mandatory A0 evidence below is signed for. Capability
+honesty is checked along the type's top-level curried arrow spine in application
+order. For every ability `a` in an arrow's row, a direct earlier-or-current
+domain must be exactly `cap a`; the current argument is available before that
+arrow's effects occur. A capability nested inside a callback or data type is not
+a capability value received by the extern, and a later curried domain cannot
+authorize an earlier effect. Otherwise §2.4's blast-radius bound would be
 escapable through the FFI boundary: applying an extern is not a `perform`, so
 nothing else in the language would demand the capability. The five assumed-base
 externs are pure-typed and therefore take no capability at all.

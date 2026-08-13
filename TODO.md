@@ -69,6 +69,11 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [claude-review-remediation] Hardened extern capability order,
+  reconciled monomorphic ABIs with forall instantiation, added validated
+  definition-type resolution and provenance enforcement, and renamed the
+  expanded checker. See
+  [plan](docs/plans/2026-08-13-claude-review-remediation.md).
 - ✅ 2026-08-13 — [forall-instantiation] Implemented first-order instantiation of
   quantified refs in checking position; mapPoly-at-I64 proof definition validates.
   See [plan](docs/plans/2026-08-13-forall-instantiation.md).

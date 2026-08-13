@@ -49,7 +49,9 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration and extern definition objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
-| `matches.py` | Bidirectional nominal/match, closed-row effect/handler, and `fix`/`ref` checking for the first type-directed subset; `ref` types come from an injected resolver. |
+| `typecheck.py` | Partial bidirectional checker: nominal matches, effects/handlers, `if`, `fix`/`ref`, and first-order instantiation. |
+| `matches.py` | Compatibility import shim for the checker's former name. |
+| `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
 | `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest, and the §8.4 few-shot pairs. |
@@ -168,7 +170,7 @@ explicit `con`/`perform`/`handle` bounds and arities. It does not establish
 typing, termination, refinement validity, or evidence. The remaining oracle
 layers are described in `SPEC.md` §§3, 6, and 8.
 
-`matches.validate_source` is a deliberately partial type-directed layer. It
+`typecheck.validate_source` is a deliberately partial type-directed layer. It
 validates nominal constructors and exhaustive matches, `if` against `Bool` with
 both branches at the goal type, closed function effect
 rows, operation signatures and capabilities, and handlers with typed return,

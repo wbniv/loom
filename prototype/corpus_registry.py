@@ -22,6 +22,7 @@ from types import MappingProxyType
 
 import prelude
 from declarations import DeclarationRegistry, declaration_hash
+from definition_types import DefinitionTypeRegistry
 
 CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
 
@@ -145,13 +146,23 @@ def registry() -> DeclarationRegistry:
 def reference_type(source: DeclarationRegistry | None = None):
     """The `ref`-type resolver the match layer needs (§3.1.3).
 
-    The corpus has no store of typed definitions; what it does have is the
-    assumed base, and an extern's type *is* the type a `ref` to it has. So the
-    resolver is the registry's own lookup rather than a second table — a hash
-    outside the assumed base still raises, and the match layer still refuses
-    rather than guessing.
+    The prototype has no live store, so a validated immutable definition-type
+    snapshot stands in for it. Extern types continue to resolve through the
+    declaration registry. A hash absent from both sources still raises, and the
+    typing layer refuses rather than guessing.
     """
-    return (source if source is not None else registry()).reference_type
+    declarations = source if source is not None else registry()
+    definitions = DefinitionTypeRegistry(declarations.operation_arity)
+    for entry in MANIFEST:
+        definitions.add_source(entry.source_text(), bytes.fromhex(entry.identity))
+
+    def resolve(digest: bytes) -> list:
+        try:
+            return definitions.reference_type(digest)
+        except LookupError:
+            return declarations.reference_type(digest)
+
+    return resolve
 
 
 @dataclass(frozen=True)
@@ -208,7 +219,7 @@ MANIFEST = (
         fixture="maybe_map_poly.loom.sexpr",
         name_path="corpus/maybe/mapPoly",
         spec="Apply a function to the option's value, for any element types.",
-        source="Unison base Optional.map, kept generic (SPEC.md §3.1.3)",
+        source="Unison (unisonweb/unison, MIT) Optional.map, kept generic (SPEC.md §3.1.3)",
         identity="0dba3946f35c4e5746427da984d883b8067eea3e5149e7a2a4da26c0d1d6f24a",
         tier="checked",
     ),
@@ -216,7 +227,7 @@ MANIFEST = (
         fixture="bool_not.loom.sexpr",
         name_path="corpus/bool/not",
         spec="The opposite of the given boolean.",
-        source="Unison base Boolean.not",
+        source="Unison (unisonweb/unison, MIT) Boolean.not",
         identity="162f818f22a2d041cb823d9a4e98c98d6102eee7de83519211452c348bb1be45",
         tier="checked",
     ),

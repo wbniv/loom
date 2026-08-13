@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import cbor_canonical
 from declarations import DeclarationError, DeclarationRegistry
-from matches import TypeDirectionError, instantiate_type
+from typecheck import TypingError, instantiate_type
 
 SORT_BOOL = "Bool"
 SORT_INT = "Int"
@@ -142,7 +142,7 @@ class ObligationTranslator:
                 field_path = f"{path}.constructors[{index}].fields[{position}]"
                 try:
                     instantiated = instantiate_type(field, ir[2], ir[1], field_path)
-                except TypeDirectionError as exc:
+                except TypingError as exc:
                     _fail(exc.path, exc.message)
                 field_sorts.append(self.sort(instantiated, field_path))
             constructors.append(field_sorts)

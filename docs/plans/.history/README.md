@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/d1159d9) | Implement first-order forall instantiation (SPEC §3.1.3) |
 | [2026-08-13](https://github.com/wbniv/loom/commit/6908b1c) | Let a fix name its decreasing argument |
 | [2026-08-13](https://github.com/wbniv/loom/commit/6347950) | Add definition-level polymorphism and the `if` Bool eliminator |
 | [2026-08-13](https://github.com/wbniv/loom/commit/9a58037) | Specify the extern object encoding |
@@ -20,6 +21,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+d1159d9	author	Will Norris
+d1159d9	added	1
+d1159d9	deleted	0
+d1159d9	files	1
+d1159d9	body	A term checked against a concrete expected type that synthesizes forall^p T\n- in practice a ref whose resolved type is quantified - is now instantiated\nby first-order matching of T against the expected type, additive in\nMatchChecker.check's fallback. Synthesis position is unchanged. Proof:\ncorpus/maybe/mapPoly called at I64 through a typed let, plus a\npolymorphic-caller case and four rejection cases in\nprototype/test_instantiation.py.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 6908b1c	author	Will Norris
 6908b1c	added	1
 6908b1c	deleted	0

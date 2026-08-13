@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from declarations import DeclarationRegistry, declaration_hash
-from matches import TypeDirectionError, constructor_fields, validate_source
+from typecheck import TypingError, constructor_fields, validate_source
 
 I64 = [0, 2]
 BOOL = [0, 1]
@@ -25,7 +25,7 @@ class MatchValidationTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry)
         self.assertIn(message, str(caught.exception))
 
@@ -76,12 +76,12 @@ class MatchValidationTest(unittest.TestCase):
     def test_checked_arm_mismatch_attribution(self):
         # A mismatch at the arm body itself is reported as an arm-result mismatch.
         top = f"(lam {self.list_i64} (match (var 0) ((0 0 (lit bool true)) (1 2 (lit i64 1)))))"
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(self.definition(f"(fn {self.list_i64} () I64)", top), self.registry)
         self.assertIn("arm result type differs", str(caught.exception))
         # A mismatch nested deeper inside the arm keeps its own path and message.
         nested = f"(lam {self.list_i64} (match (var 0) ((0 0 (lam I64 (lit bool true))) (1 2 (lam I64 (var 2))))))"
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(self.definition(f"(fn {self.list_i64} () (fn I64 () I64))", nested), self.registry)
         self.assertNotIn("arm result type differs", str(caught.exception))
         self.assertIn(".body.body", caught.exception.path)
@@ -97,7 +97,7 @@ class BoolEliminationTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry)
         self.assertIn(message, str(caught.exception))
 

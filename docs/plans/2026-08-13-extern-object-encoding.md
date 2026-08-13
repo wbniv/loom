@@ -82,9 +82,9 @@ selector. Recorded as the alternative.
 
 Checked at type depth 0 with no `self` arity — so `tyvar`, row variables, and the
 §5.1.1 declaration-local `self` are all out of scope — and `forall` is rejected
-outright. The reason is the corpus plan's R3, verified there rather than assumed:
-v0.1 has no term-level type application, so a polymorphic extern could never be
-used at an instance. A polymorphic extern would be an object nothing could call.
+outright. Although §3.1.3 now instantiates quantified references in checking
+position, v0.1 foreign ABI entries define no ABI-level monomorphization contract;
+extern signatures therefore remain deliberately monomorphic.
 
 **The declared effect row is the assumption, and the empty row is the loudest
 one.** `I64.add : I64 -> I64 -> I64` with empty rows throughout claims the foreign
@@ -94,8 +94,10 @@ and it is also what makes the extern usable in a refinement predicate at all,
 since §3.2.1 requires every arrow on a translated reference's spine to carry the
 empty row.
 
-**Capability honesty.** For every ability `a` occurring in any row of the type,
-the type must take a `cap a` parameter in some domain position. Without this rule
+**Capability honesty.** Along the top-level curried call spine, every ability
+`a` in an arrow's row must have a direct `cap a` domain no later than that
+arrow. A capability buried in a callback/data type is not a value received by
+the extern, and a later domain cannot authorize an earlier effect. Without this rule
 §2.4's blast-radius bound leaks: applying an extern is not a `perform`, so nothing
 else in the language would demand the capability, and an extern typed
 `Bytes -{ffi}> Bytes` would let a definition reach the outside world while its

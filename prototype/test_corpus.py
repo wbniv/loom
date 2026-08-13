@@ -17,7 +17,7 @@ import hashlib
 import unittest
 
 import corpus_registry
-import matches
+import typecheck as matches
 import references
 import scope
 from corpus_registry import MANIFEST, TIERS
@@ -85,7 +85,7 @@ class CorpusFixtureTest(unittest.TestCase):
                     matches.validate_source(source, self.registry, resolver)
                 else:
                     self.assertNotEqual(entry.deferred, "", "a structural entry must record why")
-                    with self.assertRaises(matches.TypeDirectionError):
+                    with self.assertRaises(matches.TypingError):
                         matches.validate_source(source, self.registry, resolver)
 
     def test_every_fixture_is_pure_and_capability_free(self):
@@ -115,6 +115,13 @@ class CorpusFixtureTest(unittest.TestCase):
             self.assertTrue(surface.startswith("(def "))
             self.assertFalse(surface.endswith("\n"))
             parse_source(surface)
+
+    def test_external_fixture_provenance_names_repository_and_license(self):
+        for entry in MANIFEST:
+            with self.subTest(fixture=entry.fixture):
+                if entry.source.startswith("Unison"):
+                    self.assertIn("unisonweb/unison", entry.source)
+                    self.assertIn("MIT", entry.source)
 
     def test_manifest_declares_dependencies_before_use(self):
         # The store has no forward references, so no entry may name a later
@@ -186,7 +193,7 @@ class ExpressivenessLimitTest(unittest.TestCase):
         match_on_bool = [0, [2, BOOL, [], I64],
                          [3, BOOL, [7, [0, 0], [[0, 0, [2, 2, 1]], [1, 0, [2, 2, 0]]]]]]
         scope.check_definition(match_on_bool, self.registry.operation_arity)
-        with self.assertRaises(matches.TypeDirectionError) as caught:
+        with self.assertRaises(matches.TypingError) as caught:
             matches.validate_source(def_to_surface(match_on_bool), self.registry)
         self.assertIn("match scrutinee does not synthesize a nominal data type", str(caught.exception))
 
@@ -226,7 +233,7 @@ class ExpressivenessLimitTest(unittest.TestCase):
         resolver = corpus_registry.reference_type(self.registry)
         for position in (0, 1):
             merge = [0, merge_type, [10, merge_type, position, both, body]]
-            with self.subTest(position=position), self.assertRaises(matches.TypeDirectionError) as caught:
+            with self.subTest(position=position), self.assertRaises(matches.TypingError) as caught:
                 matches.validate_source(def_to_surface(merge), self.registry, resolver)
             self.assertIn("type mismatch", str(caught.exception))
 

@@ -139,79 +139,34 @@ def check_ability_declaration(obj) -> None:
         check_declaration_type(op[1], 0, None, f"ability.operations[{op_index}].result")
 
 
-def _row_abilities(ir, path: str, found: set) -> None:
-    """Collect every ability hash occurring in any effect row of a type."""
-    tag = ir[0]
-    if tag == 1:
-        for index, argument in enumerate(ir[2]):
-            _row_abilities(argument, f"{path}.args[{index}]", found)
-        return
-    if tag == 2:
-        _row_abilities(ir[1], f"{path}.domain", found)
-        for effect in ir[2]:
-            if isinstance(effect, bytes):
-                found.add(effect)
-        _row_abilities(ir[3], f"{path}.codomain", found)
-        return
-    if tag == 3:
-        _row_abilities(ir[1], f"{path}.base", found)
-        return
-    if tag == 6:
-        _row_abilities(ir[1], f"{path}.body", found)
+def _check_extern_capability_order(ir, path: str, available: set[bytes]) -> None:
+    """Check the top-level curried call spine in application order.
 
-
-def _domain_capabilities(ir, path: str, found: set) -> None:
-    """Collect every ability hash for which a `cap` value is taken as an argument."""
-    tag = ir[0]
-    if tag == 1:
-        for index, argument in enumerate(ir[2]):
-            _domain_capabilities(argument, f"{path}.args[{index}]", found)
+    A direct ``cap a`` domain supplies the value before that arrow's effects
+    occur. Capabilities buried inside callbacks/data are not values received by
+    the extern, and later domains cannot authorize an earlier application.
+    """
+    if ir[0] != 2:
         return
-    if tag == 2:
-        _capabilities_in(ir[1], found)
-        _domain_capabilities(ir[3], f"{path}.codomain", found)
-        return
-    if tag == 3:
-        _domain_capabilities(ir[1], f"{path}.base", found)
-        return
-    if tag == 6:
-        _domain_capabilities(ir[1], f"{path}.body", found)
-
-
-def _capabilities_in(ir, found: set) -> None:
-    tag = ir[0]
-    if tag == 4:
-        found.add(ir[1])
-        return
-    if tag == 1:
-        for argument in ir[2]:
-            _capabilities_in(argument, found)
-        return
-    if tag == 2:
-        _capabilities_in(ir[1], found)
-        _capabilities_in(ir[3], found)
-        return
-    if tag in (3, 6):
-        _capabilities_in(ir[1], found)
+    domain, row, codomain = ir[1], ir[2], ir[3]
+    if domain[0] == 4:
+        available.add(domain[1])
+    for ability in row:
+        if isinstance(ability, bytes) and ability not in available:
+            _error(path, f"effect row names ability {ability.hex()} before taking a matching direct cap parameter")
+    _check_extern_capability_order(codomain, f"{path}.codomain", available)
 
 
 def check_extern_type(ir, path: str = "extern.type") -> None:
     """An extern's signature: closed, monomorphic, and capability-honest (§5.1.3).
 
-    `forall` is rejected outright — v0.1 has no term-level type application, so a
-    polymorphic extern could never be used at an instance — and checking at type
-    depth 0 with no `self` arity rejects `tyvar`, row variables, and the
-    declaration-local `self` form along with it.
+    `forall` is rejected outright because v0.1 foreign ABI entries are
+    monomorphic. Checking at type depth 0 with no `self` arity rejects `tyvar`,
+    row variables, and the declaration-local `self` form along with it.
     """
     _reject_forall(ir, path)
     check_declaration_type(ir, 0, None, path)
-    abilities: set = set()
-    capabilities: set = set()
-    _row_abilities(ir, path, abilities)
-    _domain_capabilities(ir, path, capabilities)
-    missing = sorted(abilities - capabilities)
-    if missing:
-        _error(path, f"effect row names ability {missing[0].hex()} without taking a matching cap parameter")
+    _check_extern_capability_order(ir, path, set())
 
 
 def _reject_forall(ir, path: str) -> None:
@@ -220,7 +175,7 @@ def _reject_forall(ir, path: str) -> None:
         _error(path, "empty type node")
     tag = node[0]
     if tag == 6:
-        _error(path, "an extern type may not be polymorphic: v0.1 has no term-level type application")
+        _error(path, "an extern type may not be polymorphic: v0.1 foreign ABI entries are monomorphic")
     if tag == 1:
         for index, argument in enumerate(_array(node[2], f"{path}.args")):
             _reject_forall(argument, f"{path}.args[{index}]")

@@ -6,7 +6,7 @@ import os
 import unittest
 
 import prelude
-from matches import MatchChecker, TypeDirectionError, validate_source
+from typecheck import MatchChecker, TypingError, validate_source
 
 
 class EffectTypingTest(unittest.TestCase):
@@ -18,7 +18,7 @@ class EffectTypingTest(unittest.TestCase):
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str):
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry)
         self.assertIn(message, str(caught.exception))
 
@@ -99,7 +99,7 @@ class EffectTypingTest(unittest.TestCase):
         term = [4, [0, 0], [2, 0]]
         checker = MatchChecker(self.registry)
         self.assertEqual(checker.synth(term, [function_type], (clock_bytes,), "test"), [0, 2])
-        with self.assertRaisesRegex(TypeDirectionError, "not allowed"):
+        with self.assertRaisesRegex(TypingError, "not allowed"):
             checker.synth(term, [function_type], (), "test")
 
     def test_synthesized_lambda_is_pure_and_cannot_escape_a_handler(self):
@@ -114,7 +114,7 @@ class EffectTypingTest(unittest.TestCase):
         clock_bytes = prelude.HASHES["clock"]
         checker = MatchChecker(self.registry)
         lam = [3, [0, 0], [8, clock_bytes, 0, []]]
-        with self.assertRaisesRegex(TypeDirectionError, "not allowed"):
+        with self.assertRaisesRegex(TypingError, "not allowed"):
             checker.synth(lam, [[4, clock_bytes]], (clock_bytes,), "test")
 
     def test_operationless_ability_cannot_be_handled(self):
@@ -142,7 +142,7 @@ class EffectTypingTest(unittest.TestCase):
 
     def test_row_polymorphism_fails_explicitly(self):
         checker = MatchChecker(self.registry)
-        with self.assertRaisesRegex(TypeDirectionError, "row-polymorphic"):
+        with self.assertRaisesRegex(TypingError, "row-polymorphic"):
             checker.check([3, [0, 0], [2, 0]], [2, [0, 0], [[5, 0]], [0, 0]], [], (), "test")
 
 

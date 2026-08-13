@@ -14,7 +14,8 @@ import unittest
 import corpus_registry
 import references
 import scope
-from matches import TypeDirectionError, validate_source
+from definition_types import DefinitionTypeRegistry
+from typecheck import TypingError, validate_source
 from transcode import parse_source
 
 I64 = [0, 2]
@@ -36,13 +37,13 @@ class InstantiationTest(unittest.TestCase):
         entry = next(e for e in corpus_registry.MANIFEST if e.name_path == "corpus/maybe/mapPoly")
         self.mappoly_hash = bytes.fromhex(entry.identity)
         self.mappoly_type = parse_source(entry.source_text())[1]
-        self.mappoly_resolve = resolver({self.mappoly_hash: self.mappoly_type})
+        self.mappoly_resolve = corpus_registry.reference_type(self.registry)
 
     def definition(self, type_surface: str, term_surface: str) -> str:
         return f"(def {type_surface} {term_surface})"
 
     def assert_type_error(self, source: str, message: str, reference_type) -> None:
-        with self.assertRaises(TypeDirectionError) as caught:
+        with self.assertRaises(TypingError) as caught:
             validate_source(source, self.registry, reference_type)
         self.assertIn(message, str(caught.exception))
 
@@ -73,6 +74,18 @@ class InstantiationTest(unittest.TestCase):
         scope.validate_source(source, self.registry.operation_arity)
         references.validate_source(source, self.registry)
         validate_source(source, self.registry, self.mappoly_resolve)
+
+    def test_corpus_resolver_returns_isolated_validated_definition_types(self):
+        first = self.mappoly_resolve(self.mappoly_hash)
+        first.clear()
+        self.assertEqual(self.mappoly_resolve(self.mappoly_hash), self.mappoly_type)
+
+    def test_definition_type_registry_rejects_unscoped_and_misidentified_input(self):
+        types = DefinitionTypeRegistry(self.registry.operation_arity)
+        with self.assertRaises(scope.ScopeError):
+            types.add_source("(def I64 (var 0))")
+        with self.assertRaisesRegex(ValueError, "does not match canonical hash"):
+            types.add_source("(def I64 (lit i64 1))", b"x" * 32)
 
     def test_polymorphic_caller_instantiates_with_its_own_type_variable(self):
         # A caller polymorphic in its own `a` calls mapPoly at that same `a`,

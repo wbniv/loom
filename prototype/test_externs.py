@@ -150,7 +150,7 @@ class ExternCapabilityHonestyTest(unittest.TestCase):
         # bound would otherwise be escapable through the FFI boundary.
         with self.assertRaises(DeclarationError) as ctx:
             check_extern_definition([7, [2, BYTES, [self.FFI], BYTES], ARTIFACT, "call"])
-        self.assertIn("without taking a matching cap parameter", str(ctx.exception))
+        self.assertIn("before taking a matching direct cap parameter", str(ctx.exception))
         self.assertIn(self.FFI.hex(), str(ctx.exception))
 
     def test_an_effectful_extern_with_its_cap_is_accepted(self):
@@ -169,7 +169,24 @@ class ExternCapabilityHonestyTest(unittest.TestCase):
         obj = [7, [2, BYTES, [self.FFI], [4, self.FFI]], ARTIFACT, "call"]
         with self.assertRaises(DeclarationError) as ctx:
             check_extern_definition(obj)
-        self.assertIn("without taking a matching cap parameter", str(ctx.exception))
+        self.assertIn("before taking a matching direct cap parameter", str(ctx.exception))
+
+    def test_a_capability_buried_in_a_callback_is_not_available(self):
+        callback = [2, [4, self.FFI], [], [0, 0]]
+        obj = [7, [2, callback, [self.FFI], [0, 0]], ARTIFACT, "call"]
+        with self.assertRaises(DeclarationError) as ctx:
+            check_extern_definition(obj)
+        self.assertIn("matching direct cap parameter", str(ctx.exception))
+
+    def test_a_later_curried_capability_cannot_authorize_an_earlier_effect(self):
+        obj = [7, [2, BYTES, [self.FFI], [2, [4, self.FFI], [], BYTES]], ARTIFACT, "call"]
+        with self.assertRaises(DeclarationError) as ctx:
+            check_extern_definition(obj)
+        self.assertIn("matching direct cap parameter", str(ctx.exception))
+
+    def test_direct_capabilities_authorize_the_current_and_later_arrows(self):
+        obj = [7, [2, [4, self.FFI], [self.FFI], [2, BYTES, [self.FFI], BYTES]], ARTIFACT, "call"]
+        check_extern_definition(obj)
 
     def test_the_five_assumed_base_externs_are_pure_typed(self):
         # Every arrow carries the empty row, which is what §3.2.1 requires of a
