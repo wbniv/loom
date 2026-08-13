@@ -13,7 +13,7 @@ tasks:
     desc: Run parser, identity, scope, declaration, and reference tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches -v
 
   grammar:test:
     desc: Validate the canonical Loom surface with llama.cpp's GBNF validator

@@ -48,6 +48,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
+| `matches.py` | Bidirectional nominal constructor checking and exhaustive match validation for the first type-directed subset. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -55,6 +56,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
 | `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
 | `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
+| `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 
 The example fixtures are:
 
@@ -93,6 +95,11 @@ establish match exhaustiveness, typing, termination, refinement validity, or
 evidence. Match constructor and binder validation requires inference of the
 scrutinee type and remains a typechecker responsibility. The remaining oracle
 layers are described in `SPEC.md` §§3, 6, and 8.
+
+`matches.validate_source` is the first deliberately partial type-directed layer.
+It validates nominal constructors and matches over literals, variables, lambdas,
+applications, lets, constructors, matches, and holes. Other nodes raise an
+explicit path-aware error until their typing rules are implemented.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:

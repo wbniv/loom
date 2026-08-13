@@ -169,6 +169,10 @@ class DeclarationRegistry:
         obj = self._resolve(digest, 4, "data")
         return DataInfo(obj[2], tuple(len(fields) for fields in obj[3]))
 
+    def data_object(self, digest: bytes) -> list:
+        """Return an isolated copy of a verified data declaration."""
+        return copy.deepcopy(self._resolve(digest, 4, "data"))
+
     def ability(self, digest: bytes) -> AbilityInfo:
         obj = self._resolve(digest, 5, "ability")
         return AbilityInfo(tuple(len(operation[0]) for operation in obj[2]))

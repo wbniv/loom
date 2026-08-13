@@ -203,6 +203,21 @@ resolved, all implicit machinery discharged. Two agents whose inference
 engines differ in power still agree on the identity of any term they can
 both elaborate — identity never depends on inference strength.
 
+### 3.1.1 Nominal constructor and match typing
+
+For a data declaration `[4, key, p, constructors]` referenced as
+`data h [A₀…Aₚ₋₁]`, constructor field types are instantiated by replacing
+declaration `tyvar i` with `Aᵢ` and declaration-local `self [B…]` with
+`data h [B…]` after recursively applying the same substitution.
+
+`con h i [args]` synthesizes `data h [A…]` when checked in a context fixing its
+type arguments, constructor `i` exists, and its instantiated field types match
+the arguments. A `match` scrutinee must synthesize a nominal `data h [A…]` type.
+Its arms must contain every constructor index exactly once and no other index;
+each arm's `binder-count` must equal that constructor's field count. Instantiated
+field types enter the arm environment in declaration order, with the last field
+at de Bruijn index 0 (§2.3.1). Every arm body must have one common result type.
+
 ### 3.2 Refinements and obligations
 
 Refinement predicates live in a decidable fragment: quantifier-free linear

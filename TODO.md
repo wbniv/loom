@@ -81,6 +81,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [nominal-match] Added parameterized constructor checking and
+  exhaustive nominal match validation with verified binder types/order. See
+  [plan](docs/plans/2026-08-13-nominal-match-validation.md).
 - ✅ 2026-08-13 — [builtin-prelude] Pinned eight nominal builtin ability
   declarations, operation ABIs, hashes, and a preloaded verified registry. See
   [plan](docs/plans/2026-08-13-builtin-ability-prelude.md).
