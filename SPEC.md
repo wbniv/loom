@@ -454,9 +454,10 @@ Where uncertainty *does* live, deliberately — three sanctioned homes:
   relative to a stated generator (§6.1.1). This is the epistemic dial turned
   up, not the referee turned fuzzy: the *bound* is graded, and the
   accept/refuse decision a policy makes against it stays two-valued, because
-  comparing two exact rationals against a threshold is a boolean question.
-  What remains open is the policy object that states such thresholds — open
-  problem 6 (§13).
+  comparing two exact rationals against a threshold is a boolean question. The
+  policy object that states such thresholds is §5.3.1, and it is two-valued
+  throughout: a requirement is a point in the same lattice, and satisfaction is
+  the §6.1.2 comparison.
 
 ## 4. Canonical form and identity
 
@@ -481,7 +482,7 @@ forms. One term, one byte sequence.
 
 A **def object** is `[0, type, term]` (leading `0` is the object-kind tag;
 kinds: 0 def, 1 meta, 2 binding, 3 evidence, 4 data declaration, 5 ability
-declaration — the tag makes cross-kind hash collisions impossible by
+declaration, 6 policy — the tag makes cross-kind hash collisions impossible by
 construction). The definition's identity is
 SHA‑256 over the def object's encoding.
 
@@ -508,7 +509,7 @@ definition is `#76c62727` in any projection, in every store, forever.
 
 ### 5.1 Objects
 
-Append-only. Six kinds (§4.3). Nothing is ever deleted or garbage
+Append-only. Seven kinds (§4.3). Nothing is ever deleted or garbage
 collected in v0.1 — history is the feature (P4), and definitions are small.
 
 #### 5.1.1 Data declarations
@@ -565,13 +566,248 @@ Name-paths live in **namespaces**, each owned by a single writer at a time
 (a lease held by one agent or principal) — the store itself needs no
 consensus because objects are content-addressed and commutative; only
 binding sequences are serialized, per namespace (P6). `policy-ref` points at
-the namespace policy the binding was cleared against; where that policy states
-an A1 threshold it is a `(bound, confidence, generator)` triple compared per
-§6.1.2, not a run count. The policy object's own format is open (§13).
-Rebinding is the
+the namespace policy the binding was cleared against — the 32-byte hash of a
+policy object (§5.3.1), resolved from the name-path per §5.3.2. Where that
+policy states an A1 threshold it is a `(bound, confidence, generator)` triple
+compared per §6.1.2, not a run count. Rebinding is the
 entire edit model: "changing" a function means appending a new definition
 and a new binding record with a higher `seq`. Every previous state of every
 namespace remains addressable.
+
+#### 5.3.1 Namespace policy objects
+
+A policy object is `[6, policy-map]`. Unlike data and ability declarations
+(§5.1.1, §5.1.2) it carries no nominal key: two policies stating the same
+constraints *are* the same policy, and should share one hash, one review, and one
+domination result (§5.3.2).
+
+`policy-map` is a CBOR map with unsigned-integer keys encoded under §4.2 — keys
+sorted bytewise, which for the keys 0–9 below (single-byte encodings) is numeric
+order. **An absent key states no constraint**, with one deliberate exception noted
+at key 8. A checker that does not recognize a key **rejects the policy object**
+rather than admitting it with that key ignored; this is §6.1.1's discipline for
+method tags applied to governance.
+
+| Key | Name | Value | Absent means |
+|---|---|---|---|
+| 0 | `rules` | `[[selector, requirement]…]` | no requirement on any obligation |
+| 1 | `require` | `[[detail, statement]…]` | no injected obligations |
+| 2 | `max-assumptions` | unsigned integer | no global assumption cap |
+| 3 | `max-assumptions-by-ability` | `[[ability-hash, max]…]` | no per-ability cap |
+| 4 | `signers` | `[principal-id…]` | A0 accepted from any principal |
+| 5 | `writers` | `[principal-id…]` | any principal may hold the lease |
+| 6 | `max-lease-millis` | unsigned integer ≥ 1 | no stated lease bound |
+| 7 | `max-redraws` | unsigned integer | unbounded redraw budget (§8.3) |
+| 8 | `relax` | `1` | **successors must dominate (§5.3.2)** |
+| 9 | `statement` | NFC text | no prose statement |
+
+A `principal-id` is a 32-byte string compared bytewise. How a principal proves
+possession of one belongs to the A0 payload format, which v0.1 does not specify
+(§13). Every array-valued key is non-empty when present, sorted bytewise by its
+elements' encodings, and free of duplicate elements; `max-assumptions-by-ability`
+additionally has no repeated ability hash, and `require` no repeated detail.
+
+**Obligation ids and kinds.** An obligation id is NFC text (§2.2). It decomposes
+at its first `.` (U+002E): the part before is the **kind name**, the part after —
+which may itself contain dots — is the **detail**. An id with no `.` has a kind
+name and no detail. Kind names form a closed registry:
+
+| Tag | Kind name | Source | Detail |
+|---|---|---|---|
+| 0 | `ensures` | one per refinement clause (§3.2) | the clause name |
+| 1 | `terminates` | one per `fix` (§2.5) | none in v0.1 |
+| 2 | `exhaustive-match` | one per `match`; typechecker-discharged, always A3 | none in v0.1 |
+| 3 | `property` | injected by a policy (key 1) | the property name |
+
+An obligation whose kind name is outside this registry is rejected, as is a policy
+naming a kind tag outside it.
+
+**Selectors, and conjunctive matching.** A selector is `[]`, `[kind-tag]`, or
+`[kind-tag, detail]` — a *prefix* of the `(kind, detail)` decomposition — and it
+matches every obligation id it is a prefix of. `[]` matches everything, `[0]`
+matches every `ensures`, `[0, "isMiddleOf"]` matches `ensures.isMiddleOf` alone.
+
+**Every matching rule applies, conjunctively; there is no precedence and no
+most-specific-wins.** An obligation matched by no rule is unconstrained beyond
+§6.1's standing requirement that an entry exist — A0 suffices. Two consequences
+are the reason for this choice: rule order cannot change meaning, so the canonical
+bytewise sort costs nothing semantically; and adding a rule can only ever tighten
+a policy, which is what makes domination (§5.3.2) a structural check rather than a
+whole-lattice computation. A policy may state two requirements for one obligation;
+if they are two A1 requirements over different generators, no single A1 payload
+satisfies both (§6.1.2), so that obligation is satisfiable only at A2 or A3. That
+is a legal policy, not an ill-formed one.
+
+**Requirements.** A requirement is a point in the assurance lattice:
+
+```
+requirement = [level]                             ; level 0 = A0, 2 = A2, 3 = A3
+            | [1, bound, confidence, generator]   ; A1
+```
+
+`bound` and `confidence` are canonical rationals and `generator` a 32-byte def
+hash, exactly as in the A1 payload (§6.1.1). Evidence `E` **satisfies** a
+requirement `R` iff `E ⊒ R` under the order of §6.1.2 — the same order §6.3 uses,
+so this section introduces no new ordering. An A1 requirement is therefore met by
+an A1 entry over the *same* generator with a bound no larger and a confidence no
+smaller, or by any A2 or A3 entry; an A0 requirement is met by anything.
+
+The A1 triple is mandatory. §6.1.2 orders A1 payloads only relative to a named
+generator, so a bare "at least A1" is not a lattice point it can compare against
+and would need an ad-hoc order of its own. A2 and A3 requirements are level-only
+in v0.1: constraining an A2 domain would mean thresholding against the A2
+payload's domain descriptor, whose format the spec has not given (§13). An
+unrecognized level rejects the policy.
+
+**Injected obligations (key 1).** Each entry is `[detail, statement]`, both
+non-empty NFC text. It creates obligation `property.<detail>` on every binding the
+policy governs, whether or not the definition's author stated anything — this is
+what §6.2 calls a policy-required property. `statement` is the human-readable
+proposition the evidence is about; the store never interprets it, and its wording
+is part of the policy's identity, because the wording is what the principals
+adopting the policy adopted. The level demanded is stated the ordinary way, by a
+rule with selector `[3, detail]` or a broader prefix; an injected obligation with
+no matching rule still needs an entry, and an `A0 assumption` supplies one.
+
+**Assumption budgets (keys 2 and 3).** The **assumption set** of a candidate
+binding is the set of `(def-hash, obligation-id)` pairs — over the bound
+definition and every def object transitively reachable from it by `ref` (§2.1) —
+for which no recorded evidence entry reaches A1 or above. ("Is there an entry
+above A0?" stays decidable where A1 payloads over different generators have no
+unique maximum.) Its cardinality must not exceed `max-assumptions`. A pair
+additionally counts against ability `a` when `a` occurs in any effect row within
+that def object's type, and each per-ability count must not exceed its stated
+`max`. An `extern` (§11) carries mandatory A0 evidence, so each one contributes at
+least one assumption; `max-assumptions: 0` is how a namespace forbids externs and
+every other act of faith outright. This is the number §11 promises.
+
+The global cap answers §11's question directly. The per-ability caps exist because
+the spec's own axis of danger is the capability set (§2.4) — an unverified `ffi`
+or `net` boundary is not the same risk as an unverified numeric routine, and one
+global integer cannot say so. Rationing by *obligation kind* is deliberately not
+offered: a kind says what proposition is unverified, not what its being wrong can
+cost, and a kind-scoped limit is already expressible far more sharply as a rule (a
+rule requiring ⊒ A1 on kind 0 forbids A0 on every `ensures` outright).
+
+**Lease keys and the redraw budget.** Key 4 `signers` restricts whose A0 evidence
+a governed binding may carry and is checked at admission. Keys 5 and 6 state who
+may hold the namespace's write lease and for how long; the lease protocol itself
+is open problem 4 (§13), so a store that does not implement leases must **refuse**
+bindings governed by a policy stating either key rather than admit them
+unenforced. Key 7 is the redraw budget §8.3 names: it constrains the generation
+loop, not binding admission — a promoted binding carries no record of how many
+redraws produced it — so it is advisory, and it is the only key in the table that
+is.
+
+**Example.** A policy requiring every `ensures` obligation to reach A1 with a
+failure bound of at most 1/2000 at 99 % confidence under generator `#c1d0…`,
+injecting a `no-panic` property that must be proved outright, and permitting no
+assumptions anywhere in the transitive closure:
+
+```
+[6, {
+  0: [ [[0],             [1, [1, 2000], [99, 100], #c1d0…]],
+       [[3, "no-panic"], [3]] ],
+  1: [ ["no-panic", "Evaluation neither traps nor aborts on any reachable input."] ],
+  2: 0
+}]
+```
+
+#### 5.3.2 Policy resolution, descent, and amendment
+
+`POLICY` is a reserved leaf name in every namespace. A binding whose leaf segment
+is `POLICY` targets a policy object (kind 6); every other binding targets a def
+object (kind 0), and admission rejects the wrong kind — the object-kind tag makes
+that check exact (§4.3). Policies are immutable like every other object, so
+amending a namespace's policy means appending a new policy object and rebinding
+`POLICY` at a higher `seq`. Policy change is a rebind, which is the same edit model
+as everything else.
+
+**Resolution.** The **governing policy** of a name-path is the policy bound at
+`POLICY` in the nearest enclosing namespace that has one. For a `POLICY` leaf,
+resolution starts **strictly above** its own namespace, so a policy never governs
+itself: `stats/median` is governed by `stats/POLICY`, while `stats/POLICY` is
+governed by root `POLICY`. Root `POLICY` has no enclosing namespace and is governed
+by the **default policy** — the empty policy, which constrains nothing:
+
+```
+default = [6, {}]
+bytes   = 82 06 a0        ; array(2), kind 6, map(0)
+```
+
+Three bytes; `sha256(bytes)` =
+`901f33bdd7bcb96a53f560673a2cd437d00328d1065b7f60ef0b05340735299c`. It is
+preloaded in every store, like the §2.4 prelude. (Reproduce:
+`printf '\x82\x06\xa0' | sha256sum`.) Policies therefore form a strict tree by
+namespace depth over a concrete base case, and resolution never reads the object
+it is admitting; nothing resolves in a circle.
+
+**Admission.** A candidate binding at name-path `p` is admitted only when all of:
+
+1. Its `policy-ref` equals the hash of `p`'s governing policy `G`. A mismatch
+   refuses — a proposal that raced a policy rebind is retried against the new
+   policy rather than silently cleared under stale rules. What serializes that
+   race is the namespace lease (§5.3), whose protocol is open problem 4.
+2. Every policy on the chain from `G` upward to the default dominates the policy
+   governing it.
+3. Its obligation set — those §6.2 generates, plus every obligation `G` injects —
+   is complete, and each entry satisfies every rule of `G` matching its id.
+4. Its assumption set is within `G`'s budgets, and every A0 entry names a
+   principal `G` accepts.
+5. It passes §6.3's monotone-assurance check against the previous binding at `p`.
+6. If `p`'s leaf is `POLICY`, the descent and amendment rules below.
+
+**Domination.** Policy `Q` **dominates** `P` when it is at least as strict on every
+key:
+
+| Key | `Q` dominates `P` when |
+|---|---|
+| 0 `rules` | for each rule `(s, r)` of `P`, some single rule `(s′, r′)` of `Q` has `s′` a prefix of `s` and `r′ ⊒ r` under §6.1.2 |
+| 1 `require` | `Q` injects every detail `P` injects (statements may differ) |
+| 2, 3, 6, 7 | wherever `P` states a maximum, `Q` states one no larger |
+| 4, 5 | wherever `P` states a principal set, `Q` states a subset of it |
+| 8 `relax` | `Q` omits `relax` whenever `P` does |
+| 9 `statement` | always — prose is never load-bearing |
+
+Domination is a pure function of two policy hashes, so it memoizes exactly like
+§6.4. The `rules` test is **sound but incomplete**: a `Q` at least as strict only
+through a *conjunction* of its rules is refused, because an exact test would need
+a meet inside A1 across generators that §6.1.2 deliberately does not define.
+Merging the rules into one, or stating a strictly higher level, always works, and
+the incompleteness refuses in the safe direction.
+
+**Descent.** A policy bound at `n/POLICY` must dominate the policy governing
+`n/POLICY`. A descendant namespace can therefore only tighten what an ancestor
+states, never escape it — and, more importantly, the object a binding's
+`policy-ref` names is then a *complete* statement of everything that binding was
+cleared against: one hash, valid forever, needing no replay of an ancestor's policy
+history to interpret. The price is that a policy restates what it inherits; literal
+inclusion of the ancestor's rules always satisfies the test. Because admission
+re-checks the whole chain (step 2), tightening an ancestor that a descendant no
+longer dominates **freezes** new bindings under that descendant until its policy is
+amended. Nothing is invalidated retroactively, and the freeze is loud.
+
+**Amendment.** A rebind of `n/POLICY` from `P` to `Q` is refused unless `Q`
+dominates `P`, or `P` states `relax: 1`. Key 8 is the one key whose absent value is
+the restrictive one, deliberately: if weakening were free by omission, §6.3's
+guarantee would be defeatable in two individually-passing steps — rebind the policy
+to `[6, {}]`, then rebind everything at A0. Since a `Q` omitting `relax` dominates
+a `P` stating it, a namespace may ratchet from amendable to permanent but never
+back.
+
+A namespace can therefore ratchet itself into a policy nothing satisfies. That is
+affordable here and would not be elsewhere: definitions are shared by hash, so
+re-binding the same content under a fresh namespace copies nothing, and a fresh
+namespace is a *visible fork* rather than a silent erosion of the name that already
+exists — which is precisely what §6.3 protects.
+
+**Effect on existing bindings: none.** Bindings are immutable records in an
+append-only store, and each one's `policy-ref` records what it was cleared against
+and stays true. A new policy governs future bindings only; combined with §6.3,
+assurance on any given name then only ever rises, because the next rebind must both
+satisfy the new policy and carry evidence ⊒ the old. A projection may render a
+binding whose `policy-ref` is not the current governing policy as **stale** — a
+review surface (§9), not a refusal.
 
 ### 5.4 The draft region
 
@@ -675,16 +911,23 @@ ordered by run count, sample size, or any other tiebreak.
 Generated per binding: one per refinement clause (§3.2), one `terminates`
 per `fix` (§2.5), one `exhaustive-match` per `match` (discharged by the
 typechecker, always A3), plus any policy-required properties (e.g., a
-namespace policy may demand a `no-panic` property on everything it binds).
+namespace policy may demand a `property.no-panic` obligation on everything it
+binds). Obligation ids decompose into a kind and a detail, and the governing
+policy states which obligations it injects and what evidence level each
+obligation must reach; both are specified in §5.3.1.
 
 ### 6.3 Monotone assurance
 
 A rebind of name-path `p` is **refused** unless, for every obligation name
 shared with the previous binding, the new evidence level ⊒ the old, using the
-order of §6.1.2. New obligations may enter at any level the policy allows;
-assurance on what already existed never silently decreases. This is the
+order of §6.1.2. New obligations may enter at any level the governing policy
+allows — the policy resolved for `p` per §5.3.2, whose rules the new binding must
+satisfy in any case (§5.3.1); assurance on what already existed never silently
+decreases. This is the
 store-level guarantee that regeneration churn cannot erode verification over
-time.
+time. It is completed by §5.3.2's amendment rule: without a gate on policy
+weakening, this check would be defeatable by first rebinding the namespace's
+policy to one that demands nothing.
 
 Because A1 is only partially ordered, "not ⊒" now covers two cases, and both
 refuse:
@@ -750,7 +993,8 @@ draft, placing `hole` nodes wherever its uncertainty is high; the oracle
 typechecks and returns, for the first failure, the *smallest unsatisfiable
 constraint* localized to a subtree; the agent regenerates only that subtree
 (a new draft def sharing every other node by hash). Redraw budget is a
-policy knob. Promotion out of `draft/` runs the full obligation set (§6.2)
+policy knob (§5.3.1 key 7, advisory: it binds the loop, not the admission
+gate). Promotion out of `draft/` runs the full obligation set (§6.2)
 and is atomic.
 
 ### 8.4 Feasibility on 2026 decoders
@@ -820,7 +1064,7 @@ in this spec's examples (and the sketch's `median`) is normative for
   all — assumptions are never below the fold.
 - **No projection is parseable.** There is no grammar for authoring Loom as
   text, by anyone. Humans participate by reading projections, writing
-  policy (§6.2), signing assumptions (§6.1), and approving promotions —
+  policy (§5.3.1), signing assumptions (§6.1), and approving promotions —
   the review surface, not the authoring surface.
 
 The same projection machinery serves generating models their context: the
@@ -844,7 +1088,8 @@ An `extern` definition wraps a foreign artifact (a WASM component in v0.1,
 pinned by its own content hash) with a Loom type, a required capability set,
 and mandatory `A0 assumption` evidence signed by a principal — the language
 does not pretend to verify what it didn't check. Policy can quarantine:
-namespaces may forbid transitive `assumption` evidence above a count, which
+namespaces may forbid transitive `assumption` evidence above a count — a global
+cap and per-ability caps, §5.3.1 keys 2 and 3 — which
 makes "how much of this system is faith?" a query with a number for an
 answer. Compilation of Loom itself targets
 [WASM](https://webassembly.org/) through a pipeline that is, aspirationally,
@@ -872,9 +1117,28 @@ stats/median : (xs : List F64) -> {x : F64 | isMiddleOf x (sort xs)}
     false -> (s ! (len s / 2 - 1) + s ! (len s / 2)) / 2
 ```
 
+The policy this was cleared against is a policy object (§5.3.1) bound at the
+reserved name `stats/POLICY`, and the binding's `policy-ref` is its hash:
+
+```
+[6, {0: [ [[0], [1, [1, 2000], [99, 100], #c1d0…]] ],
+     2: 0}]
+```
+
+Every `ensures` obligation must reach A1 with a failure bound of at most 1/2000
+at 99 % confidence under generator `#c1d0…` (key 0, selector `[0]`), and the
+transitive assumption count must be zero (key 2) — which is why the assumption
+line below is empty rather than merely short. `terminates` and
+`exhaustive-match` match no rule, so the policy demands nothing of them beyond
+§6.1's requirement that an entry exist; here both happen to be A3. `stats/POLICY`
+itself is governed by the root policy, or by the default policy `#901f33bd` if
+the root has none (§5.3.2).
+
 What the store actually holds: one def object (term + type, hashed), one
 meta object (name, spec, prov), one binding under `stats/` with three
-evidence entries, three memo-ledger rows. The recorded bound is the
+evidence entries, three memo-ledger rows, and — bound once and shared by every
+name in the namespace — the policy object above plus its own `stats/POLICY`
+binding. The recorded bound is the
 Clopper–Pearson value for 10⁴ zero-failure draws at 99 % (4.6041 × 10⁻⁴),
 rounded up to the canonical rational `[461, 1000000]`; the payload's stored
 form is `[#c1d0…, 0x2f41, 10000, 0, [461, 1000000], [99, 100], 0]`. A later
@@ -910,9 +1174,19 @@ IDE affordances.
 6. **Confidence-quantified evidence — partially resolved.** The A1 payload
    now carries an explicit bound, confidence, and generator (§6.1.1), ordered
    as a partial order (§6.1.2) that §6.3 refuses on both weakening *and*
-   incomparability. What remains open: (a) the **namespace policy object**
-   format that states a numeric threshold — §5.3 fixes what a threshold
-   *means*, not how it is encoded, signed, or versioned; (b) **generator
+   incomparability. What remains open: (a) the **namespace policy object** is
+   now specified — its format in §5.3.1, its resolution, descent and amendment
+   in §5.3.2 — and what that leaves open is narrower: the **A0 payload's own
+   encoding**, so a policy's `signers` set compares 32-byte principal
+   identifiers the spec never says how a principal proves possession of; the
+   **A2 payload's domain descriptor**, which is why an A2 requirement is
+   level-only; **obligation-id disambiguation** when one definition holds
+   several `fix` or `match` nodes; the fact that policy **domination is a
+   sound-but-incomplete** single-rule test that refuses some genuinely
+   at-least-as-strict successors; and **atomic policy-plus-binding change**,
+   which would need §10's binding-group record extended across a `POLICY` name.
+   Policy keys 5 and 6 state what a policy demands of a lease but not how it is
+   enforced — that stays open problem 4; (b) **generator
    comparability** — incomparability across generators is sound but blunt,
    and there is no way to say one generator dominates another (stochastically
    or by coverage) short of re-running the old one; (c) **method families
