@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Bootstrap corpus for prior starvation](2026-08-13-bootstrap-corpus.md) | Tranche 1 implemented; PASS |
 | 2026-08-13 | [Namespace policy object](2026-08-13-namespace-policy-object.md) | Implemented; PASS |
 | 2026-08-13 | [Refinement-to-SMT-LIB translation rules](2026-08-13-refinement-smtlib-translation.md) | Implemented; PASS |
 | 2026-08-13 | [Evidence confidence bounds](2026-08-13-evidence-confidence-bounds.md) | Implemented; PASS |

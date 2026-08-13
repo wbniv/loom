@@ -1157,10 +1157,21 @@ IDE affordances.
 
 **Open problems, inherited from the sketch and not solved by rigor:**
 
-1. **Prior starvation.** The mask guarantees well-formedness, not
-   competence; until a corpus exists, models will inhabit these types
-   poorly. Bootstrap plan (transpile verified existing code, keep D7's
-   natural-language surface rich) is a plan, not a result.
+1. **Prior starvation — bootstrap begun.** The mask guarantees
+   well-formedness, not competence; until a corpus exists, models will inhabit
+   these types poorly. The bootstrap plan (transpile verified existing code, keep
+   D7's natural-language surface rich) now has a first tranche on disk: the
+   [bootstrap-corpus plan](../docs/plans/2026-08-13-bootstrap-corpus.md) selects
+   Unison base as the primary source, states the mapping losses, and lands four
+   hand-transpiled definitions as validated fixtures under `prototype/corpus/`,
+   with the (spec-text, canonical-surface) pairs §8.4 needs read off a §5.2
+   meta-object table. Transpiling the seed set surfaced three limits of v0.1 that
+   the plan records as residue for this spec rather than corpus problems: `forall`
+   (§2.3) has no term-level introduction form, so no *definition* can be
+   polymorphic; `Bool` (§2.2) has no elimination form, so there is no conditional;
+   and §11's `extern` has no object encoding among §4.3's seven kinds, so the
+   arithmetic the corpus assumes cannot yet be stored. Fluency remains
+   unmeasured — a seed set is not a result either.
 2. **Oracle regress.** Refinements and properties must be authored;
    a wrong contract verifies a wrong program at level A3. Loom shrinks the
    trusted surface to contracts + policy and makes it enumerable
