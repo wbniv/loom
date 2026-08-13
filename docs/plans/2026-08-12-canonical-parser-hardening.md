@@ -3,7 +3,7 @@
 **Date:** 2026-08-12
 **Status:** Implemented and verified locally
 **Baseline:** `7474944` (`Prototype Loom S-expression transcoder`)
-**Review:** [Parser prototype review](../investigations/2026-08-12-parser-prototype-review.md)
+**Review:** [Parser prototype review](../reviews/2026-08-12-parser-prototype-review.md)
 
 ## Objective
 

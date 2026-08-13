@@ -27,6 +27,13 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T2] **Implement the effect-consistency review follow-ups.** Complete the §3.1.2
+  expected-type context list (perform arguments), fix the SPEC.md status header, add
+  the direct-application rejection test, correct the prior review's resolution note,
+  document the GBNF validator build, repair the design-sketch links. See
+  [review](docs/reviews/2026-08-13-effect-consistency-change-review.md). (T2: bounded
+  doc/test edits against an enumerated findings list.)
+
 - [T4] **Specify the namespace policy object format (SPEC.md §5.3, §6.2 gap).**
   `policy-ref` (§5.3) and "policy allows"/"policy-required properties" (§6.2) are used
   normatively but the policy object itself — what a `stats/POLICY`-style definition
