@@ -27,14 +27,30 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T3] <!-- agent:a0d8fffa76a1beaf8 --> **Build corpus tranche 4: the refinement slice.** F*-sourced
-  refinement-carrying definitions, transpiled type-first, non-dependent arrows only —
-  the first tranche to generate `ensures` obligations and exercise §3.2.1 end to end
-  (VC generation is refinement subtyping only, so scope what an obligation can
-  actually discharge today and record the rest). See
-  [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T3: source selection judgment
-  plus the first obligations, against a settled plan; dispatch after tranche 3
-  merges — same corpus files.)
+- [T4] **Define the obligation pipeline: who consults the solver, and what `sat`
+  means (§3.2.1/§3.3/§6.2 seam; tranche-4 escalations 1+2).** Two entangled calls:
+  (a) subtyping VCs are generated but nothing consults them — solver-in-the-typing-
+  loop vs obligation emission for a separate oracle pass (the spec's architecture
+  leans emission); (b) §3.2.1's "`sat` refutes and the binding is rejected" is
+  unsound under abstraction — a model may be an artifact of uninterpreted symbols or
+  erasure, and a conforming checker would reject three correct corpus definitions
+  today. Needs a three-way outcome with a validated-countermodel rule; the three
+  pinned `sat` cases are the test corpus. See
+  [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
+  space, two normative rules, wrong turn expensive.)
+
+- [T2] **Extend the assumed base with `and`/`or`/`not`/`<=` externs.** §3.2.1's
+  allowlist admits them but no extern supplies them, so every corpus predicate is a
+  single comparison and `nat` is spelled `-1 < i`. Pinned identities plus
+  interpretation rows, the established pattern; directly relieves the
+  single-hypothesis limit behind one tranche-4 `sat` case. (T2: pattern repetition.)
+
+- [T3] **Version the validation contracts (parser, scope, reference, type-check).**
+  Tranches 3 and 4 both landed with zero IR/tag/spec changes, meeting half of the
+  production-language Watch trigger (a); versioned contracts are the remaining gate
+  that would make that Watch entry promotable. Define what a contract version
+  covers, where it is recorded, and what bumps it. (T3: multi-file definition work
+  with some judgment, against the Watch entry's stated conditions.)
 
 ## Watch
 
@@ -76,6 +92,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [corpus-tranche-4] Built six refinement fixtures with pinned VC
+  scripts and solver-produced verdicts (3 unsat / 3 sat mapping the fragment edge).
+  See [plan](docs/plans/2026-08-13-corpus-tranche-4.md).
 - ✅ 2026-08-13 — [corpus-tranche-3] Built seven effectful fixtures at tier checked
   spanning perform/handle/cap shapes; purity test reworked; R8 verdict: no tool yet.
   See [plan](docs/plans/2026-08-13-corpus-tranche-3.md).
