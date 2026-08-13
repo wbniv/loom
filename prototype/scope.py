@@ -169,7 +169,37 @@ def check_term(
         for index, constraint in enumerate(node[2]):
             check_term(constraint, term_depth + 1, type_depth, ability_arity, f"{path}.constraints[{index}]")
         return
+    if tag == 12:
+        _node(node, path, 4)
+        check_term(node[1], term_depth, type_depth, ability_arity, f"{path}.condition")
+        check_term(node[2], term_depth, type_depth, ability_arity, f"{path}.then")
+        check_term(node[3], term_depth, type_depth, ability_arity, f"{path}.else")
+        return
     _fail(path, f"unknown term tag {tag!r}")
+
+
+def _contains_forall(ir) -> bool:
+    if not isinstance(ir, list) or not ir:
+        return False
+    if ir[0] == 6:
+        return True
+    return any(_contains_forall(child) for child in ir[1:] if isinstance(child, list))
+
+
+def forall_prefix(ir, path: str = "definition.type") -> tuple[int, list]:
+    """Split a definition type into its prenex `forall` count and quantified body.
+
+    §2.3.1: a definition's term is checked at the type's leading `forall` depth,
+    so that depth must be well defined — a `forall` surviving inside the body is
+    rank-2 and is refused here rather than silently ignored.
+    """
+    depth, body = 0, ir
+    while isinstance(body, list) and len(body) == 2 and body[0] == 6:
+        depth += 1
+        body = body[1]
+    if _contains_forall(body):
+        _fail(path, "a definition type's quantifiers must be prenex; rank-1 polymorphism only")
+    return depth, body
 
 
 def check_definition(ir, ability_arity: AbilityArityResolver | None = None) -> None:
@@ -177,7 +207,8 @@ def check_definition(ir, ability_arity: AbilityArityResolver | None = None) -> N
     if node[0] != 0:
         _fail("definition", f"expected object-kind tag 0, got {node[0]!r}")
     check_type(node[1], 0, 0, ability_arity, "definition.type")
-    check_term(node[2], 0, 0, ability_arity, "definition.term")
+    type_depth, _ = forall_prefix(node[1])
+    check_term(node[2], 0, type_depth, ability_arity, "definition.term")
 
 
 def validate_source(source: str, ability_arity: AbilityArityResolver | None = None):

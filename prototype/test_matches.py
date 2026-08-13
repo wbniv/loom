@@ -87,5 +87,50 @@ class MatchValidationTest(unittest.TestCase):
         self.assertIn(".body.body", caught.exception.path)
 
 
+class BoolEliminationTest(unittest.TestCase):
+    """`if` typing, SPEC.md §3.1.4."""
+
+    def setUp(self):
+        self.registry = DeclarationRegistry([])
+
+    def definition(self, type_surface: str, term_surface: str) -> str:
+        return f"(def {type_surface} {term_surface})"
+
+    def assert_type_error(self, source: str, message: str):
+        with self.assertRaises(TypeDirectionError) as caught:
+            validate_source(source, self.registry)
+        self.assertIn(message, str(caught.exception))
+
+    def test_if_checks_condition_against_bool_and_branches_against_the_goal(self):
+        validate_source(self.definition("(fn Bool () I64)", "(lam Bool (if (var 0) (lit i64 1) (lit i64 0)))"), self.registry)
+        self.assert_type_error(
+            self.definition("(fn I64 () I64)", "(lam I64 (if (var 0) (lit i64 1) (lit i64 0)))"),
+            "type mismatch",
+        )
+        self.assert_type_error(
+            self.definition("(fn Bool () I64)", "(lam Bool (if (var 0) (lit bool true) (lit i64 0)))"),
+            "type mismatch",
+        )
+
+    def test_if_in_synthesis_position_requires_both_branches_to_agree(self):
+        # An application's argument is *checked*, so the synthesis path is
+        # reached by putting the `if` in the application's function position.
+        identity = "(lam I64 (var 0))"
+        agreeing = f"(app (if (lit bool true) {identity} {identity}) (lit i64 1))"
+        validate_source(self.definition("I64", agreeing), self.registry)
+        disagreeing = f"(app (if (lit bool true) {identity} (lit i64 0)) (lit i64 1))"
+        self.assert_type_error(self.definition("I64", disagreeing), "branch type")
+        checked_argument = "(app (lam I64 (var 0)) (if (lit bool true) (lit i64 1) (lit bool false)))"
+        self.assert_type_error(self.definition("I64", checked_argument), "type mismatch")
+
+    def test_if_generates_no_exhaustiveness_obligation_and_bool_stays_base(self):
+        # Bool is still a base type: it has no declaration to look up, so `match`
+        # on it fails and only `if` eliminates it (§3.1.4).
+        self.assert_type_error(
+            self.definition("(fn Bool () I64)", "(lam Bool (match (var 0) ((0 0 (lit i64 1)) (1 0 (lit i64 0)))))"),
+            "match scrutinee does not synthesize a nominal data type",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

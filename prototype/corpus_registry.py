@@ -130,6 +130,22 @@ MANIFEST = (
         tier="checked",
     ),
     CorpusEntry(
+        fixture="maybe_map_poly.loom.sexpr",
+        name_path="corpus/maybe/mapPoly",
+        spec="Apply a function to the option's value, for any element types.",
+        source="Unison base Optional.map, kept generic (SPEC.md §3.1.3)",
+        identity="0dba3946f35c4e5746427da984d883b8067eea3e5149e7a2a4da26c0d1d6f24a",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="bool_not.loom.sexpr",
+        name_path="corpus/bool/not",
+        spec="The opposite of the given boolean.",
+        source="Unison base Boolean.not",
+        identity="162f818f22a2d041cb823d9a4e98c98d6102eee7de83519211452c348bb1be45",
+        tier="checked",
+    ),
+    CorpusEntry(
         fixture="list_uncons_i64.loom.sexpr",
         name_path="corpus/list/uncons",
         spec="Split a list into its head and tail, or nothing when it is empty.",

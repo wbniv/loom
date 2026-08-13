@@ -18,6 +18,7 @@ BASE_NAME = {value: key for key, value in BASE_CODE.items()}
 TERM_TAG = {
     "var": 0, "ref": 1, "lit": 2, "lam": 3, "app": 4, "let": 5,
     "con": 6, "match": 7, "perform": 8, "handle": 9, "fix": 10, "hole": 11,
+    "if": 12,
 }
 TYPE_TAG = {"base": 0, "data": 1, "fn": 2, "refine": 3, "cap": 4, "tyvar": 5, "forall": 6}
 
@@ -196,6 +197,8 @@ def term_to_ir(form):
     if head == "hole" and len(rest) == 2:
         constraints = _list(rest[1], "hole constraints")
         return [tag, type_to_ir(rest[0]), [term_to_ir(c) for c in constraints]]
+    if head == "if" and len(rest) == 3:
+        return [tag, term_to_ir(rest[0]), term_to_ir(rest[1]), term_to_ir(rest[2])]
     raise SurfaceError(f"malformed {head} term")
 
 
@@ -294,6 +297,8 @@ def term_to_surface(ir) -> str:
         return _join("fix", [type_to_surface(values[1]), term_to_surface(values[2]), term_to_surface(values[3])])
     if tag == 11 and len(values) == 3:
         return _join("hole", [type_to_surface(values[1]), _join_list(term_to_surface(x) for x in values[2])])
+    if tag == 12 and len(values) == 4:
+        return _join("if", [term_to_surface(values[1]), term_to_surface(values[2]), term_to_surface(values[3])])
     raise SurfaceError(f"unknown or malformed term IR tag: {tag!r}")
 
 

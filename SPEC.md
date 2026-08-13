@@ -48,13 +48,14 @@ Every term is encoded as a CBOR array `[tag, …fields]`.
 | 2 | `lit` | `[2, k, v]` | literal; kinds in §2.2 |
 | 3 | `lam` | `[3, T, body]` | fully annotated — canonical form is the *elaborated* term |
 | 4 | `app` | `[4, f, a]` | |
-| 5 | `let` | `[5, T, bound, body]` | monomorphic let; polymorphic reuse goes through the store |
+| 5 | `let` | `[5, T, bound, body]` | monomorphic let; polymorphic reuse goes through the store (§3.1.3) |
 | 6 | `con` | `[6, d, i, [args]]` | constructor `i` of data type `d` |
 | 7 | `match` | `[7, scrut, [arms]]` | arm = `[ctor-index, binder-count, body]`; must be exhaustive |
 | 8 | `perform` | `[8, a, i, [args]]` | operation `i` of ability `a` |
 | 9 | `handle` | `[9, a, term, [ops], ret]` | handler discharges ability `a` from the row |
 | 10 | `fix` | `[10, T, measure, body]` | recursion **only** with a termination measure; see §2.5 |
 | 11 | `hole` | `[11, T, [constraints]]` | typed hole; storable only in the draft region (§5.4) |
+| 12 | `if` | `[12, c, t, e]` | the elimination form for `Bool` (§2.2); binds nothing (§3.1.4) |
 
 There is no `anno` node and no syntax for comments: hashing operates on
 elaborated terms, and prose lives in metadata (§5.2), never in the term.
@@ -85,10 +86,19 @@ An **effect row** is a CBOR array of ability hashes sorted bytewise
 
 ### 2.3.1 Scope and binder order
 
-Term and type variables use separate de Bruijn spaces. A closed definition is
-checked initially at term depth 0 and type depth 0; every `var i` requires
+Term and type variables use separate de Bruijn spaces; every `var i` requires
 `i < term-depth`, and every `tyvar i` (including a row variable) requires
 `i < type-depth`.
+
+A closed definition's **type** is checked at term depth 0 and type depth 0. Its
+**term** is checked at term depth 0 and type depth *p*, where *p* is the length
+of that type's leading `forall` prefix: a definition typed `forall^p T` is
+implicitly type-abstracted over those *p* variables and its term is checked
+against `T` (§3.1.3). A definition type's quantifiers must be **prenex** —
+after removing the leading `forall`s, no `forall` may occur in the remainder —
+which is what makes *p* well defined and what turns §2.3's "rank-1 polymorphism
+only" into a checked property rather than an assertion. Types written *inside* a
+term (a `lam` annotation, a `hole` goal type) are not restricted this way.
 
 Binder-producing nodes extend those depths as follows:
 
@@ -250,6 +260,68 @@ operations (`div`) is an effect-row marker only and can never be the subject of
 type-directed layer requires closed rows—row-polymorphic effect checking remains
 future work.
 
+### 3.1.3 Definition-level polymorphism
+
+Polymorphism is introduced at the **definition** boundary and nowhere else.
+There is no term node that abstracts or applies a type: a definition typed
+`forall^p T` *is* the type abstraction, and §2.3.1's depth rule is the whole
+mechanism — its term is checked at type depth `p`, so a `lam` annotation inside
+it may name `tyvar 0 … tyvar (p-1)`. `forall a. forall b. (a → b) → Maybe a →
+Maybe b` is therefore an ordinary, storable, checkable definition, written with
+the node vocabulary §2.1 already has.
+
+Three properties make this the cheap form of the feature, and they are the
+reason it is preferred to a `tylam`/`tyapp` pair:
+
+- **No tag is added.** §2's cost model prices every node in permanent mask
+  complexity. Elaborated form (§3.1) would additionally require a `tyapp` chain
+  at *every use site of every polymorphic definition*, so that pair is paid
+  forever at every call, not once at the binder.
+- **The mask needs no lookahead.** A def object is `[0, type, term]` (§4.3), so
+  the entire type precedes the first byte of the term: `p` counts bytes the
+  decoder has already emitted. The stateful masker §8.4 describes initializes its
+  existing type-depth register to `p` rather than 0, and gains no new state.
+- **Parametricity is structural, not an added restriction.** No literal and no
+  constructor inhabits `tyvar i`, so a value of type-variable type can only be
+  received as a parameter and passed on; nothing observes it. §3.2.1 keeps
+  `forall` and `tyvar` out of the SMT sort fragment, so no refinement predicate
+  can see one either.
+
+**Instantiation is not available in v0.1, and the omission is deliberate.** A
+`ref h` whose stored type is `forall^p T` synthesizes that quantified type, and
+the calculus has no rule that eliminates a `forall`. A polymorphic definition can
+therefore be written, hashed, stored, and read, but is called only through a
+monomorphic definition of its own — which is why a store holds both a generic
+definition and its instances, each with its own identity and its own evidence
+(§4.1). The intended future rule adds no node either: a quantified reference is
+instantiated by *first-order matching* against an expected type, supplied exactly
+where §3.1.2 already supplies an effectful lambda's row — by binding it through a
+typed `let`. Matching a quantifier prefix against a concrete expected type is
+syntactic and deterministic, so the resolved instance ends up written down in the
+`let`'s annotation and identity never depends on inference strength (§3.1). Until
+that rule exists, this section states the limit rather than implying the feature.
+
+### 3.1.4 Bool elimination
+
+`if c t e` (§2.1 tag 12) is the elimination form for `Bool`, and the only one.
+Checked against result type `R` in ambient row `ρ`: `c` checks against `Bool`
+under `ρ`, and `t` and `e` each check against `R` under `ρ`. In synthesis
+position both branches are synthesized and must agree, and that common type is
+the result. `if` binds nothing, so §2.3.1's depth rules are untouched and its
+three subterms are checked at the current depths. Projections render it
+`if c then t else e` (§9, §12).
+
+`Bool` stays a base type. Literal kind 1 (§2.2), base code 1 (§2.3), `refine`'s
+"φ is a term of type Bool" (§2.3 tag 3), and §3.2.1's mapping of `Bool` onto
+SMT-LIB `Bool` are all unchanged — the last of these is load-bearing, since a
+refutation script ends in `(assert (not <goal>))` and a goal of datatype sort
+cannot be negated. Making `Bool` nominal would have taken the whole
+refinement-to-SMT pipeline with it.
+
+`if` is exhaustive by construction, so it generates no obligation: §5.3.1's
+closed obligation-kind registry and §6.2's generation rule are untouched, and in
+particular `exhaustive-match` remains one per `match`.
+
 ### 3.2 Refinements and obligations
 
 Refinement predicates live in a decidable fragment: quantifier-free linear
@@ -341,6 +413,7 @@ type out of fragment.
 | `let T b e` | `(let ((loom.bk b)) e)` |
 | `con h i args` | `(<sort>.c<i> args…)`, `h` monomorphic only |
 | `match s arms` | SMT-LIB `match`, arms emitted in constructor-index order |
+| `if c t e` | `(ite c t e)`; `c` of sort `Bool`, both branches of one common sort |
 
 Every other term node — `lam`, `perform`, `handle`, `fix`, `hole` — is out of
 fragment and must be rejected with the path of the offending subterm. So is a
@@ -350,7 +423,10 @@ its argument count must equal that reference's arity. A `con` whose declaration
 takes type parameters is rejected because the translator synthesizes sorts
 bottom-up and has no expected type there. Match arms must be exhaustive,
 duplicate-free, and agree on one result sort; emitting them in constructor-index
-order makes arm order irrelevant to the emitted bytes.
+order makes arm order irrelevant to the emitted bytes. `if` is the one term node
+whose translation costs the trusted theory surface nothing: `ite` is already an
+admitted interpreted symbol below, so a branching predicate adds no symbol the
+allowlist did not already carry.
 
 **References are uninterpreted unless the toolchain says otherwise.** A `ref`'s
 Loom type must be resolvable — the translator never guesses one, exactly as the
@@ -990,7 +1066,9 @@ tokens and masks the rest of the vocabulary:
 - **Type-directed pruning (best effort):** the current goal type further
   prunes tags — a goal of function type admits `lam`/`ref`/`var`/`app`…;
   a `ref` position admits only hashes whose definitions inhabit the goal;
-  a literal position admits only the goal's literal kind. This is pruning,
+  a literal position admits only the goal's literal kind; an `if` condition is
+  the one position in the language with a *constant* goal type (`Bool`, §3.1.4),
+  and both of its branches inherit the `if`'s own goal. This is pruning,
   not a guarantee: full type-directed masking is undecidable with
   refinements, so refinement failures surface at check time, not decode
   time. The spec is honest about which side of the line each check is on.
@@ -1121,10 +1199,13 @@ stats/median : (xs : List F64) -> {x : F64 | isMiddleOf x (sort xs)}
     ensures.isMiddleOf A1 property     p ≤ 4.61e-4 @ 99%, gen #c1d0…  memo #77b0…
                                        (10_000 runs, 0 failures, seed 0x2f41)
 = let s = sort xs in
-  match odd (len s)
-    true  -> s ! (len s / 2)
-    false -> (s ! (len s / 2 - 1) + s ! (len s / 2)) / 2
+  if odd (len s)
+    then s ! (len s / 2)
+    else (s ! (len s / 2 - 1) + s ! (len s / 2)) / 2
 ```
+
+The branch is an `if` (§2.1 tag 12, §3.1.4), not a `match`: `Bool` is a base
+type and only `if` eliminates it.
 
 The policy this was cleared against is a policy object (§5.3.1) bound at the
 reserved name `stats/POLICY`, and the binding's `policy-ref` is its hash:
@@ -1174,13 +1255,17 @@ IDE affordances.
    Unison base as the primary source, states the mapping losses, and lands four
    hand-transpiled definitions as validated fixtures under `prototype/corpus/`,
    with the (spec-text, canonical-surface) pairs §8.4 needs read off a §5.2
-   meta-object table. Transpiling the seed set surfaced three limits of v0.1 that
-   the plan records as residue for this spec rather than corpus problems: `forall`
-   (§2.3) has no term-level introduction form, so no *definition* can be
-   polymorphic; `Bool` (§2.2) has no elimination form, so there is no conditional;
-   and §11's `extern` has no object encoding among §4.3's seven kinds, so the
-   arithmetic the corpus assumes cannot yet be stored. Fluency remains
-   unmeasured — a seed set is not a result either.
+   meta-object table. Transpiling the seed set surfaced three limits of v0.1 as
+   residue for this spec rather than corpus problems; two are now answered by
+   [the polymorphism and Bool-elimination plan](docs/plans/2026-08-13-polymorphism-and-bool-elimination.md).
+   A *definition* is polymorphic after all: §2.3.1 checks its term at its type's
+   `forall` depth (§3.1.3), which costs no tag — what stays open is
+   **instantiating** a polymorphic reference, for which v0.1 has no rule, so a
+   generic definition is called only through a monomorphic one. `Bool` gained an
+   elimination form, `if` (§2.1 tag 12, §3.1.4), the one tag either decision
+   spends. Still open: §11's `extern` has no object encoding among §4.3's seven
+   kinds, so the arithmetic the corpus assumes cannot yet be stored. Fluency
+   remains unmeasured — a seed set is not a result either.
 2. **Oracle regress.** Refinements and properties must be authored;
    a wrong contract verifies a wrong program at level A3. Loom shrinks the
    trusted surface to contracts + policy and makes it enumerable

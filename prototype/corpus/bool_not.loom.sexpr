@@ -1,0 +1,1 @@
+(def (fn Bool () Bool) (lam Bool (if (var 0) (lit bool false) (lit bool true))))

@@ -196,6 +196,18 @@ class RefinementTranslationTest(unittest.TestCase):
         self.assertIn("(let ((loom.b0 ", script)
         self.assert_well_formed(script)
 
+    def test_if_translates_to_ite_without_growing_the_allowlist(self):
+        # §3.2.1: `if` is the one node whose translation costs the trusted theory
+        # surface nothing, because `ite` was already an admitted symbol.
+        goal = ref(LT, [12, ref(LT, [0, 0], i64(0)), i64(1), [0, 0]], i64(10))
+        script = self.script([I64], [], goal)
+        self.assertIn("(< (ite (< loom.x0 0) 1 loom.x0) 10)", script)
+        self.assert_well_formed(script)
+
+    def test_if_requires_a_bool_condition_and_one_branch_sort(self):
+        self.assert_smt_error("condition", [I64], [], [12, [0, 0], [2, 1, True], [2, 1, False]])
+        self.assert_smt_error("expected sort Int", [I64], [], [12, [2, 1, True], i64(1), [2, 1, False]])
+
     # ----------------------------------------------- uninterpreted symbols
 
     def test_unmapped_reference_becomes_an_uninterpreted_function(self):

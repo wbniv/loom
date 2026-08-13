@@ -128,6 +128,18 @@ class EffectTypingTest(unittest.TestCase):
         with open(path, encoding="utf-8") as source_file:
             validate_source(source_file.read(), self.registry)
 
+    def test_if_passes_the_ambient_row_to_all_three_subterms(self):
+        # §3.1.4: `if` binds nothing and changes no allowance, so each subterm is
+        # checked under exactly the ambient row.
+        operation = f"(perform {self.clock} 0 ())"
+        allowed = f"(fn (cap {self.clock}) () (fn Bool ({self.clock}) I64))"
+        term = f"(lam (cap {self.clock}) (lam Bool (if (var 0) {operation} (lit i64 0))))"
+        validate_source(self.definition(allowed, term), self.registry)
+        pure = f"(fn (cap {self.clock}) () (fn Bool () I64))"
+        self.assert_type_error(self.definition(pure, term), "not allowed by the ambient effect row")
+        condition = f"(lam (cap {self.clock}) (lam Bool (if {operation} (lit i64 1) (lit i64 0))))"
+        self.assert_type_error(self.definition(pure, condition), "not allowed by the ambient effect row")
+
     def test_row_polymorphism_fails_explicitly(self):
         checker = MatchChecker(self.registry)
         with self.assertRaisesRegex(TypeDirectionError, "row-polymorphic"):

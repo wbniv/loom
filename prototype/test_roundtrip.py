@@ -67,6 +67,7 @@ class CanonicalSurfaceTest(unittest.TestCase):
             f"(handle {HASH_A} (perform {HASH_A} 0 ()) ((0 (var 0))) (var 0))",
             "(fix (fn I64 () I64) (lam I64 (var 0)) (lam I64 (var 0)))",
             "(hole I64 ((lit bool true)))",
+            "(if (lit bool true) (lit i64 1) (lit i64 0))",
         ]
         for term in terms:
             with self.subTest(term=term):
@@ -146,6 +147,7 @@ class CanonicalSurfaceTest(unittest.TestCase):
             ("(wat Unit (lit unit))", "expected (def"),
             ("(def Unit (unknown))", "unknown term"),
             ("(def Unit (lit unit extra))", "malformed lit"),
+            ("(def I64 (if (lit bool true) (lit i64 1)))", "malformed if"),
         ]
         for source, message in cases:
             with self.subTest(source=source):

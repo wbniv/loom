@@ -57,6 +57,28 @@ class ScopeTest(unittest.TestCase):
         self.assert_scope_error(definition("(tyvar 0)", "(lit unit)"), "type index 0")
         self.assert_scope_error(definition("(fn I64 ((tyvar 0)) I64)", "(lit unit)"), "type index 0")
 
+    def test_definition_term_is_checked_at_the_types_forall_depth(self):
+        # §2.3.1: `forall^p` on the definition type puts p type variables in
+        # scope in the term, which is what makes a polymorphic `lam` writable.
+        self.assert_valid(definition("(forall (fn (tyvar 0) () (tyvar 0)))", "(lam (tyvar 0) (var 0))"))
+        self.assert_scope_error(
+            definition("(forall (fn (tyvar 0) () (tyvar 0)))", "(lam (tyvar 1) (var 0))"),
+            "type index 1 is out of scope at depth 1",
+        )
+        self.assert_scope_error(definition("(fn (tyvar 0) () I64)", "(lam I64 (lit i64 0))"), "type index 0")
+
+    def test_definition_type_quantifiers_must_be_prenex(self):
+        self.assert_scope_error(
+            definition("(fn I64 () (forall (fn (tyvar 0) () (tyvar 0))))", "(lam I64 (hole I64 ()))"),
+            "must be prenex",
+        )
+
+    def test_if_binds_nothing_and_scopes_all_three_subterms(self):
+        self.assert_valid(definition("I64", "(lam Bool (if (var 0) (lit i64 1) (lit i64 0)))"))
+        self.assert_scope_error(definition("I64", "(if (lit bool true) (var 0) (lit i64 0))"), ".then")
+        self.assert_scope_error(definition("I64", "(if (lit bool true) (lit i64 0) (var 0))"), ".else")
+        self.assert_scope_error(definition("I64", "(lam Bool (if (var 1) (lit i64 0) (lit i64 0)))"), ".condition")
+
     def test_fix_binds_self_only_in_body(self):
         self.assert_valid(definition("I64", "(fix I64 (lit i64 0) (var 0))"))
         self.assert_valid(definition("I64", "(fix I64 (lit i64 0) (lam I64 (var 1)))"))
