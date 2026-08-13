@@ -35,7 +35,7 @@ Check conformance with `task todo:lint`.
   See [plan](docs/plans/2026-08-13-obligation-pipeline.md) residue 1. (T2: bounded,
   the seam API exists in obligations.py.)
 
-- [T3] **Build experiment Phase A: resolver, harness, conditions 1–3.** Per the
+- [wip T3] <!-- agent:abc11cdcfdbc312bd --> **Build experiment Phase A: resolver, harness, conditions 1–3.** Per the
   [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md) R2.1:
   the disposable store-shaped resolver, prompt construction per corpus regime, the
   task set including held-out compositional tasks, and conditions
