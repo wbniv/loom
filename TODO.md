@@ -41,7 +41,7 @@ Check conformance with `task todo:lint`.
   counts per §11, lease rules) — is never specified. Blocks any real store
   implementation, since §6.3's monotone-rebind check needs a policy to check against.
 
-- [T3] **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
+- [wip T3] <!-- agent:a86c35d715653127a --> **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
   names the target fragment (QF_UFLIRA + datatypes) but not the encoding rules from
   Loom refinement terms to SMT-LIB terms. Needed before an `A3 proof` obligation
   (§6.1) can actually be discharged by a solver rather than asserted.
@@ -52,7 +52,7 @@ Check conformance with `task todo:lint`.
   and sketch the transpilation into Loom canonical form, to seed both a training
   signal and the in-context few-shot examples §8.4 relies on for fluency.
 
-- [T3] **Add explicit confidence-bound fields to the evidence schema (SPEC.md §13, open
+- [wip T3] <!-- agent:a5c0038b0f5cdbf29 --> **Add explicit confidence-bound fields to the evidence schema (SPEC.md §13, open
   problem 6).** Extend the `A1 property` evidence payload (§6.1) beyond a bare run
   count to carry a stated failure-probability bound at a stated confidence, relative
   to a stated generator — makes policy thresholds (§5.3) numeric instead of positional
