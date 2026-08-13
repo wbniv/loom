@@ -93,6 +93,14 @@ applying them.
 | `test_externs.py` | Pinned identities for the nine assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, the §3.2.1 interpretation table over extern hashes, and a demonstration that a hypothesis conjoining two comparisons with `and` now translates deterministically. |
 | `test_contracts.py` | Pins every contract version, and checks the record against the code: entry points resolve and are callable, resolver conventions and pinned artifacts exist, the four Watch-named layers are versioned, and `CONTRACTS.md` states each current version. |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, the §3.2.1 obligations with their pinned script hashes and expected verdicts (also both directions, plus an optional solver run), and the recorded expressiveness limits (two of them re-pinned as lifted). |
+| `experiment/` | The §8.4 masked-generation experiment's Phase A harness, which only ever *consumes* the layers above. See [the experiment section](#the-masked-generation-experiment-phase-a) below. |
+| `experiment/resolver.py` | The plan's R1 "disposable store-shaped resolver": one hash-keyed lookup surface over the declaration registry, the definition-type snapshot, and the corpus fixture bytes. No namespaces, leases, policy admission, persistence, or garbage collection, by rule. |
+| `experiment/prompts.py` | The four corpus regimes (`none`, `few_shot`, `full_corpus`, `held_out`), the corpus-drawn task set, and eight held-out compositional tasks with expected types built from corpus hashes and rendered through the canonical transcoder. |
+| `experiment/backends.py` | The pluggable model seam: one callable, prompt plus optional grammar to tokens. A llama.cpp server backend (exact token counts), a `llama-cli --grammar-file` backend (refuses to estimate a token count it cannot read), and a deterministic no-model stub. |
+| `experiment/evaluate.py` | The funnel — parse, scope, references, typecheck classification by error class through each layer's published `validate_source` — plus the operationalized semantic-success rule and rejection sampling's narrowing note. |
+| `experiment/runner.py` | Conditions 1–3 under the shared fixed-token-budget-per-task rule, the per-draw JSONL record, and the aggregate report including the failure-distribution-by-layer table that gates Phase B. |
+| `experiment/phase_a.config.json` | The shipped run config. `backend` is empty, so the one-command entry point refuses with a message naming the model-selection item that blocks it. |
+| `test_experiment.py` | The whole harness end to end on the stub backend: resolver agreement with `corpus_registry.reference_type`, regime and leave-one-out construction, every held-out expected type proven well-formed as a typed hole, one canned output per contract layer, budget accounting, run reproducibility, and report generation. |
 
 The example fixtures are:
 
@@ -222,6 +230,61 @@ quantified reference used as, say, an application's function still synthesizes
 its quantified type verbatim, so a generic definition still needs a
 monomorphic wrapper or a typed `let` at each use site; only the *elimination*
 rule for checking position was missing.
+
+## The masked-generation experiment (Phase A)
+
+`experiment/` is the harness for §8.4's central hypothesis — whether an LLM
+generates useful canonical Loom programs more reliably under grammar and
+type-directed constraints. The design of record is
+[`docs/plans/2026-08-13-masked-generation-experiment.md`](../docs/plans/2026-08-13-masked-generation-experiment.md);
+what was built and why is
+[`docs/plans/2026-08-13-experiment-phase-a.md`](../docs/plans/2026-08-13-experiment-phase-a.md).
+
+It is a consumer of this prototype and never a part of it. Every checker layer
+is reached through its published `validate_source` entry point, so the funnel
+measures the layers that actually ship rather than a copy of them, and nothing
+in `experiment/` is on the road to the store.
+
+Phase A runs three of the plan's four conditions:
+
+1. `unconstrained` — no grammar.
+2. `gbnf` — sampled under `loom.gbnf`, so syntax cannot fail.
+3. `gbnf+rejection` — sampled under the grammar, the full checker run on each
+   completed definition, and a rejected draw redrawn with the rejecting layer's
+   error handed back. This is per-token masking's real economic rival.
+
+Condition 4 (type-directed per-token masking) is Phase B and is refused by name:
+it gets built against Phase A's failure distribution, not before it. **There is
+no per-token masking anywhere in this package.**
+
+All conditions are compared under one rule — a **fixed total token budget per
+task**, spent across as many draws as it takes, with accepted definitions
+counted inside it. The runner cannot express a per-attempt budget, because that
+would make masked decoding's late-and-expensive failures incomparable with
+unconstrained generation's early-and-cheap ones.
+
+```sh
+task experiment:phase-a -- --dry-run     # shape and upper-bound token cost, no model
+task experiment:phase-a                  # refuses until a model backend is configured
+LOOM_EXPERIMENT_CONFIG=my-run.json task experiment:phase-a
+```
+
+The shipped config has no backend, so the second command exits 2 with a message
+naming the model-selection item that blocks it. A live run needs three things
+from the operator: a backend (`llama-server` with a `server_url`, or
+`llama-cli` with a `binary` and a GGUF `model_path`), a recorded
+`model_identity` — refused if empty, because the plan requires the model to be
+recorded *before* the run rather than reconstructed after it — and `hardware`.
+
+Output lands in `output_dir` (git-ignored by default): `records.jsonl` with one
+record per draw, `summary.json`, and `report.md`. The report's load-bearing
+table is the **failure distribution by checker layer** over grammar-constrained
+draws, which is the input Phase B's masker design is gated on.
+
+`task prototype:test` runs the whole harness against a deterministic stub
+backend that emits one valid corpus surface and one output broken at each of the
+four contract layers, so the funnel, the budget accounting and the report are
+all tested without a model.
 
 ## Golden identity check
 

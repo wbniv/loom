@@ -3,7 +3,8 @@
 | Date | Plan | Status |
 |---|---|---|
 | 2026-08-13 | [The obligation pipeline, and what a `sat` verdict means](2026-08-13-obligation-pipeline.md) | Implemented; PASS |
-| 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Designed; substrate pending |
+| 2026-08-13 | [Masked-generation experiment, Phase A substrate and harness](2026-08-13-experiment-phase-a.md) | Implemented; PASS (live run gated on the T5 model item) |
+| 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Designed; Phase A substrate built |
 | 2026-08-13 | [Boolean and comparison base externs](2026-08-13-boolean-base-externs.md) | Implemented; PASS |
 | 2026-08-13 | [Versioned validation contracts](2026-08-13-validation-contracts.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 4: the refinement slice](2026-08-13-corpus-tranche-4.md) | Implemented; PASS |
