@@ -81,6 +81,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [effect-typing] Added closed-row effect-directed checking for
+  function calls, operation signatures/capabilities, and exhaustive handlers
+  with typed continuations. See
+  [plan](docs/plans/2026-08-13-effect-directed-typing.md).
 - ✅ 2026-08-13 — [nominal-match] Added parameterized constructor checking and
   exhaustive nominal match validation with verified binder types/order. See
   [plan](docs/plans/2026-08-13-nominal-match-validation.md).

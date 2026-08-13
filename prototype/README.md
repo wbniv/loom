@@ -4,8 +4,9 @@ This directory implements the canonical, prior-rich emission surface proposed
 by `SPEC.md` §8.4 and the deterministic conversion between that surface and the
 IR encoded as canonical CBOR.
 
-**Status: working syntax/identity/scope prototype, not a store.** There is no
-typechecker, evidence lattice, or full oracle here.
+**Status: working syntax/identity/scope and partial type-directed prototype, not
+a store.** There is no complete typechecker, evidence lattice, or full oracle
+here.
 
 ## Run it
 
@@ -48,7 +49,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
-| `matches.py` | Bidirectional nominal constructor checking and exhaustive match validation for the first type-directed subset. |
+| `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -57,6 +58,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
 | `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
+| `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 
 The example fixtures are:
 
@@ -90,16 +92,16 @@ is absent. `transcode.transcode_source` remains deliberately store-independent
 and does not perform this stateful check.
 
 `references.validate_source` checks nominal declaration existence, kind, and
-explicit `con`/`perform`/`handle` bounds and arities. The prototype does not
-establish match exhaustiveness, typing, termination, refinement validity, or
-evidence. Match constructor and binder validation requires inference of the
-scrutinee type and remains a typechecker responsibility. The remaining oracle
+explicit `con`/`perform`/`handle` bounds and arities. It does not establish
+typing, termination, refinement validity, or evidence. The remaining oracle
 layers are described in `SPEC.md` §§3, 6, and 8.
 
-`matches.validate_source` is the first deliberately partial type-directed layer.
-It validates nominal constructors and matches over literals, variables, lambdas,
-applications, lets, constructors, matches, and holes. Other nodes raise an
-explicit path-aware error until their typing rules are implemented.
+`matches.validate_source` is a deliberately partial type-directed layer. It
+validates nominal constructors and exhaustive matches, closed function effect
+rows, operation signatures and capabilities, and handlers with typed return,
+operation, and continuation clauses. Row polymorphism and other unsupported
+nodes raise an explicit path-aware error until their typing rules are
+implemented.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:

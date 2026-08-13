@@ -177,6 +177,20 @@ class DeclarationRegistry:
         obj = self._resolve(digest, 5, "ability")
         return AbilityInfo(tuple(len(operation[0]) for operation in obj[2]))
 
+    def ability_object(self, digest: bytes) -> list:
+        """Return an isolated copy of a verified ability declaration."""
+        return copy.deepcopy(self._resolve(digest, 5, "ability"))
+
+    def operation_signature(self, digest: bytes, operation: int) -> tuple[list, list]:
+        if not isinstance(operation, int) or isinstance(operation, bool) or operation < 0:
+            raise LookupError(operation)
+        obj = self.ability_object(digest)
+        try:
+            parameters, result = obj[2][operation]
+        except IndexError as exc:
+            raise LookupError(operation) from exc
+        return copy.deepcopy(parameters), copy.deepcopy(result)
+
     def operation_arity(self, digest: bytes, operation: int) -> int:
         info = self.ability(digest)
         if not isinstance(operation, int) or isinstance(operation, bool) or operation < 0:

@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/e9944dc) | Add nominal match validation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/92bebcb) | Define builtin ability prelude |
 | [2026-08-13](https://github.com/wbniv/loom/commit/b442b6c) | Add declaration reference validation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/7df4ab8) | Add stateful scope validation |
@@ -7,6 +8,10 @@
 | [2026-08-12](https://github.com/wbniv/loom/commit/7474944) | Prototype Loom S-expression transcoder |
 
 <!--history-meta v1
+e9944dc	author	Will Norris
+e9944dc	added	7
+e9944dc	deleted	0
+e9944dc	files	1
 92bebcb	author	Will Norris
 92bebcb	added	2
 92bebcb	deleted	0

@@ -218,6 +218,26 @@ each arm's `binder-count` must equal that constructor's field count. Instantiate
 field types enter the arm environment in declaration order, with the last field
 at de Bruijn index 0 (§2.3.1). Every arm body must have one common result type.
 
+### 3.1.2 Effect-directed typing
+
+A lambda checked against `fn D row C` must carry annotation `D`; its body is
+checked against `C` with exactly `row` as its ambient effect allowance. A closed
+definition begins with no ambient effects. `perform a i args` resolves operation
+`i` in ability `a`, checks arguments against its parameter types, and has its
+declared result type. It is valid only when `a` occurs in the ambient effect row
+and a value of type `cap a` is in the term environment.
+
+Checking `handle a term ops ret` against result type `R` checks `term` with `a`
+added to the ambient allowance and obtains handled result type `T`. The return
+clause binds `T` at index 0 and checks against `R`. Each operation clause binds
+the operation parameters in signature order, then a continuation at index 0 of
+type `fn operation-result ambient-row R`; its body checks against `R`. Clauses
+must cover every operation exactly once. The continuation's row is the outer
+ambient row, so the handler discharges `a`; handling an ability already present
+outside does not remove that outer allowance. The v0.1 prototype's
+type-directed layer requires closed rows—row-polymorphic effect checking remains
+future work.
+
 ### 3.2 Refinements and obligations
 
 Refinement predicates live in a decidable fragment: quantifier-free linear
