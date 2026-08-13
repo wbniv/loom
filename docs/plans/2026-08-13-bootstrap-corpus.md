@@ -66,16 +66,20 @@ totality checking, and R4 shows that advantage evaporates: Loom cannot record a
 proved measure for structural recursion anyway, so the imported termination
 argument has nowhere to land.
 
-**Source and licence, stated rather than assumed.** The definitions are from
-[unisonweb/base](https://github.com/unisonweb/base); `Optional.getOrElse` and
-`Either.mapRight` were spot‑checked against the
+**Source and licence, stated rather than assumed.** The definitions are cited
+from [unisonweb/unison](https://github.com/unisonweb/unison), the MIT-licensed
+main repository ("Copyright (c) 2013–2024, Unison Computing, public benefit
+corp and contributors") where the base library's definitions originate;
+`Optional.getOrElse` and `Either.mapRight` were spot‑checked against the
 [Unison docs](https://www.unison-lang.org/docs/fundamentals/control-flow/exception-handling/).
-The GitHub API reports **no machine‑detectable licence** for that repository as
-of 2026‑08‑13 (`license: null`). Nothing is vendored: no Unison source text
-enters this repository, and each seed entry is a three‑to‑five‑line structural
-eliminator that is identical in every ML‑family standard library. **Confirm
-licensing in writing before scaling past the seed set** — that is a real
-residual risk, recorded here rather than assumed away.
+The standalone [unisonweb/base](https://github.com/unisonweb/base) mirror
+carries **no licence file** (GitHub `license: null` as of 2026‑08‑13), so
+attributions deliberately cite the main repository instead — attribution is
+§5.2 metadata and never enters identity, so this is a citation choice with no
+structural effect. Nothing is vendored: no Unison source text enters this
+repository, and each seed entry is a three‑to‑five‑line structural eliminator
+that is identical in every ML‑family standard library. Resolved 2026‑08‑13:
+scaling may proceed under the main repository's MIT licence.
 
 ### R2 — Mapping losses, enumerated
 
@@ -411,8 +415,10 @@ the main checkout the `task` form is equivalent.
 3. **§11 `extern` has no object encoding.** §4.3 lists seven object kinds and
    none is an extern, so the R5 assumed base cannot yet be stored. Tranche 2
    needs this.
-4. **Unison base licensing is unconfirmed** (R1). Blocking for scale, not for
-   the seed set.
+4. ~~**Unison base licensing is unconfirmed** (R1).~~ Resolved 2026‑08‑13:
+   attributions re-sourced to the MIT-licensed
+   [unisonweb/unison](https://github.com/unisonweb/unison) main repository (R1
+   as amended). No longer blocks scale.
 
 ## Recorded verification
 

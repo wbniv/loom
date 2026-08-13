@@ -1,7 +1,8 @@
 """Bootstrap-corpus data declarations and the seed-set manifest.
 
 The corpus seeds §13 open problem 1 (prior starvation). Its definitions are
-hand-transpiled from the Unison base library's structural eliminators; see
+hand-transpiled from the base library of the MIT-licensed unisonweb/unison
+repository (structural eliminators only); see
 `docs/plans/2026-08-13-bootstrap-corpus.md` for the corpus choice, the mapping
 losses, and the tranche list.
 
@@ -109,7 +110,7 @@ MANIFEST = (
         fixture="maybe_is_nothing_i64.loom.sexpr",
         name_path="corpus/maybe/isNothing",
         spec="True when the option carries no value.",
-        source="Unison base Optional.isNone, instantiated at I64",
+        source="Unison (unisonweb/unison, MIT) Optional.isNone, instantiated at I64",
         identity="575ff2d3a57e5a4582a7640b6bcd5365d5e0898e27576e820b3a5fbdd39b01a3",
         tier="checked",
     ),
@@ -117,7 +118,7 @@ MANIFEST = (
         fixture="maybe_get_or_else_i64.loom.sexpr",
         name_path="corpus/maybe/getOrElse",
         spec="The option's value, or the supplied default when it is empty.",
-        source="Unison base Optional.getOrElse, instantiated at I64",
+        source="Unison (unisonweb/unison, MIT) Optional.getOrElse, instantiated at I64",
         identity="2dc64240af4f0bf328f1572c9cd09bca3bed789d5a150a3a8d0c0825b4ad2a2a",
         tier="checked",
     ),
@@ -125,7 +126,7 @@ MANIFEST = (
         fixture="maybe_map_i64.loom.sexpr",
         name_path="corpus/maybe/map",
         spec="Apply a function to the option's value, leaving an empty option empty.",
-        source="Unison base Optional.map, instantiated at I64 -> I64",
+        source="Unison (unisonweb/unison, MIT) Optional.map, instantiated at I64 -> I64",
         identity="a4b7f01ca0cbe6e6fd3494feb556cb6b7c8c4453152e7797e201f1b5e5449cf4",
         tier="checked",
     ),
@@ -133,7 +134,7 @@ MANIFEST = (
         fixture="list_uncons_i64.loom.sexpr",
         name_path="corpus/list/uncons",
         spec="Split a list into its head and tail, or nothing when it is empty.",
-        source="Unison base List.uncons, instantiated at I64",
+        source="Unison (unisonweb/unison, MIT) List.uncons, instantiated at I64",
         identity="1aa47aec06e66f1f563d461eedcf951c9cdab11e7fa26d252536c97160798af5",
         tier="checked",
     ),

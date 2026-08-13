@@ -52,11 +52,6 @@ Check conformance with `task todo:lint`.
   See [plan](docs/plans/2026-08-13-fix-ref-typing.md). (T4: any fix likely changes
   the `fix` node shape, which is identity-affecting.)
 
-- [T5] **Confirm Unison base licensing before scaling the corpus past the seed set.**
-  GitHub reports no machine-detectable license for unisonweb/base; nothing is vendored
-  yet (three-line stdlib eliminators), but scaling needs written confirmation. (T5:
-  needs a human decision outside the repo.)
-
 ## Watch
 
 - Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
@@ -82,6 +77,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [corpus-license] Re-sourced corpus attributions to the MIT-licensed
+  unisonweb/unison main repo (metadata only, no identity change); scaling unblocked.
+  See [plan](docs/plans/2026-08-13-bootstrap-corpus.md).
 - ✅ 2026-08-13 — [fix-ref-typing] Added `fix` typing with measure-shape checking and
   resolver-backed `ref` typing (20 tests); corpus tier re-declared at merge.
   See [plan](docs/plans/2026-08-13-fix-ref-typing.md).
