@@ -52,12 +52,6 @@ Check conformance with `task todo:lint`.
   and sketch the transpilation into Loom canonical form, to seed both a training
   signal and the in-context few-shot examples §8.4 relies on for fluency.
 
-- [wip T3] <!-- agent:a5c0038b0f5cdbf29 --> **Add explicit confidence-bound fields to the evidence schema (SPEC.md §13, open
-  problem 6).** Extend the `A1 property` evidence payload (§6.1) beyond a bare run
-  count to carry a stated failure-probability bound at a stated confidence, relative
-  to a stated generator — makes policy thresholds (§5.3) numeric instead of positional
-  without making the accept/refuse decision itself fuzzy (§3.4).
-
 ## Watch
 
 - Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
@@ -83,6 +77,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [evidence-bounds] Specified the A1 payload with generator, exact
+  rational bound/confidence, Clopper–Pearson method, and partial-order rebind rules.
+  See [plan](docs/plans/2026-08-13-evidence-confidence-bounds.md).
 - ✅ 2026-08-13 — [effect-consistency] Specified contextual effectful-lambda
   checking, aligned effect plans, and promoted the clock-handler documentation
   sample to a round-trip and type-checked fixture. See
