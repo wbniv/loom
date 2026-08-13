@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Implement the effect-consistency review follow-ups.** Complete the §3.1.2
+- [wip T2] <!-- agent:a8b4beb9cc88b0ee6 --> **Implement the effect-consistency review follow-ups.** Complete the §3.1.2
   expected-type context list (perform arguments), fix the SPEC.md status header, add
   the direct-application rejection test, correct the prior review's resolution note,
   document the GBNF validator build, repair the design-sketch links. See
