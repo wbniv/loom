@@ -3,6 +3,7 @@
 | Date | Plan | Status |
 |---|---|---|
 | 2026-08-13 | [Claude review remediation and tranche integration](2026-08-13-claude-review-remediation.md) | Implemented; PASS |
+| 2026-08-13 | [Callback-extern consequence, stated normatively](2026-08-13-callback-extern-consequence.md) | Implemented; PASS |
 | 2026-08-13 | [First-order `forall` instantiation](2026-08-13-forall-instantiation.md) | Implemented; PASS |
 | 2026-08-13 | [Measure selection for curried recursion](2026-08-13-measure-selection.md) | Implemented; PASS |
 | 2026-08-13 | [Definition-level polymorphism and the Bool elimination form](2026-08-13-polymorphism-and-bool-elimination.md) | Implemented; PASS |

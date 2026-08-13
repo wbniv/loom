@@ -769,6 +769,14 @@ escapable through the FFI boundary: applying an extern is not a `perform`, so
 nothing else in the language would demand the capability. The five assumed-base
 externs are pure-typed and therefore take no capability at all.
 
+**This binds callback-taking externs too.** An extern that invokes an effectful
+callback exercises the callback's abilities during the extern's own call, so
+those abilities must be named in the extern's own row and therefore need a
+direct `cap` of their own — a capability nested in the callback's arrow type is
+the callback's requirement, not a value the extern receives. `fn (fn (cap a) ()
+Unit) {a} Unit` is rejected for exactly this reason; a spine that also takes
+`cap a` directly, earlier in the curried arguments, is accepted.
+
 **Referencing.** An extern is referenced by the ordinary `ref` node `[1, h]`
 (§2.1); no new term tag exists, so the decoding mask (§8.2) is untouched. A `ref`
 resolves to a def object *or* an extern object. When it resolves to an extern its
