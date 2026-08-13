@@ -82,6 +82,40 @@ An **effect row** is a CBOR array of ability hashes sorted bytewise
 (deterministic by construction), optionally ending in a row variable
 `[5, i]`. The empty row `[]` means pure.
 
+### 2.3.1 Scope and binder order
+
+Term and type variables use separate de Bruijn spaces. A closed definition is
+checked initially at term depth 0 and type depth 0; every `var i` requires
+`i < term-depth`, and every `tyvar i` (including a row variable) requires
+`i < type-depth`.
+
+Binder-producing nodes extend those depths as follows:
+
+- `lam` adds one term binder in `body`.
+- `let` checks `bound` at the current depth and adds one term binder only in
+  `body`.
+- Each `match` arm adds its encoded `binder-count` term binders in constructor
+  field order; the last constructor field is index 0.
+- `refine T φ` checks `T` at the current depths and checks `φ` with the refined
+  value added as term index 0.
+- Each `hole` constraint is checked with the prospective hole value added as
+  term index 0.
+- `forall T` adds one type binder throughout `T`.
+- `fix T measure body` checks `T` and `measure` at the current depth, then adds
+  the recursive value as term index 0 in `body`. A recursive function normally
+  therefore has a `lam` body: inside that lambda its argument is index 0 and
+  the recursive value is index 1.
+- A `handle` return clause adds the handled computation's result as term index
+  0. An operation clause obtains the selected operation's parameter count from
+  the referenced ability definition, adds those parameters in signature order,
+  then adds the resumption continuation as index 0; the last parameter is index
+  1. A checker that cannot resolve the ability or operation signature must
+  report an unresolved scope dependency, not guess an arity.
+
+Types may contain refinement predicates referring to the surrounding term
+context. Function codomains do not implicitly bind their domain value; Loom v0.1
+does not have dependent function arrows.
+
 ### 2.4 Abilities and capabilities
 
 Abilities (effect interfaces, in the sense of

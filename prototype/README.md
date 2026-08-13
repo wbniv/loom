@@ -4,14 +4,15 @@ This directory implements the canonical, prior-rich emission surface proposed
 by `SPEC.md` §8.4 and the deterministic conversion between that surface and the
 IR encoded as canonical CBOR.
 
-**Status: working syntax/identity prototype, not a store.** There is no
-typechecker, evidence lattice, oracle, or scope checker here.
+**Status: working syntax/identity/scope prototype, not a store.** There is no
+typechecker, evidence lattice, or full oracle here.
 
 ## Run it
 
 ```sh
 cd prototype
 python3 -m unittest test_roundtrip -v
+python3 -m unittest test_roundtrip test_scope -v
 python3 transcode.py examples/01_id.loom.sexpr
 ```
 
@@ -43,10 +44,12 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `cbor_canonical.py` | RFC 8949 deterministic encoder for the Python values used by Loom objects. |
 | `sexpr.py` | Bounds-safe lexer and structural reader with source-offset errors. |
 | `transcode.py` | Validates the surface, maps all term/type/literal tags to IR, renders IR back to its canonical surface, encodes definitions, and computes identity. |
+| `scope.py` | Checks term/type de Bruijn indices with path-aware errors; handler checks use an injected ability-operation arity resolver. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
 | `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
+| `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
 
 The example fixtures are:
 
@@ -73,9 +76,15 @@ The prototype demonstrates a canonical syntactic representation and preserves
 identity through deterministic transcoding. The grammar constrains node shape;
 the transcoder additionally enforces field domains and canonical spellings.
 
-It deliberately does not establish scope correctness, constructor or operation
-existence, exhaustiveness, typing, termination, refinements, or evidence. Those
-remain responsibilities of the stateful decoder and oracle described in
+`scope.validate_source` establishes de Bruijn scope correctness using the binder
+rules in `SPEC.md` §2.3.1. Handler clauses require a caller-provided resolver for
+operation parameter counts; the checker refuses to guess when store information
+is absent. `transcode.transcode_source` remains deliberately store-independent
+and does not perform this stateful check.
+
+The prototype does not establish constructor or operation existence beyond that
+handler lookup, exhaustiveness, typing, termination, refinement validity, or
+evidence. Those remain responsibilities of later oracle layers described in
 `SPEC.md` §§3, 6, and 8.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
