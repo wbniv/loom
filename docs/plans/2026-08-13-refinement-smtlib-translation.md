@@ -96,8 +96,21 @@ alternative is recorded here rather than lost.
    solvers. The admitted fragment is enforced by the translator, which is the
    honest place for it. Alternative considered and rejected: emit a
    non-standard logic name and rely on solver leniency.
+4. **Opaque-literal equality is bitwise, not IEEE-754 numeric equality.**
+   Each `F64` literal becomes a constant named by the SHA-256 of its raw
+   eight-byte payload, and a script with two or more such constants asserts
+   one `distinct` over all of them (§3.2.1). Keying on the payload rather than
+   the numeric value means `+0.0` and `-0.0` — IEEE-754-equal, byte-distinct —
+   are asserted `distinct`. The alternative, an interpretation that treats
+   IEEE-754-equal `F64` payloads as one constant, was rejected: it would need
+   a numeric equality theory over `F64` to define "IEEE-754-equal" in the
+   first place, which is exactly the `QF_FP` fragment §3.2 declines to admit,
+   and it would silently disagree with Loom's own intensional identity
+   (§4.1), under which two extensionally equal values with different
+   canonical bytes are different values. Bitwise equality is therefore the
+   only choice consistent with treating `F64` as opaque at all.
 
-A fourth, smaller call: sort and symbol names carry the **full** 64-hex SHA-256,
+A fifth, smaller call: sort and symbol names carry the **full** 64-hex SHA-256,
 not §1's 8-character projection prefix. A script is an encoding, not a
 projection, and truncation would let two store definitions collide into one
 uninterpreted symbol. The cost is long lines.

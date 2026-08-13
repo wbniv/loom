@@ -41,9 +41,9 @@ store, complete type system, refinement solver, or evidence oracle.
 
 Grew out of two investigation docs, in order:
 
-1. [Analysis of "programming languages will soon be unnecessary"](../docs/investigations/2026-08-12-english-as-source-code-analysis.md)
+1. [Analysis of "programming languages will soon be unnecessary"](docs/investigations/2026-08-12-english-as-source-code-analysis.md)
    — why the essay's opaque endpoint doesn't follow.
-2. [Loom design sketch](../docs/investigations/2026-08-12-loom-agent-native-language-sketch.md)
+2. [Loom design sketch](docs/investigations/2026-08-12-loom-agent-native-language-sketch.md)
    — design pressures P1–P6 and decisions D1–D7, derived from how LLM
    agents mechanically work.
 
