@@ -38,6 +38,23 @@ The machine-emission surface has exactly one rendering for each supported IR:
 normalizing them. `transcode.def_to_surface` is the inverse renderer. Tests
 exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 
+## Contract versions
+
+Each validation layer's externally observable behaviour is a **versioned
+contract**, so that a future non-Python implementation can claim conformance to
+"scope contract 1.0" and be held to it by differential testing against this
+reference. There are seven — `parser`, `scope`, `references`, `typecheck`,
+`declarations`, `refinements`, `policies` — all seeded at 1.0, recorded in
+[`contracts.py`](contracts.py) and narrated in [`CONTRACTS.md`](CONTRACTS.md).
+
+A version covers the acceptance set, the fact of rejection and its declared error
+class, canonical bytes and derived hashes, the injected-resolver call
+conventions, and the public entry-point signatures. It deliberately does **not**
+cover error message text or the path strings inside errors — diagnostics stay
+free to improve at no version cost. Read [`CONTRACTS.md`](CONTRACTS.md) before
+changing any layer's behaviour; it has the bump rules and the discipline for
+applying them.
+
 ## Files
 
 | File | Role |
@@ -54,6 +71,8 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
+| `contracts.py` | The versioned validation contract for each layer: version, entry points, injected-resolver conventions, and pinned artifacts, with the coverage and bump rules in its module docstring. |
+| `CONTRACTS.md` | The conformance narrative for those versions — what a version covers, what it does not, what bumps it, and the discipline that keeps the record honest. |
 | `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest with its §3.2.1 obligations and pinned script hashes, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
@@ -70,6 +89,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
+| `test_contracts.py` | Pins every contract version, and checks the record against the code: entry points resolve and are callable, resolver conventions and pinned artifacts exist, the four Watch-named layers are versioned, and `CONTRACTS.md` states each current version. |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, the §3.2.1 obligations with their pinned script hashes and expected verdicts (also both directions, plus an optional solver run), and the recorded expressiveness limits (two of them re-pinned as lifted). |
 
 The example fixtures are:
