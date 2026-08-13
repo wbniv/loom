@@ -39,6 +39,23 @@ Check conformance with `task todo:lint`.
   [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
   space, two normative rules, wrong turn expensive.)
 
+- [T4] **Build the masked-generation experiment substrate and harness.** Per the
+  [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md): the
+  disposable store-shaped resolver (immutable hash-keyed objects, unified
+  decl/def-type resolution, corpus retrieval + few-shot prompt construction) and
+  the incremental parser/type-state masking interface — the per-token
+  prefix-feasibility API layered as GBNF syntax then §8.2 type state, recording
+  which checker operations can and cannot run per token. Three conditions
+  (unconstrained / GBNF / GBNF+type-masking) runnable with one command across the
+  four corpus regimes. No namespaces, leases, policy admission, persistence, or GC.
+  (T4: the incremental type-state interface is new design; the rest is assembly.)
+
+- [T5] **Select the experiment's model and hardware.** Needs the operator: a local
+  GGUF under llama.cpp is the natural path (`loom.gbnf` is llama.cpp-format) —
+  which model, what hardware, what token budget per definition. Record in the
+  experiment plan before running; the run itself is gated on this plus the
+  substrate. (T5: needs a human and hardware.)
+
 - [T4] **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
   changes and all seven validation contracts are now versioned (contracts.py 1.0).
@@ -159,3 +176,12 @@ condition that would unpark it._
   [plan](docs/plans/2026-08-13-stateful-scope-validation.md).
 - ✅ 2026-08-12 — [sexpr-grammar] Prototyped S-expr isomorph + canonical-CBOR
   transcoder; matches SPEC.md §4.4 worked-example hash exactly. See [prototype/](prototype/).
+
+
+## Inbox — auto-captured plan deferrals
+
+_Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
+
+<!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [verify] **2026-08-13-masked-generation-experiment** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-13-masked-generation-experiment.md](docs/plans/2026-08-13-masked-generation-experiment.md)_  <!-- fp:0026d7fbf9454020 -->
+<!-- END auto-captured-deferrals -->

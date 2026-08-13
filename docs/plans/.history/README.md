@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/914b7f2) | Extend the assumed base with and/or/not/<= externs |
 | [2026-08-13](https://github.com/wbniv/loom/commit/3304435) | Version the validation contracts |
 | [2026-08-13](https://github.com/wbniv/loom/commit/fadc3ae) | Build corpus tranche 4: the refinement slice |
 | [2026-08-13](https://github.com/wbniv/loom/commit/41df057) | Build corpus tranche 3: the effectful slice |
@@ -27,6 +28,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+914b7f2	author	Will Norris
+914b7f2	added	1
+914b7f2	deleted	0
+914b7f2	files	1
+914b7f2	body	Bool.and, Bool.or, Bool.not, and I64.le join the five arithmetic\nexterns (pinned identities, interpretation-table rows), so §3.2.1's\nand/or/not/<= interpreted symbols finally have something to\ninterpret. A conjunction demonstration in test_externs.py shows the\nexact shape tranche 4's nat/select sat case needed and couldn't\nstate — two comparisons conjoined into one hypothesis — now\ntranslates deterministically.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 3304435	author	Will Norris
 3304435	added	1
 3304435	deleted	0
