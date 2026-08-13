@@ -39,12 +39,6 @@ Check conformance with `task todo:lint`.
   [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
   space, two normative rules, wrong turn expensive.)
 
-- [wip T2] <!-- agent:ada95106301ea4a36 --> **Extend the assumed base with `and`/`or`/`not`/`<=` externs.** §3.2.1's
-  allowlist admits them but no extern supplies them, so every corpus predicate is a
-  single comparison and `nat` is spelled `-1 < i`. Pinned identities plus
-  interpretation rows, the established pattern; directly relieves the
-  single-hypothesis limit behind one tranche-4 `sat` case. (T2: pattern repetition.)
-
 - [T4] **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
   changes and all seven validation contracts are now versioned (contracts.py 1.0).
@@ -81,6 +75,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [boolean-externs] Added Bool.and/or/not and I64.le to the assumed
+  base (nine externs) with a deterministic conjunction-translation demonstration.
+  See [plan](docs/plans/2026-08-13-boolean-base-externs.md).
 - ✅ 2026-08-13 — [validation-contracts] Versioned seven per-layer contracts at 1.0
   with MAJOR/MINOR bump rules validated against history; Watch trigger (a) met.
   See [plan](docs/plans/2026-08-13-validation-contracts.md).
