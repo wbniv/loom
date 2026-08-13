@@ -54,7 +54,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
-| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest, and the §8.4 few-shot pairs. |
+| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest with its §3.2.1 obligations and pinned script hashes, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -70,7 +70,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
-| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, and the recorded expressiveness limits (two of them re-pinned as lifted). |
+| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, the §3.2.1 obligations with their pinned script hashes and expected verdicts (also both directions, plus an optional solver run), and the recorded expressiveness limits (two of them re-pinned as lifted). |
 
 The example fixtures are:
 
@@ -87,8 +87,9 @@ example 5 uses the pinned builtin clock declaration.
 ## The bootstrap corpus
 
 `corpus/` is a separate, growing set with different provenance from `examples/`:
-these are definitions hand-transpiled from the Unison base library to seed
-`SPEC.md` §13 open problem 1, per the
+these are definitions hand-transpiled from the Unison base library — and, in
+tranche 4, from the F\* standard library — to seed `SPEC.md` §13 open problem 1,
+per the
 [bootstrap-corpus plan](../docs/plans/2026-08-13-bootstrap-corpus.md). Each entry
 in `corpus_registry.MANIFEST` carries a name path, spec text, source attribution,
 a pinned identity, and the validation **tier** it is expected to reach — `checked`
@@ -150,6 +151,41 @@ test that used to assert every fixture was ability-free is now split in two
 and keyed on the manifest's `effect_free` flag — pure entries must be pure,
 entries declaring themselves effectful must actually name an ability — so the
 flag is a claim checked in both directions rather than an exemption.
+
+Tranche 4 (the refinement slice) is the first drawn from a second source — the
+Apache-2.0 [FStarLang/FStar](https://github.com/FStarLang/FStar) standard
+library — and the first to carry `refine` types and §6.2 obligations, per the
+[tranche-4 plan](../docs/plans/2026-08-13-corpus-tranche-4.md). Six entries:
+`math/abs`, `list/lengthNat`, `nat/widenPos`, `list/consNat`, `nat/applyPos`,
+and `nat/select`, of which the first three are `structural`. They are
+`structural` for one reason worth stating plainly: `typecheck.py` implements no
+§3.3 refinement subsumption, so a term meets a `refine` type only by structural
+equality — a plain `I64` inhabits neither `{n | 0 ≤ n}` nor `{n | 0 < n}`, and
+`{n | 0 < n}` does not flow into `{n | 0 ≤ n}`. What *does* work is a refinement
+flowing through unchanged, including inside a `(data …)` type argument, which is
+what keeps the other three at `checked`.
+
+`CorpusEntry.obligations` is the tranche's new manifest field, enforced in both
+directions like `tier` and `effect_free`: a `refine` in an entry's type may not
+enter the corpus without an obligation, and an obligation may not be attached to
+an entry that claims none. Each `corpus_registry.Obligation` is one §3.2.1
+verification condition — refinement subtyping, v0.1's only producer — with its
+canonical SMT-LIB script's SHA-256 pinned (the §6.4 memo-ledger payload key) and
+the solver verdict it expects. Two of the six deliberately share a script hash,
+because §3.2.1 says the obligation's name never enters the script; a test
+asserts they agree byte for byte. `test_corpus.CorpusObligationTest` regenerates
+every script from `refinements.py` and re-hashes it, and additionally runs a
+solver over each one when `LOOM_SMT_SOLVER` is set or `z3` is on `PATH` —
+never a hard dependency.
+
+Three of the six obligations are pinned at `sat`, i.e. §3.2.1 *refutes* the
+verification condition as v0.1 builds it, and each records which fact the VC
+shape could not carry: refinement erasure inside data type arguments makes
+`List {n | 0 ≤ n}` and `List I64` one sort, `List.size` stays uninterpreted so
+nothing bounds it below, and `H` holds exactly one hypothesis so a claim needing
+two premises cannot state them. Those are the honest boundary of "exercising
+§3.2.1 end to end" today; the tranche-4 plan scopes them against the body-VC
+generation §3.2.1 lists as future work.
 
 The instantiation gap that remained after the first lift — v0.1 could write a
 polymorphic definition but not *call* one at a concrete type — is itself now
