@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Bootstrap corpus tranche 4: the refinement slice](2026-08-13-corpus-tranche-4.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 3: the effectful slice](2026-08-13-corpus-tranche-3.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 2: the recursive slice](2026-08-13-corpus-tranche-2.md) | Implemented; PASS |
 | 2026-08-13 | [Claude review remediation and tranche integration](2026-08-13-claude-review-remediation.md) | Implemented; PASS |

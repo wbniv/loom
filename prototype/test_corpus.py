@@ -14,13 +14,18 @@ the narrower residue the new rule leaves in place.
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 import corpus_registry
+import refinements
 import typecheck as matches
 import references
 import scope
-from corpus_registry import MANIFEST, TIERS
+from corpus_registry import MANIFEST, TIERS, VERDICTS
 from declarations import declaration_hash
 from transcode import def_to_surface, parse_source, transcode_source
 
@@ -179,6 +184,10 @@ class CorpusFixtureTest(unittest.TestCase):
                 if entry.source.startswith("Unison"):
                     self.assertIn("unisonweb/unison", entry.source)
                     self.assertIn("MIT", entry.source)
+                if entry.source.startswith("F*"):
+                    self.assertIn("FStarLang/FStar", entry.source)
+                    self.assertIn("Apache-2.0", entry.source)
+                    self.assertRegex(entry.source, r"\bFStar\.[A-Za-z.]+|\bPrims\b")
 
     def test_manifest_declares_dependencies_before_use(self):
         # The store has no forward references, so no entry may name a later
@@ -199,6 +208,121 @@ class CorpusFixtureTest(unittest.TestCase):
             self.assertFalse(hashes & {e.identity for e in MANIFEST if e.identity not in seen},
                              f"{entry.name_path} names a definition not yet in the store")
             seen.add(entry.identity)
+
+
+def _has_refinement(node) -> bool:
+    if isinstance(node, list):
+        if node and node[0] == 3 and len(node) == 3 and isinstance(node[1], list):
+            return True
+        return any(_has_refinement(child) for child in node)
+    return False
+
+
+class CorpusObligationTest(unittest.TestCase):
+    """The §3.2.1 verification conditions tranche 4's `ensures` claims produce.
+
+    Absent a solver in the loop, "exercised end to end" means exactly this: the
+    obligation's canonical solver input exists, is deterministic, and is pinned
+    by content hash, so a change anywhere in the translator, the interpretation
+    table, or a fixture's predicate moves a hash and fails here.
+    """
+
+    def setUp(self):
+        self.registry = corpus_registry.registry()
+
+    def test_every_obligation_reproduces_its_pinned_script_hash(self):
+        pinned = [(entry, obligation) for entry in MANIFEST for obligation in entry.obligations]
+        self.assertTrue(pinned, "tranche 4 onwards, the manifest carries obligations")
+        for entry, obligation in pinned:
+            with self.subTest(fixture=entry.fixture, obligation=obligation.name):
+                script = obligation.script(self.registry)
+                self.assertEqual(refinements.script_hash(script), obligation.script_hash)
+                # Determinism, not merely stability: a second translation of the
+                # same verification condition is the same bytes (§3.2.1, §4.2).
+                self.assertEqual(obligation.script(self.registry), script)
+                self.assertTrue(script.endswith("(check-sat)\n(exit)\n"))
+                self.assertTrue(script.startswith("(set-logic ALL)\n"))
+
+    def test_refinements_and_obligations_imply_each_other(self):
+        # Both directions, like `tier` and `effect_free`: a `refine` in a
+        # definition's type may not enter the corpus without an obligation, and
+        # an obligation may not be attached to a fixture that claims none.
+        for entry in MANIFEST:
+            with self.subTest(fixture=entry.fixture):
+                refined = _has_refinement(parse_source(entry.source_text())[1])
+                self.assertEqual(refined, bool(entry.obligations),
+                                 f"{entry.name_path}: refinement/obligation mismatch")
+
+    def test_every_obligation_predicate_is_inside_the_decidable_fragment(self):
+        # §3.2: nothing is ever silently unverified — but equally, nothing is
+        # pinned that the translator would refuse. Both halves of every
+        # subtyping pair are translated on their own, over the obligation's own
+        # context — §3.2.1's `Γ = [T] ++ outer`, which is what lets a predicate
+        # reach a surrounding binder without a dependent arrow.
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                context = [obligation.base, *obligation.outer_context]
+                for label, predicate in (("weaker", obligation.weaker), ("stronger", obligation.stronger)):
+                    with self.subTest(fixture=entry.fixture, obligation=obligation.name, half=label):
+                        refinements.obligation_script(
+                            context, [], predicate, self.registry,
+                            corpus_registry.SMT_SIGNATURES, corpus_registry.SMT_INTERPRETATION)
+
+    def test_every_verdict_is_declared_and_a_sat_says_why(self):
+        # The other direction on `verdict`: a `sat` is §3.2.1's *refutation* of
+        # the verification condition as v0.1 builds it, never a shrug, so it
+        # must record which fact the VC shape could not carry.
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                with self.subTest(fixture=entry.fixture, obligation=obligation.name):
+                    self.assertIn(obligation.verdict, VERDICTS)
+                    if obligation.verdict == "sat":
+                        self.assertNotEqual(obligation.note, "",
+                                            "a refuted obligation must record what is missing")
+
+    def test_one_verification_condition_is_one_memo_ledger_row(self):
+        # §3.2.1: "the obligation's name never enters the script, so two
+        # differently named obligations with the same verification condition
+        # share one memo-ledger row (§6.4)". The manifest carries such a pair on
+        # purpose, so the property is exercised rather than asserted in prose.
+        by_hash: dict[str, set[str]] = {}
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                by_hash.setdefault(obligation.script_hash, set()).add(obligation.name)
+        shared = {digest: names for digest, names in by_hash.items() if len(names) > 1}
+        self.assertTrue(shared, "the corpus keeps a differently-named same-VC pair")
+        for digest, names in shared.items():
+            scripts = {obligation.script(self.registry)
+                       for entry in MANIFEST for obligation in entry.obligations
+                       if obligation.script_hash == digest}
+            self.assertEqual(len(scripts), 1, f"{sorted(names)} disagree on bytes")
+
+    def test_refinement_erasure_makes_a_refined_element_list_one_sort(self):
+        # §3.2.1's "recursively, including inside data type arguments", as a
+        # property rather than a reading: `List {n | -1 < n}` and `List I64` are
+        # the same monomorphized sort, which is why the element predicate of
+        # corpus/list/consNat contributes no hypothesis to its obligation.
+        translator = refinements.ObligationTranslator(
+            self.registry, corpus_registry.SMT_SIGNATURES, corpus_registry.SMT_INTERPRETATION)
+        refined = translator.sort(corpus_registry._LIST_NAT, "refined")
+        plain = translator.sort(corpus_registry._LIST_I64, "plain")
+        self.assertEqual(refined, plain)
+
+    def test_solver_verdicts_match_when_a_solver_is_available(self):
+        solver = os.environ.get("LOOM_SMT_SOLVER") or shutil.which("z3")
+        if not solver:
+            self.skipTest("no SMT solver on PATH; set LOOM_SMT_SOLVER to run this check")
+        for entry in MANIFEST:
+            for obligation in entry.obligations:
+                with self.subTest(fixture=entry.fixture, obligation=obligation.name):
+                    with tempfile.NamedTemporaryFile("w", suffix=".smt2", delete=False) as handle:
+                        handle.write(obligation.script(self.registry))
+                        path = handle.name
+                    try:
+                        completed = subprocess.run([solver, path], capture_output=True, text=True, timeout=60)
+                    finally:
+                        os.unlink(path)
+                    self.assertEqual(completed.stdout.strip(), obligation.verdict)
 
 
 class ExpressivenessLimitTest(unittest.TestCase):
@@ -274,6 +398,32 @@ class ExpressivenessLimitTest(unittest.TestCase):
         scope.validate_source(source, self.registry.operation_arity)
         references.validate_source(source, self.registry)
         matches.validate_source(source, self.registry, corpus_registry.reference_type(self.registry))
+
+    def test_a_term_meets_a_refine_type_only_by_structural_equality(self):
+        # Tranche 4's limit (SPEC.md §3.3): refinement subtyping is specified
+        # and its verification condition is generated (`refinements.py`), but
+        # the type-directed layer implements no subsumption rule, so `{x|0<x}`
+        # does not flow into `{x|-1<x}` and no plain `I64` inhabits either.
+        # Lifting this must turn three tranche-4 entries from `structural` to
+        # `checked`, so the plan gets revisited rather than the tier going stale.
+        lt = corpus_registry.EXTERN_HASHES["I64.lt"]
+        nat = [3, I64, [4, [4, [1, lt], [2, 2, -1]], [0, 0]]]
+        pos = [3, I64, [4, [4, [1, lt], [2, 2, 0]], [0, 0]]]
+        widen = [0, [2, pos, [], nat], [3, pos, [0, 0]]]
+        forget = [0, [2, nat, [], I64], [3, nat, [0, 0]]]
+        resolver = corpus_registry.reference_type(self.registry)
+        for label, definition in (("widening", widen), ("erasure", forget)):
+            source = def_to_surface(definition)
+            self.assertEqual(parse_source(source), definition)
+            scope.validate_source(source, self.registry.operation_arity)
+            with self.subTest(label), self.assertRaises(matches.TypingError) as caught:
+                matches.validate_source(source, self.registry, resolver)
+            self.assertIn("type mismatch", str(caught.exception))
+
+        # Reflexively, a refinement does flow — which is what keeps the other
+        # three tranche-4 entries at tier `checked`.
+        identity = [0, [2, nat, [], nat], [3, nat, [0, 0]]]
+        matches.validate_source(def_to_surface(identity), self.registry, resolver)
 
     def test_a_measure_cannot_read_more_than_one_argument(self):
         # The limit measure selection does *not* lift: one measure over one

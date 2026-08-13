@@ -1,9 +1,9 @@
 # Plan — Bootstrap corpus for prior starvation
 
 **Date:** 2026‑08‑13
-**Status:** Tranches 1–3 implemented and verified locally (tranche 1's built subset, then the
-[tranche-2](2026-08-13-corpus-tranche-2.md) and [tranche-3](2026-08-13-corpus-tranche-3.md)
-plans); tranche 4 specified, not built
+**Status:** Tranches 1–4 implemented and verified locally (tranche 1's built subset, then the
+[tranche-2](2026-08-13-corpus-tranche-2.md), [tranche-3](2026-08-13-corpus-tranche-3.md),
+and [tranche-4](2026-08-13-corpus-tranche-4.md) plans)
 **Depends on:** SPEC.md §2 (node and type vocabulary), §2.4 (builtin abilities), §2.5
 (totality), §2.6 (holes), §3.1.1 (nominal constructor and match typing), §3.2.1
 (SMT translation and the interpreted-symbol allowlist), §4 (canonical form and
@@ -82,6 +82,13 @@ structural effect. Nothing is vendored: no Unison source text enters this
 repository, and each seed entry is a three‑to‑five‑line structural eliminator
 that is identical in every ML‑family standard library. Resolved 2026‑08‑13:
 scaling may proceed under the main repository's MIT licence.
+
+**The secondary source's licence, likewise verified rather than assumed.**
+Tranche 4 cites [FStarLang/FStar](https://github.com/FStarLang/FStar), whose
+`LICENSE` was fetched on 2026‑08‑13 and is the **Apache License, Version 2.0**;
+the cited definitions were read from `ulib/Prims.fst`,
+`ulib/FStar.Math.Lib.fst`, and `ulib/FStar.List.Tot.Base.fst` on the same day.
+Nothing is vendored here either — no F\* source text enters this repository.
 
 ### R2 — Mapping losses, enumerated
 
@@ -387,9 +394,25 @@ discharging its ability into a pure result, and a multi-shot continuation. R8's
 tool threshold was answered there too — **still no transpiler**, for the
 reason recorded in that plan.
 
-**Tranche 4** — refinement‑carrying definitions from F\*, transpiled type‑first,
+~~**Tranche 4** — refinement‑carrying definitions from F\*, transpiled type‑first,
 non‑dependent arrows only. The first tranche to generate `ensures` obligations
-and therefore the first to exercise §3.2.1 end to end.
+and therefore the first to exercise §3.2.1 end to end.~~
+Resolved 2026‑08‑13: **tranche 4 is built** — see the
+[tranche-4 plan](2026-08-13-corpus-tranche-4.md). Six definitions —
+`math/abs`, `list/lengthNat`, `nat/widenPos`, `list/consNat`, `nat/applyPos`,
+`nat/select` — sourced from the **Apache‑2.0**
+[FStarLang/FStar](https://github.com/FStarLang/FStar) standard library (licence
+verified, not assumed: R1 above left it open). Three reach tier `checked`; the
+other three are `structural`, all for one cause — `typecheck.py` implements no
+§3.3 refinement subsumption, so a term meets a `refine` type only by structural
+equality. `CorpusEntry` gains an `obligations` field enforced in both directions
+like tranche 3's `effect_free`, carrying one §3.2.1 refinement‑subtyping
+verification condition per `ensures` claim with its canonical script's SHA‑256
+pinned. Three of the six are pinned `unsat` (valid, A3‑eligible) and three
+`sat` — §3.2.1's *refutation* of the VC as v0.1 can build it, each recording
+which fact the VC shape could not carry. R1's "transpiled type‑first" is what
+made every weakening explicit: no F\* postcondition relating a result to an
+argument survives, because that is a dependent arrow (§2.3.1).
 
 ## Work
 
@@ -408,7 +431,10 @@ and therefore the first to exercise §3.2.1 end to end.
 - [x] Wire `test_corpus` into `task prototype:test`.
 - [x] Amend §13 open problem 1 to point at this plan. No other SPEC.md edit.
 - [x] Add rows to `docs/plans/README.md` and `prototype/README.md`.
-- [ ] Tranches 2–4 (specified above; not built by this plan).
+- [x] Tranches 2–4 (specified above; built by the
+  [tranche-2](2026-08-13-corpus-tranche-2.md),
+  [tranche-3](2026-08-13-corpus-tranche-3.md), and
+  [tranche-4](2026-08-13-corpus-tranche-4.md) plans, not by this one).
 
 ## Verification
 

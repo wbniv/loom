@@ -3,7 +3,9 @@
 The corpus seeds §13 open problem 1 (prior starvation). Its definitions are
 hand-transpiled from the base library of the MIT-licensed unisonweb/unison
 repository — structural eliminators (tranche 1), their recursive companions
-(tranche 2), and ability code against §2.4's builtins (tranche 3); see
+(tranche 2), and ability code against §2.4's builtins (tranche 3) — plus, in
+tranche 4, refinement-carrying definitions from the Apache-2.0 FStarLang/FStar
+standard library, transpiled type-first; see
 `docs/plans/2026-08-13-bootstrap-corpus.md` for the corpus choice, the mapping
 losses, and the tranche list.
 
@@ -22,6 +24,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 import prelude
+import refinements
 from declarations import DeclarationRegistry, declaration_hash
 from definition_types import DefinitionTypeRegistry
 
@@ -125,6 +128,13 @@ SMT_INTERPRETATION = MappingProxyType({
     EXTERN_HASHES["I64.lt"]: "<",
 })
 
+#: Reference signatures the §3.2.1 translator needs to uncurry a `ref` occurring
+#: inside a refinement predicate. Policy like `SMT_INTERPRETATION`, never part of
+#: an object. Only the assumed base appears: a tranche-4 predicate may name an
+#: extern and nothing else, because a corpus *definition* has a body a later
+#: version could unfold and v0.1 deliberately never unfolds one.
+SMT_SIGNATURES = MappingProxyType({digest: _EXTERNS[name][1] for name, digest in EXTERN_HASHES.items()})
+
 
 def extern(name: str) -> list:
     """Return an isolated copy of a canonical assumed-base extern definition."""
@@ -166,6 +176,61 @@ def reference_type(source: DeclarationRegistry | None = None):
     return resolve
 
 
+#: A pinned obligation's expected solver verdict on its canonical script.
+#:
+#: ``unsat`` — the refutation fails, so the goal is valid under the hypothesis
+#:             and the obligation earns A3 `proof` evidence (§3.2.1, §6.1).
+#: ``sat``   — the refutation succeeds: the verification condition **as v0.1 can
+#:             build it** is refuted. That is never "we did not try hard enough";
+#:             §3.2.1 says a `sat` rejects the binding. Every `sat` here is a
+#:             true `ensures` claim whose proof needs a fact the v0.1 VC shape
+#:             cannot carry, and each one records which fact in `note`.
+VERDICTS = ("unsat", "sat")
+
+
+@dataclass(frozen=True)
+class Obligation:
+    """One §3.2.1 verification condition: `{x:T|weaker} <: {x:T|stronger}`.
+
+    §3.2.1 names exactly one v0.1 producer of verification conditions —
+    refinement subtyping — so this is the whole obligation vocabulary the corpus
+    can pin today. `base` is the refined type `T` (index 0, the refined value);
+    `outer_context` is §3.2.1's "any surrounding term context appended to `Γ`
+    after the refined value", which is how an `ensures` claim reaches the
+    definition's own arguments without a dependent arrow (§2.3.1).
+
+    `weaker` is the predicate the corpus records as *established* at that point
+    and `stronger` is the one the definition's type *claims*. Deriving `weaker`
+    from a function body is §3.2.1's stated future work; until it exists the
+    manifest authors it by hand and says so — that is the honest boundary of
+    this tranche, not a gap papered over.
+
+    `script_hash` pins the SHA-256 of the canonical script, which is the memo
+    ledger's payload key (§6.4). `verdict` pins what a solver returns for it.
+    """
+
+    name: str
+    base: list
+    weaker: list
+    stronger: list
+    script_hash: str
+    verdict: str
+    note: str = ""
+    outer_context: tuple = ()
+
+    def script(self, declarations: DeclarationRegistry | None = None) -> str:
+        """The canonical SMT-LIB script for this verification condition."""
+        return refinements.subtype_script(
+            copy.deepcopy(self.base),
+            copy.deepcopy(self.weaker),
+            copy.deepcopy(self.stronger),
+            declarations if declarations is not None else registry(),
+            SMT_SIGNATURES,
+            SMT_INTERPRETATION,
+            copy.deepcopy(self.outer_context),
+        )
+
+
 @dataclass(frozen=True)
 class CorpusEntry:
     """One seed definition: the §5.2 meta object, minus provenance.
@@ -181,6 +246,16 @@ class CorpusEntry:
     Like ``tier``, it is enforced in both directions — an ``effect_free`` entry
     must be pure and an effectful entry must actually carry effects — so the flag
     can never be used to quietly exempt a fixture from the purity test.
+
+    ``obligations`` is the entry's declared position on §3.2/§6.2: the §3.2.1
+    verification conditions its `ensures`-style claims produce, each with its
+    canonical script's SHA-256 pinned. Tranche 4 is the first tranche to set it.
+    Like ``tier`` and ``effect_free`` it is enforced in both directions — an
+    entry whose *type* contains a `refine` node must carry at least one
+    obligation, and an entry carrying one must have a `refine` in its type — so
+    a refinement can never enter the corpus without its obligation coming with
+    it, and an obligation can never be attached to a fixture that does not claim
+    one.
     """
 
     fixture: str
@@ -191,6 +266,7 @@ class CorpusEntry:
     tier: str
     deferred: str = ""
     effect_free: bool = True
+    obligations: tuple = ()
 
     @property
     def path(self) -> Path:
@@ -199,6 +275,33 @@ class CorpusEntry:
     def source_text(self) -> str:
         return self.path.read_text(encoding="utf-8")
 
+
+def _app(head, *arguments):
+    """A saturated `app` spine over a stored reference (§3.2.1's term fragment)."""
+    for argument in arguments:
+        head = [4, head, argument]
+    return head
+
+
+def _i64(value):
+    return [2, 2, value]
+
+
+_LT = EXTERN_HASHES["I64.lt"]
+_SUB = EXTERN_HASHES["I64.sub"]
+_EQ = EXTERN_HASHES["I64.eq"]
+_SIZE = EXTERN_HASHES["List.size"]
+
+#: `Prims.nat = i:int{i >= 0}` and `Prims.pos = i:int{i > 0}` (F* `ulib/Prims.fst`),
+#: over `I64` and written with `<` because the assumed base supplies no `<=`
+#: (R5's five externs interpret `+ - = <` and nothing else). `-1 < v` and `0 <= v`
+#: are the same predicate over SMT-LIB `Int`, which is the sort §3.2.1 gives I64.
+_NAT = _app([1, _LT], _i64(-1), [0, 0])
+_POS = _app([1, _LT], _i64(0), [0, 0])
+_R_NAT = [3, _I64, _NAT]
+_R_POS = [3, _I64, _POS]
+_LIST_I64 = [1, HASHES["List"], [_I64]]
+_LIST_NAT = [1, HASHES["List"], [_R_NAT]]
 
 MANIFEST = (
     CorpusEntry(
@@ -414,6 +517,225 @@ MANIFEST = (
         identity="13926e2d25d36dc321a19973fc64a11255751426863707efa2ed164e9a794db0",
         tier="checked",
         effect_free=False,
+    ),
+    # --- Tranche 4: the refinement slice. Sourced from the Apache-2.0
+    # FStarLang/FStar standard library and transpiled *type*-first: the
+    # refinement is what is being imported, so where the Loom encoding cannot
+    # keep an F* type whole, the manifest records which axis was weakened
+    # (docs/plans/2026-08-13-corpus-tranche-4.md). Refinement predicates are
+    # non-dependent — a codomain refinement may name only the refined value,
+    # because naming the argument is a dependent arrow and §2.3.1 has none — so
+    # every F* postcondition relating a result to an input is weakened here.
+    # Three entries are `structural`: typecheck.py implements no §3.3
+    # refinement subtyping, so a term only ever checks against a `refine` type
+    # by structural equality.
+    CorpusEntry(
+        fixture="math_abs_nat.loom.sexpr",
+        name_path="corpus/math/abs",
+        spec="The absolute value of an integer, which is never negative.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) FStar.Math.Lib.abs, weakened: F*'s "
+            "codomain `y:int{(x >= 0 ==> y = x) /\\ (x < 0 ==> y = -x)}` names the "
+            "argument `x` and is therefore a dependent arrow (§2.3.1 has none), so "
+            "only the nonnegativity half survives; `int` monomorphizes to I64"
+        ),
+        identity="722a6900553dbe78a5fea5116255d5519deab85db50049222cfbb9f38c79b093",
+        tier="structural",
+        deferred=(
+            "typecheck.py checks a term against `refine T φ` by structural equality "
+            "only (§3.3 refinement subtyping is unimplemented), so the body's `I64` "
+            "does not inhabit the declared `refine I64 (-1 < v)` codomain: "
+            "`definition.term.body.then: type mismatch`. The subtyping VC that "
+            "would discharge it is pinned below."
+        ),
+        obligations=(
+            Obligation(
+                name="ensures.nonnegative",
+                base=_I64,
+                outer_context=(_I64,),
+                weaker=_app([1, _EQ], [0, 0],
+                            [12, _app([1, _LT], [0, 1], _i64(0)),
+                             _app([1, _SUB], _i64(0), [0, 1]), [0, 1]]),
+                stronger=_NAT,
+                script_hash="3f2827e45b57868083f5281a54e7527086fce2ed7fd1e2b562fb61c602c6b883",
+                verdict="unsat",
+                note=(
+                    "Valid in the encoding, and a live instance of §3.2.1's stated "
+                    "`Int` fidelity limit: at x = -2^63 the real `I64.sub 0 x` wraps "
+                    "back to a negative value, but the domain axiom on the result "
+                    "makes that model infeasible rather than modelling the wrap. The "
+                    "A3 this earns is A3 relative to `I64.sub`'s A0 extern assumption "
+                    "(§5.1.3), and that assumption is where the overflow hides."
+                ),
+            ),
+        ),
+    ),
+    CorpusEntry(
+        fixture="list_length_nat.loom.sexpr",
+        name_path="corpus/list/lengthNat",
+        spec="A list's length, which is never negative.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) FStar.List.Tot.Base.length : "
+            "list 'a -> Tot nat, monomorphized at 'a = int and delegating to the "
+            "assumed-base `List.size` extern rather than recursing, because R4's "
+            "measure primitive is the only list length the corpus has"
+        ),
+        identity="7ebd41f6467f08bc3876f6a4d137198115b6dd954ba68523440f3f9445cbd636",
+        tier="structural",
+        deferred=(
+            "Same cause as corpus/math/abs: the body synthesizes the extern's `I64` "
+            "result and the codomain is `refine I64 (-1 < v)`, which structural "
+            "equality refuses — `definition.term.body: type mismatch`."
+        ),
+        obligations=(
+            Obligation(
+                name="ensures.nonnegative",
+                base=_I64,
+                outer_context=(_LIST_I64,),
+                weaker=_app([1, _EQ], [0, 0], _app([1, _SIZE], [0, 1])),
+                stronger=_NAT,
+                script_hash="253432acedceb5a09769bb82edff1c73f0f8100a213b7a940107493b1cfbe4c5",
+                verdict="sat",
+                note=(
+                    "`List.size` is deliberately absent from SMT_INTERPRETATION, so it "
+                    "translates to an uninterpreted function about which the solver "
+                    "learns congruence and nothing else — no lower bound. F* proves "
+                    "`length` nonnegative by induction over the list; the v0.1 "
+                    "fragment is quantifier-free and has no induction, so the routes "
+                    "are an A0 range assumption on the extern or body-VC generation."
+                ),
+            ),
+        ),
+    ),
+    CorpusEntry(
+        fixture="nat_widen_pos.loom.sexpr",
+        name_path="corpus/nat/widenPos",
+        spec="A positive integer viewed as a nonnegative one.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) Prims.pos and Prims.nat "
+            "(`ulib/Prims.fst`): F* discharges `pos <: nat` implicitly at every use "
+            "site, and this fixture is that coercion written out as a definition"
+        ),
+        identity="d9de68ecf5f6203a5b510e60183904138f5d4b71f60b636616cba82417e3b46d",
+        tier="structural",
+        deferred=(
+            "This *is* §3.3 refinement subtyping, and typecheck.py implements none: "
+            "`definition.term.body: type mismatch` between `refine I64 (0 < v)` and "
+            "`refine I64 (-1 < v)`. The obligation below is exactly the verification "
+            "condition that would let the definition through, and it is valid."
+        ),
+        obligations=(
+            Obligation(
+                name="subtype.pos-nat",
+                base=_I64,
+                weaker=_POS,
+                stronger=_NAT,
+                script_hash="0aee355cf7a5bdffb9ae32b9c859203e96140431c978d21b0572d3f1a9cf00c1",
+                verdict="unsat",
+                note=(
+                    "The tranche's flagship: the one obligation whose discharge would "
+                    "turn its own fixture from `structural` into `checked`."
+                ),
+            ),
+        ),
+    ),
+    CorpusEntry(
+        fixture="list_cons_nat.loom.sexpr",
+        name_path="corpus/list/consNat",
+        spec="Prepend a nonnegative integer to a list of nonnegative integers.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) FStar.List.Tot.Base.list_refb — its "
+            "`Cons` step `hd :: list_refb #a #p tl`, which is where `list (x:a{p x})` "
+            "appears in the F* standard library — monomorphized at a = int and "
+            "p = (fun x -> x >= 0); the recursion and the `for_all p l` precondition "
+            "are dropped, the recursion because the assumed-base measure "
+            "`List.size : List I64 -> I64` does not apply to `List {n | -1 < n}`"
+        ),
+        identity="77c735fb26b542c3288ecb6dda4bca9f337c20bab57aa02aa057895d132e0c9f",
+        tier="checked",
+        obligations=(
+            Obligation(
+                name="ensures.head-nonnegative",
+                base=_LIST_NAT,
+                weaker=[2, 1, True],
+                stronger=[7, [0, 0], [[0, 0, [2, 1, True]],
+                                      [1, 2, _app([1, _LT], _i64(-1), [0, 1])]]],
+                script_hash="067345e1c37280e8047dfb020e7f5086a7bcd19bbda18406ba4a7b2f92ff30db",
+                verdict="sat",
+                note=(
+                    "The element refinement is erased: §3.2.1 refinement-erases a type "
+                    "in sort position 'recursively, including inside data type "
+                    "arguments', so `List {n | -1 < n}` and `List I64` are the *same* "
+                    "SMT-LIB sort and the element predicate contributes no hypothesis. "
+                    "Nothing inside the fragment recovers it — and stating the "
+                    "invariant for a whole list would need a quantifier the fragment "
+                    "does not have."
+                ),
+            ),
+        ),
+    ),
+    CorpusEntry(
+        fixture="nat_apply_pos.loom.sexpr",
+        name_path="corpus/nat/applyPos",
+        spec="Apply a nonnegative-to-positive function to a nonnegative integer.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) FStar.List.Tot.Base.map : "
+            "('a -> Tot 'b) -> list 'a -> Tot (list 'b), instantiated at 'a = nat and "
+            "'b = pos and reduced to its element-application step; the list recursion "
+            "is dropped for the same reason as corpus/list/consNat"
+        ),
+        identity="48e49ab0d1ae05af9f075a14f5af944cc267fa88095f0e8fbdb07bbaedd92ff8",
+        tier="checked",
+        obligations=(
+            Obligation(
+                name="subtype.argument-pos-nat",
+                base=_I64,
+                weaker=_POS,
+                stronger=_NAT,
+                script_hash="0aee355cf7a5bdffb9ae32b9c859203e96140431c978d21b0572d3f1a9cf00c1",
+                verdict="unsat",
+                note=(
+                    "Deliberately the same verification condition as "
+                    "corpus/nat/widenPos, arrived at from the other side — there it is "
+                    "a codomain widening, here it is the contravariant check a caller "
+                    "passing a `pos` into this definition's `nat` domain owes. §3.2.1: "
+                    "'the obligation's name never enters the script, so two "
+                    "differently named obligations with the same verification "
+                    "condition share one memo-ledger row (§6.4)'. Same pinned hash."
+                ),
+            ),
+        ),
+    ),
+    CorpusEntry(
+        fixture="nat_select.loom.sexpr",
+        name_path="corpus/nat/select",
+        spec="Choose between two nonnegative integers on a boolean.",
+        source=(
+            "F* (FStarLang/FStar, Apache-2.0) FStar.Math.Lib.max, weakened twice: its "
+            "value-pinning codomain is dependent (§2.3.1) and only nonnegativity "
+            "survives, and its own `x >= y` test is lifted to a Bool parameter "
+            "because comparing two `nat`s needs `{x:T|φ} <: T` to reach `I64.lt`"
+        ),
+        identity="4300a5090d354a1ad4dac0ce1a3ff1e96af401c3fca2a6d5c0e685bc5dfdaca4",
+        tier="checked",
+        obligations=(
+            Obligation(
+                name="ensures.nonnegative",
+                base=_I64,
+                outer_context=(_BOOL, _I64, _I64),
+                weaker=_app([1, _EQ], [0, 0], [12, [0, 1], [0, 2], [0, 3]]),
+                stronger=_NAT,
+                script_hash="952812314f7eb1da073261e40ec289e7a0a8b8d3a6afef61073e596eb4bbaa08",
+                verdict="sat",
+                note=(
+                    "§3.2.1's VC carries exactly one hypothesis — `H = [φ]` — and the "
+                    "two branch values' own `nat` refinements are erased in Γ, so "
+                    "neither is assumable alongside the body summary. The claim is "
+                    "true and the VC shape cannot express its premises; conjoining "
+                    "them would need `and`, which the assumed base does not supply."
+                ),
+            ),
+        ),
     ),
 )
 
