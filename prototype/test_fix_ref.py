@@ -256,6 +256,19 @@ class ReferenceTypingTest(unittest.TestCase):
             effectful,
         )
 
+    def test_fix_composes_with_forall_depth_threading(self):
+        # §3.1.3 strips the definition's forall prefix before the term is
+        # checked, so a polymorphic recursion's fix annotation is the stripped
+        # fn type and the tyvar-domain measure checks against fn (tyvar 0) () I64.
+        from transcode import def_to_surface
+
+        ty = [6, [2, [5, 0], [], [5, 0]]]
+        fix_t = [2, [5, 0], [], [5, 0]]
+        measure = [3, [5, 0], [2, 2, 0]]
+        body = [3, [5, 0], [0, 0]]
+        source = def_to_surface([0, ty, [10, fix_t, 0, measure, body]])
+        validate_source(source, self.registry)
+
     def test_resolved_types_are_isolated_copies(self):
         checker = MatchChecker(self.registry, self.resolve)
         first = checker.synth([1, SIZE_HASH], [], (), "term")
