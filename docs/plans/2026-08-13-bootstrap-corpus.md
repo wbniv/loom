@@ -1,7 +1,9 @@
 # Plan — Bootstrap corpus for prior starvation
 
 **Date:** 2026‑08‑13
-**Status:** Tranche 1 seed set implemented and verified locally; tranches 2–4 specified, not built
+**Status:** Tranches 1–3 implemented and verified locally (tranche 1's built subset, then the
+[tranche-2](2026-08-13-corpus-tranche-2.md) and [tranche-3](2026-08-13-corpus-tranche-3.md)
+plans); tranche 4 specified, not built
 **Depends on:** SPEC.md §2 (node and type vocabulary), §2.4 (builtin abilities), §2.5
 (totality), §2.6 (holes), §3.1.1 (nominal constructor and match typing), §3.2.1
 (SMT translation and the interpreted-symbol allowlist), §4 (canonical form and
@@ -289,6 +291,16 @@ falling and volume starts mattering. What the seed set produces for it is a
 regression corpus with pinned identities: a transpiler is correct exactly when it
 reproduces these bytes.
 
+**Amended 2026‑08‑13, after building tranche 3: still no tool.** The prediction
+was half right — the per‑definition cost did stop falling — but it was the
+wrong threshold, because tranche 3's cost is not *transcription*, it is
+*deciding what a Unison `{IO}` signature becomes* when §2.4 has eight narrow
+abilities and Unison has one broad one, and where the capability parameter goes.
+No parser makes that call. The full argument is in the
+[tranche-3 plan](2026-08-13-corpus-tranche-3.md)'s R8 section; the revised
+trigger is stated there as a volume‑and‑mechanicality test rather than a tranche
+number.
+
 ## The first tranche
 
 Layer 0 and layer 1 are not definitions; they precede everything.
@@ -358,9 +370,22 @@ exercising `corpus_registry.reference_type()`'s
 `definition_types.DefinitionTypeRegistry` path for the first time. The tranche
 stays monomorphic at `I64` throughout (residue 5, below).
 
-**Tranche 3** — the effectful slice: Unison ability code against §2.4's eight
+~~**Tranche 3** — the effectful slice: Unison ability code against §2.4's eight
 builtins, closed rows only, exercising `perform`, `handle`, and `cap`. This is
-where Unison's advantage over every other candidate is actually spent.
+where Unison's advantage over every other candidate is actually spent.~~
+Resolved 2026‑08‑13: **tranche 3 is built** — see the
+[tranche-3 plan](2026-08-13-corpus-tranche-3.md). Seven definitions —
+`clock/now`, `rand/bytes`, `clock/stamped`, `rand/withStub`, `clock/nowPair`,
+`sample/nowAndBytes`, `rand/resample` — all at tier `checked`, closed rows
+throughout, over two of §2.4's eight builtins (`clock` and `rand`; the other
+six are `Bytes`-envelope abilities whose interesting content is the envelope
+protocol, not the effect shape, and R2's arithmetic loss leaves nothing to do
+with the bytes). Selection was by *shape*, not volume: `perform` with and
+without arguments, a two-ability row, an effectful function argument applied
+under the ambient allowance, a capability threaded through a `ref`, a handler
+discharging its ability into a pure result, and a multi-shot continuation. R8's
+tool threshold was answered there too — **still no transpiler**, for the
+reason recorded in that plan.
 
 **Tranche 4** — refinement‑carrying definitions from F\*, transpiled type‑first,
 non‑dependent arrows only. The first tranche to generate `ensures` obligations
