@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T3] **Build corpus tranche 4: the refinement slice.** F*-sourced
+- [wip T3] <!-- agent:a0d8fffa76a1beaf8 --> **Build corpus tranche 4: the refinement slice.** F*-sourced
   refinement-carrying definitions, transpiled type-first, non-dependent arrows only —
   the first tranche to generate `ensures` obligations and exercise §3.2.1 end to end
   (VC generation is refinement subtyping only, so scope what an obligation can
