@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/cecb0b4) | Promote fix-ref-typing; re-declare corpus tier; add measure item |
 | [2026-08-13](https://github.com/wbniv/loom/commit/b5c7b9c) | Type fix and ref in the match layer |
 | [2026-08-13](https://github.com/wbniv/loom/commit/3be2146) | Seed the bootstrap corpus for prior starvation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/a413e7e) | Add policy-object validation and satisfaction-checking prototype |
@@ -16,6 +17,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+cecb0b4	author	Will Norris
+cecb0b4	added	1
+cecb0b4	deleted	1
+cecb0b4	files	1
+cecb0b4	body	The corpus tier test now pins the actual deferral cause (no\nreference-type resolver) instead of the retired missing-rule message.\nNew T4 item: SPEC.md 2.5 cannot name a non-initial decreasing argument,\nwhich blocks curried folds from the checked tier.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 b5c7b9c	author	Will Norris
 b5c7b9c	added	1
 b5c7b9c	deleted	0

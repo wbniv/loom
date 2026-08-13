@@ -158,8 +158,9 @@ payload is canonical CBOR `[status-i64, [[header-text, value-text]], body-bytes]
 `spawn.run` takes an executable name plus canonical CBOR
 `[[argument-text], [[env-name-text, env-value-text]], stdin-bytes]`; its success
 payload is canonical CBOR `[exit-i64, stdout-bytes, stderr-bytes]`. `ffi.call`'s
-text selects a registered adapter and its request/success payload bytes are the
-canonical CBOR ABI declared by that adapter's mandatory extern metadata (§11).
+text is an extern object's `abi` selector (§5.1.3): it names a registered adapter
+entry point, and its request/success payload bytes are the canonical CBOR ABI
+that extern's mandatory A0 evidence declares (§11).
 This byte protocol keeps the core prelude usable before standard
 `Result`, filesystem, network, process, and foreign-value data types exist.
 Runtimes must reject noncanonical request envelopes with a failure envelope,
@@ -381,7 +382,8 @@ duplicate-free, and agree on one result sort; emitting them in constructor-index
 order makes arm order irrelevant to the emitted bytes.
 
 **References are uninterpreted unless the toolchain says otherwise.** A `ref`'s
-Loom type must be resolvable — the translator never guesses one, exactly as the
+Loom type must be resolvable — from a def object or an extern object (§5.1.3);
+the translator never guesses one, exactly as the
 scope layer never guesses an operation arity (§2.3.1). Its type is uncurried
 along the `fn` spine into parameter sorts plus a result sort; **every arrow on
 that spine must carry the empty effect row**, since an effectful function has no
@@ -396,6 +398,19 @@ untouched. The admitted symbols are a closed allowlist — everything a store
 could otherwise smuggle into the trusted theory surface stays out:
 
 `not and or => = distinct ite` (Core), `+ - * div mod abs < <= > >=` (Ints).
+
+**The table admits extern hashes (§5.1.3), and that is its principal use.** A def
+object has a body a future version could unfold; an extern has none, so an
+interpretation is the only way its reference will ever be more than an
+uninterpreted symbol — which is what makes arithmetic over `I64.add` provable at
+all. Nothing is relaxed for it: an extern's type must be resolvable and every
+arrow on its spine must carry the empty row, so an extern whose row names `ffi`
+or any other ability is out of fragment entirely and cannot appear in a predicate
+even uninterpreted. Mapping `I64.add` onto `+` is a claim about a foreign
+artifact, so it is exactly as strong as that extern's mandatory A0 justification
+(§5.1.3) and inherits the `Int`-does-not-wrap limit stated below; a proof built
+on it is A3 relative to an A0 assumption, and the assumption count is where that
+shows up (§5.3.1).
 
 Each application is checked against that symbol's own signature in addition to
 the reference's Loom type, so a misregistered entry is a translation error, not
@@ -518,8 +533,8 @@ forms. One term, one byte sequence.
 
 A **def object** is `[0, type, term]` (leading `0` is the object-kind tag;
 kinds: 0 def, 1 meta, 2 binding, 3 evidence, 4 data declaration, 5 ability
-declaration, 6 policy — the tag makes cross-kind hash collisions impossible by
-construction). The definition's identity is
+declaration, 6 policy, 7 extern — the tag makes cross-kind hash collisions
+impossible by construction). The definition's identity is
 SHA‑256 over the def object's encoding.
 
 ### 4.4 Worked example (verifiable by hand)
@@ -545,7 +560,7 @@ definition is `#76c62727` in any projection, in every store, forever.
 
 ### 5.1 Objects
 
-Append-only. Seven kinds (§4.3). Nothing is ever deleted or garbage
+Append-only. Eight kinds (§4.3). Nothing is ever deleted or garbage
 collected in v0.1 — history is the feature (P4), and definitions are small.
 
 #### 5.1.1 Data declarations
@@ -587,6 +602,87 @@ and their capabilities would be interchangeable. It is semantic identity, not
 a display name. User/tool-created declarations generate a fresh 32-byte key;
 the reference prelude derives reproducible keys as
 `SHA-256("loom:v0.1:builtin:" || builtin-name)`.
+
+#### 5.1.3 Extern definitions
+
+An extern definition object is `[7, type, artifact, abi]`. It is what §11's
+boundary actually stores: a Loom type with **no term**, an identification of the
+foreign artifact that type is a claim about, and the ABI selector naming the
+entry point inside it.
+
+- `type` — the extern's Loom signature, checked at term depth 0 and type depth 0.
+  Declaration-local `self` (§5.1.1) is forbidden, and so is `forall`: v0.1 has no
+  term-level type application, so a polymorphic extern could never be used at an
+  instance. `tyvar` and row variables are consequently out of scope everywhere in
+  it, and every row is closed by construction.
+- `artifact` — the 32-byte content hash pinning the foreign artifact (a WASM
+  component in v0.1). A host supplying a primitive that has no artifact bytes
+  pins the published 32-byte identity of its ABI instead; the reference corpus
+  derives one reproducibly as `SHA-256("loom:v0.1:corpus:host")`, mirroring
+  §5.1.1's key derivation.
+- `abi` — non-empty NFC text (§2.2): the selector the host resolves within that
+  artifact, and exactly the `Text` that §2.4's `ffi.call` takes. It is not a
+  display name — changing it changes what is called.
+
+**There is no nominal key**, unlike §5.1.1 and §5.1.2, and for the reason
+§5.3.1's policy object has none: two externs agreeing on type, artifact, and ABI
+*are* the same extern and should share one hash, one review, and one A0 entry.
+`(artifact, abi)` is already semantic identity, so `I64.add` and `I64.sub` —
+byte-identical in type — differ by exactly the thing that distinguishes them
+operationally. The human names `I64.add` and `List.size` are §5.2 metadata and
+never enter identity, as for every other kind.
+
+**The declared effect row is the assumption.** An extern's arrows may carry any
+row. The *empty* row is the strongest claim the object makes: it asserts that the
+foreign artifact is pure, total, and deterministic — unverifiable by construction,
+and precisely what the mandatory A0 evidence below is signed for. For every
+ability `a` occurring in any row of the type, the type must also take a `cap a`
+parameter in some domain position. Otherwise §2.4's blast-radius bound would be
+escapable through the FFI boundary: applying an extern is not a `perform`, so
+nothing else in the language would demand the capability. The five assumed-base
+externs are pure-typed and therefore take no capability at all.
+
+**Referencing.** An extern is referenced by the ordinary `ref` node `[1, h]`
+(§2.1); no new term tag exists, so the decoding mask (§8.2) is untouched. A `ref`
+resolves to a def object *or* an extern object. When it resolves to an extern its
+type is that object's `type` field and there is no body, so it is never unfolded,
+never evaluated by the Loom evaluator, and never the subject of a `handle`. A
+checker that cannot resolve a `ref`'s target reports an unresolved dependency
+rather than guessing a type, exactly as §2.3.1 requires of an operation arity. An
+extern contains no holes, so §5.4 does not confine it to `draft/`.
+
+**Evidence.** Every extern carries mandatory A0 `assumption` evidence (§6.1) on
+the obligation `extern` — kind tag 4 in §5.3.1's closed registry, with no detail
+in v0.1 — whose justification text states what is being trusted about the
+artifact: at minimum the signature, the declared row, and any §3.2.1
+interpretation claimed for it. That entry can never rise above A0 by any route
+this spec defines, so a policy rule demanding ⊒ A1 on selector `[4]` forbids
+externs under that namespace outright — `max-assumptions: 0` (§5.3.1) stated
+sharply rather than budgetarily. Each extern reachable from a bound definition
+contributes to that binding's assumption set, and to the per-ability budget of
+every ability its rows name.
+
+**Worked example (verifiable by hand).** `I64.add : I64 -> I64 -> I64`,
+pure-typed, over the reference corpus's host artifact `#ce43337f` with ABI
+selector `i64.add`:
+
+```
+type   = [2, [0,2], [], [2, [0,2], [], [0,2]]]
+extern = [7, type, h'ce4333…39f7', "i64.add"]
+
+bytes  = 84 07                             ; array(4), kind 7
+         84 02 82 00 02 80                 ; fn(I64) —{}→ …
+         84 02 82 00 02 80 82 00 02        ;   fn(I64) —{}→ I64
+         58 20 ce43…39f7                   ; the 32-byte artifact hash
+         67 69 36 34 2e 61 64 64           ; "i64.add"
+```
+
+59 bytes; `sha256(bytes)` =
+`23d1e0891aef622110302fe247b7148de5eb61a09f30138cfe7bd09d6cf7e6d7`. `I64.sub`
+differs only in the seven ABI bytes and is
+`d3914e25a045031ef17d33eb038ca837c40c55642ceeef902b2d046a322f00b5` — one object
+kind, one artifact, five entry points for the bootstrap corpus's assumed base
+([bootstrap-corpus plan](docs/plans/2026-08-13-bootstrap-corpus.md), R5).
 
 ### 5.2 Meta objects
 
@@ -654,6 +750,7 @@ name and no detail. Kind names form a closed registry:
 | 1 | `terminates` | one per `fix` (§2.5) | none in v0.1 |
 | 2 | `exhaustive-match` | one per `match`; typechecker-discharged, always A3 | none in v0.1 |
 | 3 | `property` | injected by a policy (key 1) | the property name |
+| 4 | `extern` | one per extern object (§5.1.3); always A0 | none in v0.1 |
 
 An obligation whose kind name is outside this registry is rejected, as is a policy
 naming a kind tag outside it.
@@ -706,15 +803,17 @@ rule with selector `[3, detail]` or a broader prefix; an injected obligation wit
 no matching rule still needs an entry, and an `A0 assumption` supplies one.
 
 **Assumption budgets (keys 2 and 3).** The **assumption set** of a candidate
-binding is the set of `(def-hash, obligation-id)` pairs — over the bound
-definition and every def object transitively reachable from it by `ref` (§2.1) —
+binding is the set of `(object-hash, obligation-id)` pairs — over the bound
+definition and every def object *and extern object* (§5.1.3) transitively
+reachable from it by `ref` (§2.1) —
 for which no recorded evidence entry reaches A1 or above. ("Is there an entry
 above A0?" stays decidable where A1 payloads over different generators have no
 unique maximum.) Its cardinality must not exceed `max-assumptions`. A pair
 additionally counts against ability `a` when `a` occurs in any effect row within
-that def object's type, and each per-ability count must not exceed its stated
-`max`. An `extern` (§11) carries mandatory A0 evidence, so each one contributes at
-least one assumption; `max-assumptions: 0` is how a namespace forbids externs and
+that object's type, and each per-ability count must not exceed its stated
+`max`. An extern (§5.1.3, §11) carries mandatory A0 evidence on its `extern`
+obligation, so each one distinct by hash contributes exactly one assumption;
+`max-assumptions: 0` is how a namespace forbids externs and
 every other act of faith outright. This is the number §11 promises.
 
 The global cap answers §11's question directly. The per-ability caps exist because
@@ -947,7 +1046,8 @@ ordered by run count, sample size, or any other tiebreak.
 
 Generated per binding: one per refinement clause (§3.2), one `terminates`
 per `fix` (§2.5), one `exhaustive-match` per `match` (discharged by the
-typechecker, always A3), plus any policy-required properties (e.g., a
+typechecker, always A3), one `extern` per extern object transitively referenced
+(§5.1.3, mandatory A0), plus any policy-required properties (e.g., a
 namespace policy may demand a `property.no-panic` obligation on everything it
 binds). Obligation ids decompose into a kind and a detail, and the governing
 policy states which obligations it injects and what evidence level each
@@ -1124,11 +1224,19 @@ only transactional primitive.
 An `extern` definition wraps a foreign artifact (a WASM component in v0.1,
 pinned by its own content hash) with a Loom type, a required capability set,
 and mandatory `A0 assumption` evidence signed by a principal — the language
-does not pretend to verify what it didn't check. Policy can quarantine:
+does not pretend to verify what it didn't check. Its object encoding is
+`[7, type, artifact, abi]`, specified in §5.1.3: the type is closed and
+monomorphic, `(artifact, abi)` is the whole discriminator (no nominal key, no
+name), and every ability the type's rows name must be matched by a `cap`
+parameter, so §2.4's blast-radius bound survives the boundary. There is no term:
+a `ref` to an extern resolves to a type and stops, which is also why §3.2.1
+treats it as an uninterpreted function unless the toolchain's interpretation
+table says otherwise. Policy can quarantine:
 namespaces may forbid transitive `assumption` evidence above a count — a global
 cap and per-ability caps, §5.3.1 keys 2 and 3 — which
 makes "how much of this system is faith?" a query with a number for an
-answer. Compilation of Loom itself targets
+answer; each extern reachable by hash adds exactly one to it, and a rule
+requiring ⊒ A1 on the `extern` obligation kind forbids them outright. Compilation of Loom itself targets
 [WASM](https://webassembly.org/) through a pipeline that is, aspirationally,
 verified — the bottom layer of the essay's stack, reached without ever
 passing through unverifiable text.
@@ -1205,10 +1313,11 @@ IDE affordances.
    meta-object table. Transpiling the seed set surfaced three limits of v0.1 that
    the plan records as residue for this spec rather than corpus problems: `forall`
    (§2.3) has no term-level introduction form, so no *definition* can be
-   polymorphic; `Bool` (§2.2) has no elimination form, so there is no conditional;
-   and §11's `extern` has no object encoding among §4.3's seven kinds, so the
-   arithmetic the corpus assumes cannot yet be stored. Fluency remains
-   unmeasured — a seed set is not a result either.
+   polymorphic; and `Bool` (§2.2) has no elimination form, so there is no
+   conditional. The third — that §11's `extern` had no object encoding, so the
+   arithmetic the corpus assumes could not be stored — is closed: §4.3's kind 7
+   and §5.1.3 encode it, and the corpus's five assumed-base externs are pinned
+   there. Fluency remains unmeasured — a seed set is not a result either.
 2. **Oracle regress.** Refinements and properties must be authored;
    a wrong contract verifies a wrong program at level A3. Loom shrinks the
    trusted surface to contracts + policy and makes it enumerable
