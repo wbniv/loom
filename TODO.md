@@ -45,29 +45,18 @@ Check conformance with `task todo:lint`.
   interpretation rows, the established pattern; directly relieves the
   single-hypothesis limit behind one tranche-4 `sat` case. (T2: pattern repetition.)
 
-- [wip T3] <!-- agent:a4b8ba9d6f27a9635 --> **Version the validation contracts (parser, scope, reference, type-check).**
-  Tranches 3 and 4 both landed with zero IR/tag/spec changes, meeting half of the
-  production-language Watch trigger (a); versioned contracts are the remaining gate
-  that would make that Watch entry promotable. Define what a contract version
-  covers, where it is recorded, and what bumps it. (T3: multi-file definition work
-  with some judgment, against the Watch entry's stated conditions.)
+- [T4] **Re-evaluate the production implementation language (promoted from Watch;
+  trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
+  changes and all seven validation contracts are now versioned (contracts.py 1.0).
+  Compare at least Rust and one credible alternative against deterministic
+  performance, memory safety, closed IR types, CBOR/WASM/SMT integration,
+  deployment, ecosystem risk, and implementation cost; record the decision before
+  any implementation. Keep Python as the differential reference oracle; the
+  replacement must match acceptance, canonical bytes, hashes, and pinned fixture
+  identities per CONTRACTS.md before it becomes authoritative. (T4: a language
+  decision this early shapes everything downstream; re-ranked fresh on promotion.)
 
 ## Watch
-
-- Re-evaluate the production implementation language, then migrate the validation
-  engine from Python according to that decision. Rust is the current leading
-  candidate, not a predetermined outcome; compare at least Rust and one credible
-  alternative against deterministic performance, memory safety, closed IR types,
-  CBOR/WASM/SMT integration, deployment, ecosystem risk, and implementation cost.
-  Promote this to Open when **either**: (a) two consecutive corpus tranches require
-  no canonical IR/tag changes and the parser, scope, reference, and type-checking
-  contracts are versioned; (b) type-directed masking or validation is integrated
-  into an interactive generation loop; (c) the prototype must run as a persistent
-  or security-sensitive service; or (d) profiling shows Python consumes at least
-  25% of an agreed end-to-end latency budget. Record the language decision before
-  implementation. Keep Python as the differential reference oracle; require the
-  replacement to match acceptance, canonical CBOR bytes, hashes, and pinned fixture
-  identities before it becomes authoritative.
 
 - Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
   pruning is affordable per emitted token is an empirical systems question; revisit
@@ -92,6 +81,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [validation-contracts] Versioned seven per-layer contracts at 1.0
+  with MAJOR/MINOR bump rules validated against history; Watch trigger (a) met.
+  See [plan](docs/plans/2026-08-13-validation-contracts.md).
 - ✅ 2026-08-13 — [corpus-tranche-4] Built six refinement fixtures with pinned VC
   scripts and solver-produced verdicts (3 unsat / 3 sat mapping the fragment edge).
   See [plan](docs/plans/2026-08-13-corpus-tranche-4.md).
