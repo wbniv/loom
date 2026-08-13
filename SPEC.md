@@ -288,19 +288,35 @@ reason it is preferred to a `tylam`/`tyapp` pair:
   `forall` and `tyvar` out of the SMT sort fragment, so no refinement predicate
   can see one either.
 
-**Instantiation is not available in v0.1, and the omission is deliberate.** A
-`ref h` whose stored type is `forall^p T` synthesizes that quantified type, and
-the calculus has no rule that eliminates a `forall`. A polymorphic definition can
-therefore be written, hashed, stored, and read, but is called only through a
-monomorphic definition of its own — which is why a store holds both a generic
-definition and its instances, each with its own identity and its own evidence
-(§4.1). The intended future rule adds no node either: a quantified reference is
-instantiated by *first-order matching* against an expected type, supplied exactly
-where §3.1.2 already supplies an effectful lambda's row — by binding it through a
-typed `let`. Matching a quantifier prefix against a concrete expected type is
-syntactic and deterministic, so the resolved instance ends up written down in the
-`let`'s annotation and identity never depends on inference strength (§3.1). Until
-that rule exists, this section states the limit rather than implying the feature.
+**Instantiation adds no node.** A `ref h` whose stored type is `forall^p T`
+synthesizes that quantified type; in **checking** position, when the expected
+type `E` is concrete, `T` is instantiated by *first-order matching* against
+`E` rather than compared to it directly. Matching walks `T` and `E`
+structurally: each `tyvar i` (`i < p`) in `T` binds to the subtree of `E` at
+the corresponding position, every occurrence of the same `tyvar` must bind to
+the same subtree, and any other disagreement — an unbound `tyvar`, two
+different bindings for one `tyvar`, or a structural mismatch — is a
+path-aware failure. A quantifier prefix is syntactic and deterministic to
+match, so the resolved instance is never guessed; it is exactly what the
+matching computes, and identity never depends on inference strength (§3.1).
+This is supplied exactly where §3.1.2 already supplies an effectful lambda's
+row — most often by binding the reference through a typed `let`, so the
+resolved instance ends up written down in the `let`'s annotation, but any
+checking position works identically (a definition's own top-level check, an
+application argument, a constructor field). **Synthesis position stays
+uninstantiated** — a quantified reference used as, say, an application's
+function still synthesizes `forall^p T` verbatim, so a polymorphic definition
+is still called only through a monomorphic wrapper or a typed `let` at each
+use, and a store still holds both a generic definition and its instances,
+each with its own identity and its own evidence (§4.1). A **polymorphic
+caller** may instantiate a quantified reference at its own type variables:
+`E` can legitimately contain `tyvar` nodes bound by the caller's own `forall`
+prefix, and since this layer never substitutes a definition's own type
+variables (they stay opaque atoms per §2.3.1), those nodes simply bind like
+any other concrete subtree. Row variables are out of scope — instantiation
+substitutes types only, and a row variable anywhere in `T` or `E` is row
+polymorphism, which remains unimplemented and fails explicitly rather than
+being matched away.
 
 ### 3.1.4 Bool elimination
 
