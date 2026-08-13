@@ -230,7 +230,7 @@ class RefinementTranslationTest(unittest.TestCase):
             ("`lam`", [3, I64, [2, 1, True]]),
             ("`perform`", [8, CLOCK, 0, []]),
             ("`handle`", [9, CLOCK, [2, 1, True], [], [0, 0]]),
-            ("`fix`", [10, BOOL, i64(0), [0, 0]]),
+            ("`fix`", [10, BOOL, 0, i64(0), [0, 0]]),
             ("`hole`", [11, BOOL, []]),
         ]
         for label, term in cases:

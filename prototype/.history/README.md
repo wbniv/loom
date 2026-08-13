@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/6347950) | Add definition-level polymorphism and the `if` Bool eliminator |
 | [2026-08-13](https://github.com/wbniv/loom/commit/9a58037) | Specify the extern object encoding |
 | [2026-08-13](https://github.com/wbniv/loom/commit/b5c7b9c) | Type fix and ref in the match layer |
 | [2026-08-13](https://github.com/wbniv/loom/commit/3be2146) | Seed the bootstrap corpus for prior starvation |
@@ -17,6 +18,11 @@
 | [2026-08-12](https://github.com/wbniv/loom/commit/7474944) | Prototype Loom S-expression transcoder |
 
 <!--history-meta v1
+6347950	author	Will Norris
+6347950	added	20
+6347950	deleted	9
+6347950	files	1
+6347950	body	The bootstrap corpus escalated two §2 design calls. Both are answered here,\nwith different answers, which is the cost model applied rather than\nabandoned.\n\nPolymorphism costs no tag: §2.3.1 now checks a definition's term at its\ntype's leading `forall` depth, so a `forall^p` definition is the type\nabstraction itself and its `lam` annotations may name the bound variables.\nThe prefix must be prenex, which turns §2.3's "rank-1 only" into a checked\nproperty. Rejected `tylam`/`tyapp`: elaborated form would pay those two tags\nat every use site forever, and they add a second binder discipline to the\nstateful mask. What stays open is instantiating a polymorphic reference,\nstated as a limit in §3.1.3 rather than half-landed.\n\nBool elimination costs exactly one tag: `if` = term tag 12, fixed arity,\nbinds nothing, so the mask's depth registers are untouched, and §3.2.1 gains\none row translating it to `ite` — already an admitted symbol, so the trusted\ntheory surface does not grow. Rejected demoting Bool to a data declaration:\na refutation script ends in `(assert (not <goal>))` and a datatype-sorted\ngoal cannot be negated, so the cheap-looking option breaks the most.\n\nBoth findings land a corpus fixture that was impossible before them:\ncorpus/bool/not (the definition that found the limit) and a generic\ncorpus/maybe/mapPoly. The two lifted limit tests are re-pinned as the new\nbehaviour plus its residue, not deleted. No existing definition's bytes\nmove; the §4.4 golden identity and all four pre-existing corpus identities\nare unchanged.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 9a58037	author	Will Norris
 9a58037	added	15
 9a58037	deleted	2

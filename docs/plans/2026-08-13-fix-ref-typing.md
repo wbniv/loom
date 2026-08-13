@@ -77,13 +77,15 @@ contract.
 
 ## Deliberate boundary
 
-- **Curried recursion whose decreasing argument is not the first cannot state
+- ~~**Curried recursion whose decreasing argument is not the first cannot state
   its measure.** Rule 3 fixes the measure's domain to `T`'s domain, so
   `foldRight : (a → b → b) → b → List a → b` cannot use `(ref #List.size)`.
   That is a §2.5 gap — the spec gives no way to name a non-initial argument as
   the decreasing one — not a checker limitation, and it is recorded in §3.1.5
   rather than papered over. `list/size`, `list/append`, `list/reverse`, and
-  `list/map` are unaffected.
+  `list/map` are unaffected.~~ Closed 2026‑08‑13 by the
+  [measure-selection plan](2026-08-13-measure-selection.md): the `fix` node
+  gained a position field, so rule 3 now reads "against `fn D_k () I64`".
 - Mutual recursion remains out of scope: `fix` binds one value (corpus plan
   R‑list, "local mutual recursion is dropped").
 - Row-polymorphic `fix` annotations are refused with the existing closed-row
@@ -100,8 +102,10 @@ contract.
 - [x] Test recursive binder types, measure shape, annotation rows, effects
       under `fix`, and resolver positives/negatives in `prototype/test_fix_ref.py`.
 - [x] Wire `test_fix_ref` into `task prototype:test`; add README rows.
-- [ ] Re-declare the corpus tier assertion that this layer intentionally
-      invalidates (owned elsewhere — see Verification step 1).
+- [x] Re-declare the corpus tier assertion that this layer intentionally
+      invalidates (owned elsewhere — see Verification step 1). Done at merge, and
+      re-declared again by the measure-selection plan once the corpus gained a
+      `ref` resolver.
 
 ## Verification
 

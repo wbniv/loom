@@ -52,7 +52,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `matches.py` | Bidirectional nominal/match, closed-row effect/handler, and `fix`/`ref` checking for the first type-directed subset; `ref` types come from an injected resolver. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
-| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the seed-set manifest, and the §8.4 few-shot pairs. |
+| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -63,7 +63,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
-| `test_fix_ref.py` | Recursive-binder, measure-shape, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
+| `test_fix_ref.py` | Recursive-binder, measure-shape and measure-position, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
@@ -95,16 +95,23 @@ enforces the tier in both directions, so a `structural` entry that starts passin
 the match layer fails the suite rather than keeping a stale deferral.
 
 Transpiling the seed set established three limits of v0.1 by construction, each
-pinned by a test in `test_corpus.ExpressivenessLimitTest`. Two have since been
-lifted by the
-[polymorphism and Bool-elimination plan](../docs/plans/2026-08-13-polymorphism-and-bool-elimination.md)
-and are re-pinned as the new behaviour: a definition's term is checked at its
-type's `forall` depth, so `corpus/maybe/mapPoly` is a genuinely generic
-definition (what remains is that v0.1 cannot *instantiate* a polymorphic
-reference, so the `I64` instances stay); and `if` (term tag 12) eliminates
-`Bool`, so `corpus/bool/not` — the definition that found the limit — is now a
-fixture. The third limit stands: `fix` and `ref` have no typing rule in the match
-layer yet, so the recursive tranche is still ahead.
+pinned by a test in `test_corpus.ExpressivenessLimitTest`. All three have since
+been lifted and re-pinned as the new behaviour. Two by the
+[polymorphism and Bool-elimination plan](../docs/plans/2026-08-13-polymorphism-and-bool-elimination.md):
+a definition's term is checked at its type's `forall` depth, so
+`corpus/maybe/mapPoly` is a genuinely generic definition (what remains is that
+v0.1 cannot *instantiate* a polymorphic reference, so the `I64` instances
+stay); and `if` (term tag 12) eliminates `Bool`, so `corpus/bool/not` — the
+definition that found the limit — is now a fixture. The third by the
+[measure-selection plan](../docs/plans/2026-08-13-measure-selection.md): `fix`
+carries the position of its decreasing argument (`SPEC.md` §2.5), and
+`corpus_registry.reference_type()` gives the match layer the assumed base as
+its `ref` resolver, so a recursive definition reaches `checked` with a stored
+measure stated directly — `list/foldRight` descends on its *third* argument and
+measures it with `(ref #List.size)`. What remains pinned is the narrower limit
+the new rule leaves in place: a measure reads one argument, so a recursion
+descending on two at once, where neither decreases alone, still has to take
+`div`.
 
 ## Golden identity check
 

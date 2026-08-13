@@ -1,11 +1,14 @@
 """Tests for the bootstrap corpus seed set and its recorded expressiveness limits.
 
-The second half of this file pins what Loom v0.1 can and cannot express, so that
-a change to the calculus fails loudly here and the bootstrap plan gets revisited
-rather than a limit quietly outliving the reason for it. Two of the original
-three limits were lifted by the polymorphism-and-Bool-elimination plan and are
-re-pinned as the *new* behaviour plus its residue; the limit tests document
-reality, and reality changed.
+The second half of this file pins what the bootstrap plan's tranche ordering
+rests on: what Loom v0.1 can and cannot express. Each claim is asserted here so
+that a later change to the calculus that lifts a limit fails loudly and the plan
+gets revisited, rather than the limit quietly outliving the reason for it. All
+three original limits have now been lifted that way — two by the
+polymorphism-and-Bool-elimination plan, the third by the measure-selection plan
+(recursion is typed and its measure can name a non-initial argument, §2.5) —
+and each lifted-limit test was replaced by one pinning the new capability plus
+the narrower residue the new rule leaves in place.
 """
 
 from __future__ import annotations
@@ -76,13 +79,14 @@ class CorpusFixtureTest(unittest.TestCase):
                 source = entry.source_text()
                 scope.validate_source(source, self.registry.operation_arity)
                 references.validate_source(source, self.registry)
+                resolver = corpus_registry.reference_type(self.registry)
                 if entry.tier == "checked":
                     self.assertEqual(entry.deferred, "")
-                    matches.validate_source(source, self.registry)
+                    matches.validate_source(source, self.registry, resolver)
                 else:
                     self.assertNotEqual(entry.deferred, "", "a structural entry must record why")
                     with self.assertRaises(matches.TypeDirectionError):
-                        matches.validate_source(source, self.registry)
+                        matches.validate_source(source, self.registry, resolver)
 
     def test_every_fixture_is_pure_and_capability_free(self):
         # Nothing in the seed set may smuggle in an effect: the tranche is
@@ -186,26 +190,45 @@ class ExpressivenessLimitTest(unittest.TestCase):
             matches.validate_source(def_to_surface(match_on_bool), self.registry)
         self.assertIn("match scrutinee does not synthesize a nominal data type", str(caught.exception))
 
-    def test_recursion_and_stored_references_stop_at_the_structural_tier(self):
-        # `fix` and `ref` now have typing rules, but the corpus supplies no
-        # reference-type resolver, so the assumed-base List.size measure is
-        # unresolvable and tranche 2 stays `structural` until the corpus wires
-        # one up. A stand-in hash stands for the assumed-base List.size.
-        assumed_size = bytes.fromhex("aa" * 32)
+    def test_a_recursive_definition_reaches_the_checked_tier(self):
+        # The third recorded limit is lifted, and this is what replaced it:
+        # `fix` selects its decreasing argument (§2.5), and the corpus resolver
+        # resolves the assumed-base List.size, so a recursive tranche-2 shape
+        # typechecks. `list/append` descends on its first argument (position 0).
+        # rec=2, xs=1, ys=0 under the two lambdas; in the Cons arm the tail is 0,
+        # the head 1, and everything else shifts by two (§2.3.1).
         list_i64 = [1, self.list, [I64]]
         append_type = [2, list_i64, [], [2, list_i64, [], list_i64]]
-        append_body = [3, list_i64, [3, list_i64, [7, [0, 0], [
-            [0, 0, [0, 1]],
-            [1, 2, [6, self.list, 1, [[0, 1], [4, [4, [0, 3], [0, 0]], [0, 2]]]]],
+        append_body = [3, list_i64, [3, list_i64, [7, [0, 1], [
+            [0, 0, [0, 0]],
+            [1, 2, [6, self.list, 1, [[0, 1], [4, [4, [0, 4], [0, 0]], [0, 2]]]]],
         ]]]]
-        append = [0, append_type, [10, append_type, [1, assumed_size], append_body]]
+        size = corpus_registry.EXTERN_HASHES["List.size"]
+        append = [0, append_type, [10, append_type, 0, [1, size], append_body]]
         source = def_to_surface(append)
         self.assertEqual(parse_source(source), append)
         scope.validate_source(source, self.registry.operation_arity)
         references.validate_source(source, self.registry)
-        with self.assertRaises(matches.TypeDirectionError) as caught:
-            matches.validate_source(source, self.registry)
-        self.assertIn("has no reference-type resolver", str(caught.exception))
+        matches.validate_source(source, self.registry, corpus_registry.reference_type(self.registry))
+
+    def test_a_measure_cannot_read_more_than_one_argument(self):
+        # The limit measure selection does *not* lift: one measure over one
+        # argument. `merge` on two sorted lists needs `size xs + size ys` —
+        # neither argument decreases alone — so it must take `div` in v0.1, and
+        # no choice of position makes it statable.
+        list_i64 = [1, self.list, [I64]]
+        merge_type = [2, list_i64, [], [2, list_i64, [], list_i64]]
+        size = corpus_registry.EXTERN_HASHES["List.size"]
+        # A measure reading both arguments has the spine `List -> List -> I64`,
+        # which is not `fn D_k () I64` at either position.
+        both = [3, list_i64, [3, list_i64, [4, [1, size], [0, 0]]]]
+        body = [3, list_i64, [3, list_i64, [0, 1]]]
+        resolver = corpus_registry.reference_type(self.registry)
+        for position in (0, 1):
+            merge = [0, merge_type, [10, merge_type, position, both, body]]
+            with self.subTest(position=position), self.assertRaises(matches.TypeDirectionError) as caught:
+                matches.validate_source(def_to_surface(merge), self.registry, resolver)
+            self.assertIn("type mismatch", str(caught.exception))
 
 
 if __name__ == "__main__":

@@ -192,8 +192,11 @@ def term_to_ir(form):
             values = _list(op, "handler operation", 2)
             op_irs.append([_canonical_uint(values[0], "operation index"), term_to_ir(values[1])])
         return [tag, _hash_bytes(rest[0]), term_to_ir(rest[1]), op_irs, term_to_ir(rest[3])]
-    if head == "fix" and len(rest) == 3:
-        return [tag, type_to_ir(rest[0]), term_to_ir(rest[1]), term_to_ir(rest[2])]
+    if head == "fix" and len(rest) == 4:
+        # The measure position precedes the measure: §8.1 emits a definition in
+        # pre-order, so the field that fixes the measure's goal type has to be
+        # decoded before the measure for §8.2's pruning to use it.
+        return [tag, type_to_ir(rest[0]), _canonical_uint(rest[1], "fix measure position"), term_to_ir(rest[2]), term_to_ir(rest[3])]
     if head == "hole" and len(rest) == 2:
         constraints = _list(rest[1], "hole constraints")
         return [tag, type_to_ir(rest[0]), [term_to_ir(c) for c in constraints]]
@@ -293,8 +296,10 @@ def term_to_surface(ir) -> str:
     if tag == 9 and len(values) == 5:
         ops = _join_list(_join_list([str(i), term_to_surface(body)]) for i, body in values[3])
         return _join("handle", [_hash_surface(values[1]), term_to_surface(values[2]), ops, term_to_surface(values[4])])
-    if tag == 10 and len(values) == 4:
-        return _join("fix", [type_to_surface(values[1]), term_to_surface(values[2]), term_to_surface(values[3])])
+    if tag == 10 and len(values) == 5:
+        if not isinstance(values[2], int) or isinstance(values[2], bool) or values[2] < 0:
+            raise SurfaceError("term IR: fix measure position must be a nonnegative integer")
+        return _join("fix", [type_to_surface(values[1]), str(values[2]), term_to_surface(values[3]), term_to_surface(values[4])])
     if tag == 11 and len(values) == 3:
         return _join("hole", [type_to_surface(values[1]), _join_list(term_to_surface(x) for x in values[2])])
     if tag == 12 and len(values) == 4:

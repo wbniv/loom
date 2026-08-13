@@ -158,10 +158,16 @@ def check_term(
         check_term(node[4], term_depth + 1, type_depth, ability_arity, f"{path}.return")
         return
     if tag == 10:
-        _node(node, path, 4)
+        _node(node, path, 5)
         check_type(node[1], term_depth, type_depth, ability_arity, f"{path}.type")
-        check_term(node[2], term_depth, type_depth, ability_arity, f"{path}.measure")
-        check_term(node[3], term_depth + 1, type_depth, ability_arity, f"{path}.body")
+        # The measure position selects a domain of the annotation (§2.5); this
+        # layer checks only its shape, exactly as it checks a match arm's binder
+        # count and leaves the field-count comparison to the typing layer.
+        position = node[2]
+        if not isinstance(position, int) or isinstance(position, bool) or position < 0:
+            _fail(path, f"invalid measure position {position!r}")
+        check_term(node[3], term_depth, type_depth, ability_arity, f"{path}.measure")
+        check_term(node[4], term_depth + 1, type_depth, ability_arity, f"{path}.body")
         return
     if tag == 11:
         _node(node, path, 3)

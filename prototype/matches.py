@@ -16,8 +16,9 @@ from transcode import parse_source
 #: supplies ability arities: injected, never guessed.
 ReferenceTypeResolver = Callable[[bytes], list]
 
-#: §2.5 measures map the recursive argument to a number. v0.1 has no natural
-#: base type, so the prototype checks a measure against `fn D () I64`.
+#: §2.5 measures map the *selected* argument to a number — the `fix` node's
+#: position field says which. v0.1 has no natural base type, so the prototype
+#: checks a measure against `fn D_k () I64`.
 MEASURE_RESULT = [0, 2]
 
 BOOL = [0, 1]
@@ -255,23 +256,41 @@ class MatchChecker:
         if expected is not None and annotation != expected:
             _fail(path, f"fix annotation differs from the expected type: expected {expected!r}, got {annotation!r}")
         if annotation[0] != 2:
-            # §2.5's measure maps the recursive *argument* to a number, so a
+            # §2.5's measure maps the *selected* argument to a number, so a
             # recursive value with no argument has nothing to measure.
             _fail(path, "fix at a non-function type is not implemented in the nominal match layer")
         self._closed_row(annotation[2], f"{path}.effect-row")
+        decreasing = self._measure_domain(annotation, term[2], path)
         # The measure is checked at the current environment (§2.3.1) as a pure
-        # function from the recursive argument to I64. Whether it *decreases*
-        # is the oracle's `terminates` obligation (§2.5, §6.2); this layer
-        # types the term and discharges nothing.
-        measure_type = [2, copy.deepcopy(annotation[1]), [], copy.deepcopy(MEASURE_RESULT)]
-        self.check(term[2], measure_type, environment, ambient, f"{path}.measure")
+        # function from the selected argument to I64. Whether it *decreases* is
+        # the oracle's `terminates` obligation (§2.5, §6.2); this layer types the
+        # term and discharges nothing.
+        measure_type = [2, decreasing, [], copy.deepcopy(MEASURE_RESULT)]
+        self.check(term[3], measure_type, environment, ambient, f"{path}.measure")
         # Forming a recursive function value is itself pure, so the body checks
         # under the unchanged ambient allowance; because the annotation is a fn
         # type, a lam body immediately re-anchors that allowance to the
         # annotation's own row per §3.1.2.
         body_environment = [copy.deepcopy(annotation), *environment]
-        self.check(term[3], annotation, body_environment, ambient, f"{path}.body")
+        self.check(term[4], annotation, body_environment, ambient, f"{path}.body")
         return copy.deepcopy(annotation)
+
+    @staticmethod
+    def _measure_domain(annotation, position, path):
+        """`D_k`: the domain reached by walking `position` arrows of the spine.
+
+        Rows walked past are deliberately not constrained — reaching argument
+        `k` may perform effects, which changes nothing about how many times the
+        recursion runs (§2.5). Only the measure's own row must be empty.
+        """
+        if not isinstance(position, int) or isinstance(position, bool) or position < 0:
+            _fail(path, f"invalid measure position {position!r}")
+        spine = annotation
+        for step in range(position):
+            spine = spine[3]
+            if spine[0] != 2:
+                _fail(path, f"measure position {position} exceeds the annotation's {step + 1}-argument curried spine")
+        return copy.deepcopy(spine[1])
 
     def _check_handler(self, term, expected, environment, ambient, path):
         try:

@@ -53,7 +53,7 @@ Every term is encoded as a CBOR array `[tag, …fields]`.
 | 7 | `match` | `[7, scrut, [arms]]` | arm = `[ctor-index, binder-count, body]`; must be exhaustive |
 | 8 | `perform` | `[8, a, i, [args]]` | operation `i` of ability `a` |
 | 9 | `handle` | `[9, a, term, [ops], ret]` | handler discharges ability `a` from the row |
-| 10 | `fix` | `[10, T, measure, body]` | recursion **only** with a termination measure; see §2.5 |
+| 10 | `fix` | `[10, T, k, measure, body]` | recursion **only** with a termination measure; `k` selects the decreasing argument along `T`'s curried spine; see §2.5 |
 | 11 | `hole` | `[11, T, [constraints]]` | typed hole; storable only in the draft region (§5.4) |
 | 12 | `if` | `[12, c, t, e]` | the elimination form for `Bool` (§2.2); binds nothing (§3.1.4) |
 
@@ -112,10 +112,12 @@ Binder-producing nodes extend those depths as follows:
 - Each `hole` constraint is checked with the prospective hole value added as
   term index 0.
 - `forall T` adds one type binder throughout `T`.
-- `fix T measure body` checks `T` and `measure` at the current depth, then adds
-  the recursive value as term index 0 in `body`. A recursive function normally
-  therefore has a `lam` body: inside that lambda its argument is index 0 and
-  the recursive value is index 1.
+- `fix T k measure body` checks `T` and `measure` at the current depth, then adds
+  the recursive value as term index 0 in `body`. `k` is a numeric position into
+  `T`'s curried spine (§2.5) and binds nothing. A recursive function normally
+  therefore has a `lam` body: inside `k + 1` nested lambdas the selected argument
+  is index 0, the arguments before it are indices 1 … `k`, and the recursive value
+  is index `k + 1`.
 - A `handle` return clause adds the handled computation's result as term index
   0. An operation clause obtains the selected operation's parameter count from
   the referenced ability definition, adds those parameters in signature order,
@@ -190,11 +192,35 @@ generated.
 
 ### 2.5 Totality
 
-Loom is total by default. `fix` requires a `measure`: a term mapping the
-recursive argument to a natural number that the oracle proves strictly
-decreasing (obligation `terminates`, §6.2). If no measure is provable, the
-definition must instead take the `div` ability in its row — divergence is an
-effect, visible in every caller's type, all the way up.
+Loom is total by default. `fix T k measure body` requires a `measure`: a term
+mapping the recursive argument to a natural number that the oracle proves
+strictly decreasing (obligation `terminates`, §6.2). `k` says **which** argument
+that is — arrows are counted along `T`'s curried spine from 0, so `T` must expose
+at least `k + 1` of them, and the measure is checked against `fn D_k () I64`
+(§3.1.3). `k = 0` is the ordinary case.
+
+Naming the position is what makes a curried recursion measurable at all.
+`foldRight : (a → b → b) → b → List a → b` decreases on its third argument
+(`k = 2`) and states `size` as its measure; with no way to name that position the
+definition would have to be permuted into a differently-typed helper, changing a
+definition's identity for a reason that has nothing to do with its meaning.
+
+The `terminates` obligation is: the `measure` is nonnegative on every argument it
+is applied to, and at every occurrence of the recursive value inside `body` that
+is applied to at least `k + 1` arguments, the measure of that occurrence's
+argument `k` is strictly less than the measure of the enclosing invocation's
+argument `k`. An occurrence applied to fewer than `k + 1` arguments — passed as a
+value, or partially applied — leaves nothing to compare, so the obligation is
+unprovable there. Loom never weakens the obligation to fit: if no measure is
+provable, for that reason or any other, the definition must instead take the
+`div` ability in its row — divergence is an effect, visible in every caller's
+type, all the way up.
+
+One measure over one argument is deliberately less than a lexicographic or
+multi-argument rule: a recursion descending on two arguments at once, where
+neither decreases alone, takes `div` in v0.1. Widening this later changes what
+`measure` is checked against, not the node shape — `k` is already the field such
+a rule needs.
 
 ### 2.6 Holes
 
@@ -325,19 +351,23 @@ particular `exhaustive-match` remains one per `match`.
 
 ### 3.1.5 Recursion and stored-reference typing
 
-`fix T measure body` checked against expected type `E` requires `T` to equal `E`;
-in synthesis position it synthesizes `T`. `T` must be a `fn D row C`: §2.5's
-measure maps the recursive *argument* to a number, so a recursive value with no
-argument has nothing to measure, and v0.1 refuses it rather than inventing a
-rule. The `measure` is checked at the current environment — without the
-recursive binder (§2.3.1) — against `fn D () I64`: v0.1 has no natural base
-type, and a measure that is itself effectful is meaningless to the oracle, so
-the row is empty. The `body` is checked against `T` with the recursive value at
-term index 0, under the *unchanged* ambient allowance; forming a recursive
-function value is itself pure, and because `T` is a `fn` type a `lam` body
-immediately re-anchors the allowance to `row` per §3.1.2. A curried recursion
-whose decreasing argument is not the first therefore cannot yet state its
-measure; that is a §2.5 gap, not a checker limitation.
+`fix T k measure body` checked against expected type `E` requires `T` to equal
+`E`; in synthesis position it synthesizes `T`. `T` must expose at least `k + 1`
+arrows — `T = fn D₀ r₀ (fn D₁ r₁ (… fn D_k r_k C))`, every walked node a `fn` —
+since §2.5's measure maps the *selected* argument to a number: a recursive value
+with nothing at position `k` has nothing to measure, and v0.1 refuses it rather
+than inventing a rule. The `measure` is checked at the current environment —
+without the recursive binder (§2.3.1) — against `fn D_k () I64`: v0.1 has no
+natural base type, and a measure that is itself effectful is meaningless to the
+oracle, so the row is empty. The rows `r₀ … r_{k-1}` the selector walks past are
+untouched — reaching argument `k` may perform effects, which changes nothing
+about how many times the recursion runs. The `body` is checked against `T` with
+the recursive value at term index 0, under the *unchanged* ambient allowance;
+forming a recursive function value is itself pure, and because `T` is a `fn` type
+a `lam` body immediately re-anchors the allowance to `r₀` per §3.1.2. A curried
+recursion states its decreasing argument as `k`: `foldRight`'s measure is checked
+against `List a → I64` at `k = 2`, so a stored `size` is usable as the measure
+directly.
 
 This rule discharges no `terminates` obligation. Whether the measure strictly
 decreases is oracle evidence (§2.5, §6.2); the typing layer only establishes

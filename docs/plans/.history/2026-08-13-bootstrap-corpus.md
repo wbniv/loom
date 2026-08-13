@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/8e85730) | Re-source corpus attributions to MIT-licensed unisonweb/unison |
 | [2026-08-13](https://github.com/wbniv/loom/commit/3be2146) | Seed the bootstrap corpus for prior starvation |
 
 <!--history-meta v1
+8e85730	author	Will Norris
+8e85730	added	17
+8e85730	deleted	11
+8e85730	files	1
+8e85730	body	The standalone unisonweb/base mirror carries no license file; the main\nrepository the definitions originate from is plain MIT. Attribution is\n§5.2 metadata and never enters identity, so this is a citation-only\nchange: no fixture bytes or pinned hashes move. Closes the licensing\nhold on scaling the corpus.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 3be2146	author	Will Norris
 3be2146	added	464
 3be2146	deleted	0

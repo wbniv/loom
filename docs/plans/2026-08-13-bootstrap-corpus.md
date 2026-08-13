@@ -339,10 +339,14 @@ declaration a definition names precedes it. `★` marks the four built here.
 | 23 | `list/isEmpty` | `List I64 -> Bool` | `List.isEmpty` |
 | 24 ★ | `list/uncons` | `List I64 -> Maybe (Pair I64 (List I64))` | `List.uncons` |
 
-**Tranche 2 (specified, not built)** — recursive, tier `structural` until the
-match layer types `fix` and `ref`; measure `(ref #List.size)` throughout, no
-`div`: `list/size` (assumed, layer 1), `list/append`, `list/reverse`,
-`list/map`, `list/foldLeft`, `list/foldRight`, `list/concat`, `list/flatMap`.
+**Tranche 2 (partially built)** — recursive; measure `(ref #List.size)`
+throughout, no `div`: `list/size` (assumed, layer 1), `list/append`,
+`list/reverse`, `list/map`, `list/foldLeft`, `list/foldRight`, `list/concat`,
+`list/flatMap`. These now reach tier `checked` rather than `structural`: the
+match layer types `fix` and `ref`, `fix` names its decreasing argument
+([measure selection](2026-08-13-measure-selection.md)), and
+`corpus_registry.reference_type()` resolves the assumed base. `list/foldRight` is
+built as the first fixture of this tranche; the rest are still specified only.
 
 **Tranche 3** — the effectful slice: Unison ability code against §2.4's eight
 builtins, closed rows only, exercising `perform`, `handle`, and `cap`. This is
