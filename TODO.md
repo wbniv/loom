@@ -27,16 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:a8b4beb9cc88b0ee6 --> **Implement the effect-consistency review follow-ups.** Complete the §3.1.2
-  expected-type context list (perform arguments), fix the SPEC.md status header, add
-  the direct-application rejection test, correct the prior review's resolution note,
-  document the GBNF validator build, repair the design-sketch links. See
-  [review](docs/reviews/2026-08-13-effect-consistency-change-review.md). Also two
-  later review notes: reword §6.1.1's circular confidence clause in the recompute
-  check, and record the §3.2.1 design fork that pairwise `distinct` over opaque F64
-  literals makes float equality bitwise (`+0.0 ≠ -0.0`). (T2: bounded doc/test edits
-  against an enumerated findings list.)
-
 - [wip T2] <!-- agent:a6e61ad584af546f0 --> **Prototype policy-object validation and satisfaction checking (§5.3.1–§5.3.2).**
   A prototype module that canonically validates policy objects, checks requirement
   satisfaction (`E ⊒ R` per §6.1.2) and domination, and pins the default-policy hash
@@ -75,6 +65,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [effect-followups] Closed all eight review follow-ups: spec wording,
+  status header, pinned tests, GBNF build recipe, imported sketch, fixed links.
+  See [plan](docs/plans/2026-08-13-effect-consistency-followups.md).
 - ✅ 2026-08-13 — [policy-object] Specified §5.3.1–§5.3.2 policy objects: rules and
   selectors, budgets, upward resolution over a pinned default, monotone amendment.
   See [plan](docs/plans/2026-08-13-namespace-policy-object.md).

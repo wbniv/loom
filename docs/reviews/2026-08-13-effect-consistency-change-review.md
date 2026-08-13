@@ -66,6 +66,15 @@ parameter type" to the list.
 
 ### 2. P3 — The direct-application rejection claim is true but untested
 
+> **Correction (2026-08-13, follow-ups pass):** this finding was wrong.
+> Commit `7776d05` did add a direct-application rejection assertion, inside
+> `test_effectful_function_application_checks_row_and_capability`; the review
+> was made against a working-tree snapshot that misrepresented the file. The
+> prior review's resolution note was accurate as written. The follow-ups pass
+> nevertheless added a dedicated named test
+> (`test_effectful_lambda_as_direct_application_callee_is_rejected`) so the
+> normative claim has its own pinned negative test.
+
 §3.1.2 states that an effectful lambda "as the direct callee of an
 application" is rejected even when the ambient row permits its effect. That
 claim was verified by hand during this review (the checker rejects it at the
