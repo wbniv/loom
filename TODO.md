@@ -27,13 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:a6e61ad584af546f0 --> **Prototype policy-object validation and satisfaction checking (§5.3.1–§5.3.2).**
-  A prototype module that canonically validates policy objects, checks requirement
-  satisfaction (`E ⊒ R` per §6.1.2) and domination, and pins the default-policy hash
-  plus the §12 worked example's arithmetic as executable tests — closing the
-  policy plan's recorded residual risk that no executable check exists. (T2: one
-  module against a now-settled spec, following the existing layer pattern.)
-
 - [wip T4] <!-- agent:a39dc10fa3363d8c0 --> **Bootstrap-corpus plan for open problem 1 (SPEC.md §13, prior starvation).**
   Concrete version of "transpile verified existing code": pick a small existing
   typed/verified corpus (candidates: a subset of Unison base, or F*/Idris examples)
@@ -65,6 +58,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [policy-prototype] Implemented policy validation, satisfaction, and
+  domination with 54 tests pinning the default hash and §12 arithmetic executable.
+  See [plan](docs/plans/2026-08-13-policy-validation-prototype.md).
 - ✅ 2026-08-13 — [effect-followups] Closed all eight review follow-ups: spec wording,
   status header, pinned tests, GBNF build recipe, imported sketch, fixed links.
   See [plan](docs/plans/2026-08-13-effect-consistency-followups.md).
