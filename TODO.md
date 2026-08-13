@@ -91,12 +91,3 @@ condition that would unpark it._
   [plan](docs/plans/2026-08-13-stateful-scope-validation.md).
 - ✅ 2026-08-12 — [sexpr-grammar] Prototyped S-expr isomorph + canonical-CBOR
   transcoder; matches SPEC.md §4.4 worked-example hash exactly. See [prototype/](prototype/).
-
-
-## Inbox — auto-captured plan deferrals
-
-_Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
-
-<!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
-- [verify] **2026-08-13-stateful-scope-validation** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-13-stateful-scope-validation.md](docs/plans/2026-08-13-stateful-scope-validation.md)_  <!-- fp:f4a42fd18b8a381c -->
-<!-- END auto-captured-deferrals -->
