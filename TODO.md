@@ -27,7 +27,22 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-_Nothing open._
+- [T2] **Build corpus tranche 2: the recursive slice.** Transpile the seven remaining
+  recursive definitions (`list/append`, `list/reverse`, `list/map`, `list/foldLeft`,
+  `list/concat`, `list/flatMap`, plus assumed-base wiring for `list/size`) to tier
+  `checked`, measure `(ref #List.size)` throughout, no `div`. `list/foldRight` is the
+  built exemplar; the machinery (fix position field, extern resolver) is all landed.
+  See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T2: repetition of a landed
+  pattern against a written tranche list; `foldLeft` exercises the accumulator case.)
+
+- [T3] **Build corpus tranche 3: the effectful slice.** Unison ability code against
+  §2.4's eight builtins, closed rows only, exercising `perform`, `handle`, and `cap`
+  at tier `checked` — the tranche where the Unison-over-F* corpus choice pays off.
+  Definition selection is open (the plan names the shape, not the list), and R8 says
+  the per-definition cost stops falling here, so also record whether a transpiler
+  tool is now warranted. See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T3:
+  multi-definition selection judgment plus a tool-threshold call, against a settled
+  plan.)
 
 ## Watch
 
