@@ -5,3 +5,5 @@ docs/transcripts/
 # Experiment run output (records.jsonl / summary.json / report.md). A run that
 # is worth keeping gets its report copied into docs/plans/ deliberately.
 prototype/runs/
+prototype/experiment/phase_a.local.json
+prototype/experiment/phase_a.smoke.json
