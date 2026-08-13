@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Implement first-order `forall` instantiation (§3.1.3's stated future rule).**
+- [wip T2] <!-- agent:aced408ce08acf448 --> **Implement first-order `forall` instantiation (§3.1.3's stated future rule).**
   A quantified `ref` is instantiated by first-order matching against an expected type
   supplied through a typed `let`; the rule is spelled out in §3.1.3 and the `ref`
   typing rule it needed now exists (§3.1.5). Proof: a definition calling
