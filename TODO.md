@@ -27,17 +27,13 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:aae4acdc6685fd2ab --> **Define the obligation pipeline: who consults the solver, and what `sat`
-  means (§3.2.1/§3.3/§6.2 seam; tranche-4 escalations 1+2).** Two entangled calls:
-  (a) subtyping VCs are generated but nothing consults them — solver-in-the-typing-
-  loop vs obligation emission for a separate oracle pass (the spec's architecture
-  leans emission); (b) §3.2.1's "`sat` refutes and the binding is rejected" is
-  unsound under abstraction — a model may be an artifact of uninterpreted symbols or
-  erasure, and a conforming checker would reject three correct corpus definitions
-  today. Needs a three-way outcome with a validated-countermodel rule; the three
-  pinned `sat` cases are the test corpus. See
-  [review](docs/reviews/2026-08-13-corpus-tranche-4-review.md). (T4: one design
-  space, two normative rules, wrong turn expensive.)
+- [T2] **Implement §3.3 subsumption in typecheck (unblocked by the obligation
+  pipeline).** The design fork is closed: typing emits obligations and never calls
+  a solver, so checking a term against `refine T φ` subsumes via an emitted
+  subtyping VC rather than structural equality. Re-tiers the three structural
+  tranche-4 fixtures to `checked`; typecheck contract MINOR bump per CONTRACTS.md.
+  See [plan](docs/plans/2026-08-13-obligation-pipeline.md) residue 1. (T2: bounded,
+  the seam API exists in obligations.py.)
 
 - [T3] **Build experiment Phase A: resolver, harness, conditions 1–3.** Per the
   [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md) R2.1:
@@ -99,6 +95,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [obligation-pipeline] Typing emits obligations, never calls a
+  solver; three-way sat semantics with a two-part exactness rule; nat/select's
+  diagnosis corrected. See [plan](docs/plans/2026-08-13-obligation-pipeline.md).
 - ✅ 2026-08-13 — [boolean-externs] Added Bool.and/or/not and I64.le to the assumed
   base (nine externs) with a deterministic conjunction-translation demonstration.
   See [plan](docs/plans/2026-08-13-boolean-base-externs.md).
