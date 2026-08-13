@@ -35,16 +35,6 @@ Check conformance with `task todo:lint`.
   See [plan](docs/plans/2026-08-13-obligation-pipeline.md) residue 1. (T2: bounded,
   the seam API exists in obligations.py.)
 
-- [wip T3] <!-- agent:abc11cdcfdbc312bd --> **Build experiment Phase A: resolver, harness, conditions 1–3.** Per the
-  [experiment plan](docs/plans/2026-08-13-masked-generation-experiment.md) R2.1:
-  the disposable store-shaped resolver, prompt construction per corpus regime, the
-  task set including held-out compositional tasks, and conditions
-  unconstrained / GBNF / GBNF+rejection-sampling runnable with one command under
-  the shared token-budget rule. Needs no per-token masking. Output includes the
-  failure distribution by checker layer that gates Phase B. Dispatch after the
-  obligation-pipeline merge (typecheck surface). (T3: assembly plus task-set
-  judgment against a settled plan.)
-
 - [T4] **Build experiment Phase B: the incremental type-state masker (gated on
   Phase A's failure profile).** The per-token prefix-feasibility API — GBNF syntax
   layer plus the §8.2 type-state subset, prioritized by whichever checker layer
@@ -95,6 +85,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [experiment-phase-a] Built the Phase A harness: resolver, four
+  regimes, 8 proven held-out tasks, 3 conditions, stub-tested funnel and report.
+  See [plan](docs/plans/2026-08-13-experiment-phase-a.md).
 - ✅ 2026-08-13 — [obligation-pipeline] Typing emits obligations, never calls a
   solver; three-way sat semantics with a two-part exactness rule; nat/select's
   diagnosis corrected. See [plan](docs/plans/2026-08-13-obligation-pipeline.md).
