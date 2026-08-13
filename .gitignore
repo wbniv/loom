@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 docs/transcripts/
 .claude/worktrees/
+# Experiment run output (records.jsonl / summary.json / report.md). A run that
+# is worth keeping gets its report copied into docs/plans/ deliberately.
+prototype/runs/
