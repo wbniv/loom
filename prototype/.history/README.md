@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
 | [2026-08-13](https://github.com/wbniv/loom/commit/fcb34bf) | Fix effect purity soundness |
 | [2026-08-13](https://github.com/wbniv/loom/commit/233b719) | Add effect-directed typing |
 | [2026-08-13](https://github.com/wbniv/loom/commit/e9944dc) | Add nominal match validation |
@@ -10,6 +11,10 @@
 | [2026-08-12](https://github.com/wbniv/loom/commit/7474944) | Prototype Loom S-expression transcoder |
 
 <!--history-meta v1
+7776d05	author	Will Norris
+7776d05	added	5
+7776d05	deleted	2
+7776d05	files	1
 fcb34bf	author	Will Norris
 fcb34bf	added	5
 fcb34bf	deleted	3

@@ -10,10 +10,10 @@ silent: true
 
 tasks:
   prototype:test:
-    desc: Run parser, identity, scope, declaration, and reference tests
+    desc: Run parser, identity, scope, declaration, reference, and obligation tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_refinements -v
 
   grammar:test:
     desc: Validate the canonical Loom surface with llama.cpp's GBNF validator

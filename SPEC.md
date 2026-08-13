@@ -260,6 +260,147 @@ the rest must be covered by weaker evidence explicitly (§6). Nothing is ever
 silently unverified — every obligation has an evidence entry, even if that
 entry is `assumption`.
 
+### 3.2.1 Translation to SMT-LIB
+
+Naming the fragment is not enough to discharge an obligation: the oracle needs
+a *deterministic* map from Loom terms to solver input. These rules define it.
+One verification condition produces exactly one SMT-LIB script, byte for byte —
+canonical form applies to the oracle's inputs as much as to the store's contents
+(§4.2), and it is what makes the memo ledger (§6.4) able to key evidence on the
+script rather than on the obligation's name.
+
+**Verification condition.** The translation unit is a triple `(Γ, H, g)`: a
+context `Γ` of Loom types indexed by de Bruijn index, a list `H` of Bool-typed
+hypothesis terms, and a Bool-typed goal term `g`, all checked under `Γ`. v0.1
+specifies one producer: refinement subtyping (§3.3). `{x:T|φ} <: {x:T|ψ}`
+becomes `Γ = [T]`, `H = [φ]`, `g = ψ`, with any surrounding term context
+appended to `Γ` after the refined value. Verification-condition generation for
+function bodies is future work; until it exists, an `ensures` obligation over a
+body reaches A3 only through a subtyping check the typechecker already emits.
+
+**The refined value is index 0.** Consistent with §2.3.1, `Γ[0]` is the refined
+value and translates to the symbol `loom.x0`; `Γ[i]` translates to `loom.xi`.
+Binders introduced *inside* a predicate (`let`, and `match` arm binders) receive
+fresh symbols `loom.b0`, `loom.b1`, … allocated in translation order.
+
+**Sorts.** A type in sort position is first *refinement-erased*: `refine T φ`
+becomes the sort of `T`, recursively, including inside data type arguments. A
+refinement in an argument position therefore contributes no hypothesis — only
+the obligation's own `H` is assumed.
+
+| Loom type | SMT-LIB sort | Notes |
+|---|---|---|
+| `Unit` | `Loom.Unit` | datatype with the single nullary constructor `loom.unit` |
+| `Bool` | `Bool` | Core |
+| `I64` | `Int` | idealized; bounded by the domain axiom below |
+| `F64` | `Loom.F64` | **uninterpreted**; no arithmetic, only equality |
+| `Text` | `Loom.Text` | uninterpreted |
+| `Bytes` | `Loom.Bytes` | uninterpreted |
+| `data h [A…]` | `Loom.D<sha256-hex>` | datatype, monomorphized (below) |
+| `fn`, `cap`, `tyvar`, `forall` | — | **out of fragment; rejected** |
+
+`F64`, `Text`, and `Bytes` are deliberately opaque. Modelling `F64` as `Real` is
+unsound for NaN, infinities, and rounding; modelling `Text` as SMT-LIB strings
+leaves `QF_UFLIRA`. Values of these sorts may be passed to uninterpreted
+functions and compared, and nothing more. Each distinct literal of an opaque
+sort becomes a declared constant named `loom.f64.`, `loom.text.`, or
+`loom.bytes.` followed by the SHA-256 hex of its canonical payload (the eight
+IEEE-754 bytes, the NFC UTF-8 bytes, or the byte string). When a sort has two or
+more such constants the script asserts one `distinct` over all of them — the
+only fact the encoding claims about opaque literals.
+
+**Data declarations are monomorphized.** An applied data type is refinement-
+erased, encoded with the canonical CBOR of §4.2, and named
+`Loom.D` + SHA-256 hex of those bytes. `List I64` and `List Bool` are therefore
+different sorts, and no parametric `declare-datatypes` is ever emitted. The sort
+is declared from its declaration object (§5.1.1) with constructor `i` named
+`<sort>.c<i>` and its field `j` named `<sort>.c<i>.f<j>`, both in declaration
+order; `self` resolves to the same applied type, so a recursive declaration
+closes on its own sort. All sorts reachable from the obligation are emitted in
+a single `declare-datatypes` group, sorted bytewise by sort name, which handles
+mutual recursion. A constructor field whose type has no sort puts the whole data
+type out of fragment.
+
+**Terms.** Only these nodes translate:
+
+| Node | SMT-LIB |
+|---|---|
+| `var i` | the environment symbol at index `i` |
+| `lit unit/bool/i64` | `loom.unit` / `true`,`false` / decimal, negatives as `(- n)` |
+| `lit f64/text/bytes` | the opaque literal constant described above |
+| `ref h` | `loom.f<hex>` — see interpretation below |
+| `app` | a **saturated** application of a `ref` spine: `(loom.f<hex> a₁ … aₙ)` |
+| `let T b e` | `(let ((loom.bk b)) e)` |
+| `con h i args` | `(<sort>.c<i> args…)`, `h` monomorphic only |
+| `match s arms` | SMT-LIB `match`, arms emitted in constructor-index order |
+
+Every other term node — `lam`, `perform`, `handle`, `fix`, `hole` — is out of
+fragment and must be rejected with the path of the offending subterm. So is a
+partially applied or higher-order `app`: SMT-LIB has no partial application, and
+the fragment is quantifier-free, so an application's head must be a `ref` and
+its argument count must equal that reference's arity. A `con` whose declaration
+takes type parameters is rejected because the translator synthesizes sorts
+bottom-up and has no expected type there. Match arms must be exhaustive,
+duplicate-free, and agree on one result sort; emitting them in constructor-index
+order makes arm order irrelevant to the emitted bytes.
+
+**References are uninterpreted unless the toolchain says otherwise.** A `ref`'s
+Loom type must be resolvable — the translator never guesses one, exactly as the
+scope layer never guesses an operation arity (§2.3.1). Its type is uncurried
+along the `fn` spine into parameter sorts plus a result sort; **every arrow on
+that spine must carry the empty effect row**, since an effectful function has no
+meaning as a mathematical function. By default the reference becomes
+`(declare-fun loom.f<hex> (<params>) <result>)`, an uninterpreted function: the
+solver learns congruence and nothing else, so v0.1 never unfolds a definition
+body into a proof.
+
+The toolchain may supply an **interpretation table** mapping definition hashes
+to SMT-LIB symbols; it is toolchain policy, never part of a term, so identity is
+untouched. The admitted symbols are a closed allowlist — everything a store
+could otherwise smuggle into the trusted theory surface stays out:
+
+`not and or => = distinct ite` (Core), `+ - * div mod abs < <= > >=` (Ints).
+
+Each application is checked against that symbol's own signature in addition to
+the reference's Loom type, so a misregistered entry is a translation error, not
+silent nonsense. Linearity is enforced at the call site: `*` admits at most one
+non-numeral factor, and `div`/`mod` require a nonzero integer *literal* divisor.
+The `LRA` half of `QF_UFLIRA` is unreachable in v0.1 — there is no `Real`-sorted
+base type — and is reserved.
+
+**Script shape.** Commands appear in exactly this order, each on one line, the
+file ending in a single newline:
+
+1. `(set-logic ALL)` — the *admitted* fragment is `QF_UFLIRA` + datatypes and is
+   enforced by the translator, not by the logic name; no standard SMT-LIB logic
+   names that combination, and `ALL` is accepted everywhere.
+2. `declare-sort` for each opaque sort used, sorted bytewise.
+3. one `declare-datatypes` group, if any datatype sort is used.
+4. `declare-const` for `loom.x0…` in ascending index, then for opaque literal
+   constants sorted bytewise.
+5. `declare-fun` for uninterpreted references, sorted bytewise.
+6. `assert (distinct …)` per opaque sort with ≥ 2 literals, by sort name.
+7. the **I64 domain axiom** `(assert (and (<= (- 9223372036854775808) loom.xi) (<= loom.xi 9223372036854775807)))`
+   for each `Int`-sorted context variable, in ascending index.
+8. one `assert` per hypothesis, in order.
+9. `(assert (not <goal>))`, then `(check-sat)`, then `(exit)`.
+
+The script asks for a **refutation**: `unsat` means the goal is valid under the
+hypotheses and the obligation earns `A3 proof` evidence (§6.1) whose payload
+records the solver identity and the script's SHA-256; `sat` refutes the
+obligation and the binding is rejected; `unknown`, a timeout, or a term outside
+this fragment leaves the obligation undischarged, to be covered by weaker
+evidence explicitly. The obligation's name never enters the script, so two
+differently named obligations with the same verification condition share one
+memo-ledger row (§6.4).
+
+Two fidelity limits are stated rather than hidden. `Int` does not wrap, so a
+proof that depends on 64-bit overflow is unsound — the domain axiom bounds
+context variables but cannot bound the result of an uninterpreted function or a
+datatype field, and a bit-precise encoding would leave the named fragment.
+Unbounded intermediate values can also produce a spurious `sat`, which fails in
+the safe direction: the obligation simply does not reach A3.
+
 ### 3.3 No subtyping surprises
 
 Refinement subtyping (`{x:T|φ} <: T`, and `{x:T|φ} <: {x:T|ψ}` when
