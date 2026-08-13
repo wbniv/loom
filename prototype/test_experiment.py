@@ -379,8 +379,13 @@ class EndToEndStubRunTest(unittest.TestCase):
             sum(1 for r in self.records if r["grammar"]))
         self.assertIsNotNone(self.summary["de_bruijn_share_of_scope_failures"])
         self.assertEqual(set(self.summary["error_paths"]), set(LAYERS))
+        # The summary must carry the live contract versions; the version
+        # values themselves are pinned in test_contracts, not here.
+        import contracts
+
         self.assertEqual(
-            self.summary["contract_versions"]["typecheck"], "1.0")
+            self.summary["contract_versions"]["typecheck"],
+            contracts.version("typecheck"))
 
     def test_report_states_the_gate_and_the_dominant_layer(self):
         report = runner.render_report(self.summary, self.records)
