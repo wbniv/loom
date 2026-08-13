@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/6908b1c) | Let a fix name its decreasing argument |
 | [2026-08-13](https://github.com/wbniv/loom/commit/6347950) | Add definition-level polymorphism and the `if` Bool eliminator |
 | [2026-08-13](https://github.com/wbniv/loom/commit/9a58037) | Specify the extern object encoding |
 | [2026-08-13](https://github.com/wbniv/loom/commit/cecb0b4) | Promote fix-ref-typing; re-declare corpus tier; add measure item |
@@ -19,6 +20,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+6908b1c	author	Will Norris
+6908b1c	added	1
+6908b1c	deleted	0
+6908b1c	files	1
+6908b1c	body	§2.5 required every `fix` to carry a measure but gave no way to say which\nargument it measures, so §3.1.3 checked it against the annotation's *first*\ndomain. A curried recursion whose decreasing argument is not the first —\n`foldRight : (a -> b -> b) -> b -> List a -> b` — therefore could not state\n`(ref #List.size)` at all, capping foldLeft/foldRight at the `structural` tier.\n\nThe `fix` node gains a position field: `[10, T, k, measure, body]`, where `k`\ncounts arrows along `T`'s curried spine and the measure is checked against\n`fn D_k () I64`. `k` precedes the measure because §8.1 emits in pre-order and\n§8.2's pruner needs the measure's goal type before the measure. Cost is one uint\nin one tag — no new tag, no new token class — and zero identity churn, since no\n`fix` node is stored anywhere yet.\n\nRejected: a measure over the whole argument spine (needs no node change and is\nmore expressive, but must derive its arity from `T`'s full arrow structure, which\nmakes a recursion returning a closure unprovable, and loses `(ref #List.size)` as\na directly usable measure); and internal permute-and-eta-wrap (free in mask and\nidentity, but leaves the permutation a transpiler's free choice, so the same\nsource no longer has one identity).\n\n`corpus_registry.reference_type()` hands the match layer the assumed base as its\n`ref` resolver — `DeclarationRegistry.reference_type` already existed — and\n`list/foldRight` at I64 lands as the first tranche-2 fixture at tier `checked`,\nmeasuring its third argument. The corpus limit test that pinned "recursion stops\nat structural" is replaced by one pinning the capability, plus the narrower limit\nthat remains: a measure reads one argument, so a recursion descending on two at\nonce still takes `div`.\n\nPlan: docs/plans/2026-08-13-measure-selection.md\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 6347950	author	Will Norris
 6347950	added	1
 6347950	deleted	0

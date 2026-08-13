@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [First-order `forall` instantiation](2026-08-13-forall-instantiation.md) | Implemented; PASS |
 | 2026-08-13 | [Measure selection for curried recursion](2026-08-13-measure-selection.md) | Implemented; PASS |
 | 2026-08-13 | [Definition-level polymorphism and the Bool elimination form](2026-08-13-polymorphism-and-bool-elimination.md) | Implemented; PASS |
 | 2026-08-13 | [Extern object encoding](2026-08-13-extern-object-encoding.md) | Implemented; PASS |

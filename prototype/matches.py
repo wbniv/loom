@@ -131,8 +131,17 @@ class MatchChecker:
             self.check(term[3], expected, environment, ambient, f"{path}.else")
             return
         actual = self.synth(term, environment, ambient, path)
-        if actual != expected:
-            _fail(path, f"type mismatch: expected {expected!r}, got {actual!r}")
+        if actual == expected:
+            return
+        # §3.1.3: a term that synthesizes `forall^p T` — in practice a `ref`
+        # whose resolved type is quantified — is instantiated by first-order
+        # matching of `T` against the expected type, rather than failing the
+        # plain structural comparison outright. Synthesis position (the
+        # `synth` method) never reaches here and stays uninstantiated.
+        if isinstance(actual, list) and actual and actual[0] == 6:
+            self._instantiate(actual, expected, path)
+            return
+        _fail(path, f"type mismatch: expected {expected!r}, got {actual!r}")
 
     def synth(self, term, environment: list, ambient: tuple[bytes, ...], path: str):
         tag = term[0]
@@ -250,6 +259,124 @@ class MatchChecker:
         if not isinstance(resolved, list) or not resolved:
             _fail(path, f"reference {digest.hex()} has no resolvable type")
         return copy.deepcopy(resolved)
+
+    def _instantiate(self, quantified, expected, path):
+        """§3.1.3: instantiate `forall^p T` against expected type `E` by
+        first-order matching.
+
+        Peels the leading `forall`s off `quantified`, matches the remaining
+        body against `E` to find a binding for every one of the `p` type
+        variables, then substitutes those bindings back into the body and
+        checks the result equals `E` (matching succeeded elsewhere already
+        guarantees this by construction; the check here is defense in depth,
+        not a second source of truth).
+
+        `E` may itself contain type variables — when the checking definition
+        is itself polymorphic, its own `forall`-bound `tyvar` nodes appear
+        inside `E` unsubstituted (§2.3.1: nothing in this layer ever
+        substitutes a definition's *own* type variables, they stay opaque
+        atoms). Those nodes are never inspected as binding sites here — only
+        `quantified`'s own prefix variables are — so they bind like any other
+        concrete subtree, which is exactly what makes them "concrete from the
+        callee's perspective".
+        """
+        depth, body = 0, quantified
+        while isinstance(body, list) and len(body) == 2 and body[0] == 6:
+            depth += 1
+            body = body[1]
+        bindings: list = [None] * depth
+        self._match_type(body, expected, bindings, depth, path)
+        unbound = [index for index, binding in enumerate(bindings) if binding is None]
+        if unbound:
+            _fail(path, f"type variable(s) {unbound} were never matched against the expected type")
+        instantiated = self._substitute_type(body, bindings, depth, path)
+        if instantiated != expected:
+            _fail(path, "instantiated type does not equal the expected type")
+        return instantiated
+
+    def _match_type(self, pattern, target, bindings: list, depth: int, path: str) -> None:
+        """Walk `pattern` (a quantified body) against `target` (a concrete
+        type), binding each `tyvar i` (i < depth) to the subtree of `target`
+        it stands against. Every occurrence of the same `tyvar` must bind to
+        the same subtree; anything else is a path-aware match failure.
+        """
+        if not isinstance(pattern, list) or not pattern:
+            _fail(path, f"malformed type node {pattern!r}")
+        if pattern[0] == 5 and pattern[1] < depth:
+            index = pattern[1]
+            if bindings[index] is None:
+                bindings[index] = copy.deepcopy(target)
+            elif bindings[index] != target:
+                _fail(path, f"type variable {index} matched both {bindings[index]!r} and {target!r}")
+            return
+        if not isinstance(target, list) or not target or target[0] != pattern[0]:
+            _fail(path, f"cannot match {pattern!r} against expected type {target!r}")
+        tag = pattern[0]
+        if tag == 0 or tag == 4:
+            if pattern != target:
+                _fail(path, f"{pattern!r} does not match expected type {target!r}")
+            return
+        if tag == 1:
+            if pattern[1] != target[1] or len(pattern[2]) != len(target[2]):
+                _fail(path, f"nominal type {pattern!r} does not match expected type {target!r}")
+            for index, (pattern_arg, target_arg) in enumerate(zip(pattern[2], target[2])):
+                self._match_type(pattern_arg, target_arg, bindings, depth, f"{path}.args[{index}]")
+            return
+        if tag == 2:
+            self._match_type(pattern[1], target[1], bindings, depth, f"{path}.domain")
+            # §3.1.3's rule substitutes types only; row variables are out of
+            # scope, so a row on either side must already be closed.
+            pattern_row = self._closed_row(pattern[2], f"{path}.pattern-row")
+            target_row = self._closed_row(target[2], f"{path}.target-row")
+            if pattern_row != target_row:
+                _fail(path, f"effect row {pattern_row!r} does not match expected row {target_row!r}")
+            self._match_type(pattern[3], target[3], bindings, depth, f"{path}.codomain")
+            return
+        if tag == 3:
+            self._match_type(pattern[1], target[1], bindings, depth, f"{path}.base")
+            # The predicate is a term, not a declaration-type node (§3.2); this
+            # matching layer substitutes types only, so a refinement predicate
+            # that differs cannot be reconciled here.
+            if pattern[2] != target[2]:
+                _fail(path, "refinement predicate differs and cannot be matched by first-order type instantiation")
+            return
+        if tag == 5:
+            # A pattern tyvar with index >= depth is free with respect to this
+            # instantiation (not one of `quantified`'s own p binders); scope
+            # validation of the original definition already guarantees every
+            # tyvar under a stored type's forall prefix is < depth, so this is
+            # unreachable for a legitimately checked resolver result and is
+            # handled only defensively.
+            if pattern != target:
+                _fail(path, f"free type variable {pattern!r} does not match expected type {target!r}")
+            return
+        if tag == 6:
+            _fail(path, "a stored type with a forall nested past the prenex cannot be instantiated by first-order matching")
+        _fail(path, f"unknown declaration type tag {tag!r} during instantiation")
+
+    def _substitute_type(self, pattern, bindings: list, depth: int, path: str):
+        """Rebuild `pattern` with each bound `tyvar i` (i < depth) replaced by
+        its binding. Mirrors `instantiate_type`'s tag dispatch, but over
+        term-level types (tags 0-6, §2.3) rather than declaration-field types
+        (which additionally carry tag 7 self-reference, not applicable here).
+        """
+        tag = pattern[0]
+        if tag == 5:
+            if pattern[1] < depth:
+                return copy.deepcopy(bindings[pattern[1]])
+            return copy.deepcopy(pattern)
+        if tag == 0 or tag == 4:
+            return copy.deepcopy(pattern)
+        if tag == 1:
+            return [1, pattern[1], [self._substitute_type(arg, bindings, depth, f"{path}.args[{i}]") for i, arg in enumerate(pattern[2])]]
+        if tag == 2:
+            row = [copy.deepcopy(item) if isinstance(item, bytes) else self._substitute_type(item, bindings, depth, f"{path}.row") for item in pattern[2]]
+            return [2, self._substitute_type(pattern[1], bindings, depth, f"{path}.domain"), row, self._substitute_type(pattern[3], bindings, depth, f"{path}.codomain")]
+        if tag == 3:
+            return [3, self._substitute_type(pattern[1], bindings, depth, f"{path}.base"), copy.deepcopy(pattern[2])]
+        if tag == 6:
+            _fail(path, "a stored type with a forall nested past the prenex cannot be instantiated by first-order matching")
+        _fail(path, f"unknown declaration type tag {tag!r} during instantiation")
 
     def _check_fix(self, term, expected, environment, ambient, path):
         annotation = term[1]

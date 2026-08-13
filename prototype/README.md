@@ -64,6 +64,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 | `test_fix_ref.py` | Recursive-binder, measure-shape and measure-position, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
+| `test_instantiation.py` | First-order `forall` instantiation: monomorphic and polymorphic-caller instantiation via a typed `let`, the `corpus/maybe/mapPoly`-at-`I64` proof definition, and inconsistent-binding/unbound-`tyvar`/structural-mismatch/row-variable rejection tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
@@ -99,10 +100,9 @@ pinned by a test in `test_corpus.ExpressivenessLimitTest`. All three have since
 been lifted and re-pinned as the new behaviour. Two by the
 [polymorphism and Bool-elimination plan](../docs/plans/2026-08-13-polymorphism-and-bool-elimination.md):
 a definition's term is checked at its type's `forall` depth, so
-`corpus/maybe/mapPoly` is a genuinely generic definition (what remains is that
-v0.1 cannot *instantiate* a polymorphic reference, so the `I64` instances
-stay); and `if` (term tag 12) eliminates `Bool`, so `corpus/bool/not` — the
-definition that found the limit — is now a fixture. The third by the
+`corpus/maybe/mapPoly` is a genuinely generic definition; and `if` (term tag
+12) eliminates `Bool`, so `corpus/bool/not` — the definition that found the
+limit — is now a fixture. The third by the
 [measure-selection plan](../docs/plans/2026-08-13-measure-selection.md): `fix`
 carries the position of its decreasing argument (`SPEC.md` §2.5), and
 `corpus_registry.reference_type()` gives the match layer the assumed base as
@@ -112,6 +112,19 @@ measures it with `(ref #List.size)`. What remains pinned is the narrower limit
 the new rule leaves in place: a measure reads one argument, so a recursion
 descending on two at once, where neither decreases alone, still has to take
 `div`.
+
+The instantiation gap that remained after the first lift — v0.1 could write a
+polymorphic definition but not *call* one at a concrete type — is itself now
+closed by the
+[forall-instantiation plan](../docs/plans/2026-08-13-forall-instantiation.md):
+a quantified `ref`, checked against a concrete expected type, is instantiated by
+first-order matching (SPEC.md §3.1.3). `corpus/maybe/mapPoly` called at `I64`
+through a typed `let` is the proof definition in
+`test_instantiation.InstantiationTest`. Synthesis position is unaffected — a
+quantified reference used as, say, an application's function still synthesizes
+its quantified type verbatim, so a generic definition still needs a
+monomorphic wrapper or a typed `let` at each use site; only the *elimination*
+rule for checking position was missing.
 
 ## Golden identity check
 
@@ -163,9 +176,13 @@ operation, and continuation clauses. A definition typed `forall^p` is checked
 against its quantified body, with type variables treated as opaque atoms under
 structural type equality. Synthesized lambdas are pure — latent
 effects require checking against an annotated row — and operation-less
-abilities such as `div` cannot be handled. Row polymorphism and other
-unsupported nodes raise an explicit path-aware error until their typing rules
-are implemented.
+abilities such as `div` cannot be handled. A term that is *checked* against a
+concrete expected type and synthesizes `forall^p T` — in practice a `ref` whose
+resolved type is quantified — is instantiated by first-order matching of `T`
+against the expected type (SPEC.md §3.1.3); synthesis position is untouched, so
+a quantified reference in application position still synthesizes its
+quantified type verbatim. Row polymorphism and other unsupported nodes raise an
+explicit path-aware error until their typing rules are implemented.
 
 `refinements.py` implements the `SPEC.md` §3.2.1 translation rules. It takes a
 verification condition — a de Bruijn context, Bool hypotheses, and a Bool goal,
