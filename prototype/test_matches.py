@@ -73,6 +73,19 @@ class MatchValidationTest(unittest.TestCase):
     def test_unsupported_nodes_fail_explicitly(self):
         self.assert_type_error(self.definition("I64", "(fix I64 (lit i64 0) (var 0))"), "not implemented")
 
+    def test_checked_arm_mismatch_attribution(self):
+        # A mismatch at the arm body itself is reported as an arm-result mismatch.
+        top = f"(lam {self.list_i64} (match (var 0) ((0 0 (lit bool true)) (1 2 (lit i64 1)))))"
+        with self.assertRaises(TypeDirectionError) as caught:
+            validate_source(self.definition(f"(fn {self.list_i64} () I64)", top), self.registry)
+        self.assertIn("arm result type differs", str(caught.exception))
+        # A mismatch nested deeper inside the arm keeps its own path and message.
+        nested = f"(lam {self.list_i64} (match (var 0) ((0 0 (lam I64 (lit bool true))) (1 2 (lam I64 (var 2))))))"
+        with self.assertRaises(TypeDirectionError) as caught:
+            validate_source(self.definition(f"(fn {self.list_i64} () (fn I64 () I64))", nested), self.registry)
+        self.assertNotIn("arm result type differs", str(caught.exception))
+        self.assertIn(".body.body", caught.exception.path)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

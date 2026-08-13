@@ -184,7 +184,7 @@ class DeclarationRegistry:
     def operation_signature(self, digest: bytes, operation: int) -> tuple[list, list]:
         if not isinstance(operation, int) or isinstance(operation, bool) or operation < 0:
             raise LookupError(operation)
-        obj = self.ability_object(digest)
+        obj = self._resolve(digest, 5, "ability")
         try:
             parameters, result = obj[2][operation]
         except IndexError as exc:

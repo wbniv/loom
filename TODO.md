@@ -1,10 +1,5 @@
 # TODO — loom
 
-<!-- todo-lint: disable=open-rank -->
-<!-- 2026-08-12: escape hatch for the five unranked items below, added while running
-     as Sonnet 5 (ranking is Fable-only). Re-rank on next Fable pass, then remove this
-     disable — do not let it become house convention. -->
-
 **Status markers:** `[ ]` open · `[wip]` in progress · `[verify]` implemented, verification
 not yet run+recorded (run the linked plan's steps, paste raw output + PASS/FAIL back into
 the plan, then promote) · `[x]` done (`## Done` only).
@@ -32,25 +27,25 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [ ] **Specify the namespace policy object format (SPEC.md §5.3, §6.2 gap).**
+- [T4] **Specify the namespace policy object format (SPEC.md §5.3, §6.2 gap).**
   `policy-ref` (§5.3) and "policy allows"/"policy-required properties" (§6.2) are used
   normatively but the policy object itself — what a `stats/POLICY`-style definition
   actually contains (required evidence levels per obligation kind, allowed assumption
   counts per §11, lease rules) — is never specified. Blocks any real store
   implementation, since §6.3's monotone-rebind check needs a policy to check against.
 
-- [ ] **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
+- [T3] **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
   names the target fragment (QF_UFLIRA + datatypes) but not the encoding rules from
   Loom refinement terms to SMT-LIB terms. Needed before an `A3 proof` obligation
   (§6.1) can actually be discharged by a solver rather than asserted.
 
-- [ ] **Bootstrap-corpus plan for open problem 1 (SPEC.md §13, prior starvation).**
+- [T4] **Bootstrap-corpus plan for open problem 1 (SPEC.md §13, prior starvation).**
   Concrete version of "transpile verified existing code": pick a small existing
   typed/verified corpus (candidates: a subset of Unison base, or F*/Idris examples)
   and sketch the transpilation into Loom canonical form, to seed both a training
   signal and the in-context few-shot examples §8.4 relies on for fluency.
 
-- [ ] **Add explicit confidence-bound fields to the evidence schema (SPEC.md §13, open
+- [T3] **Add explicit confidence-bound fields to the evidence schema (SPEC.md §13, open
   problem 6).** Extend the `A1 property` evidence payload (§6.1) beyond a bare run
   count to carry a stated failure-probability bound at a stated confidence, relative
   to a stated generator — makes policy thresholds (§5.3) numeric instead of positional
@@ -81,6 +76,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [effect-purity] Fixed effectful-closure escape (synthesized lambdas
+  are now pure), banned handling operation-less abilities, with regression tests. See
+  [plan](docs/plans/2026-08-13-effect-purity-soundness.md).
 - ✅ 2026-08-13 — [effect-typing] Added closed-row effect-directed checking for
   function calls, operation signatures/capabilities, and exhaustive handlers
   with typed continuations. See

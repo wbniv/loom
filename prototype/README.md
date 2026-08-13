@@ -99,9 +99,11 @@ layers are described in `SPEC.md` §§3, 6, and 8.
 `matches.validate_source` is a deliberately partial type-directed layer. It
 validates nominal constructors and exhaustive matches, closed function effect
 rows, operation signatures and capabilities, and handlers with typed return,
-operation, and continuation clauses. Row polymorphism and other unsupported
-nodes raise an explicit path-aware error until their typing rules are
-implemented.
+operation, and continuation clauses. Synthesized lambdas are pure — latent
+effects require checking against an annotated row — and operation-less
+abilities such as `div` cannot be handled. Row polymorphism and other
+unsupported nodes raise an explicit path-aware error until their typing rules
+are implemented.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:

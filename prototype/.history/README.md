@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/233b719) | Add effect-directed typing |
 | [2026-08-13](https://github.com/wbniv/loom/commit/e9944dc) | Add nominal match validation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/92bebcb) | Define builtin ability prelude |
 | [2026-08-13](https://github.com/wbniv/loom/commit/b442b6c) | Add declaration reference validation |
@@ -8,6 +9,10 @@
 | [2026-08-12](https://github.com/wbniv/loom/commit/7474944) | Prototype Loom S-expression transcoder |
 
 <!--history-meta v1
+233b719	author	Will Norris
+233b719	added	13
+233b719	deleted	11
+233b719	files	1
 e9944dc	author	Will Norris
 e9944dc	added	7
 e9944dc	deleted	0

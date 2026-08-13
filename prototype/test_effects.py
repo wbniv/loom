@@ -85,6 +85,27 @@ class EffectTypingTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeDirectionError, "not allowed"):
             checker.synth(term, [function_type], (), "test")
 
+    def test_synthesized_lambda_is_pure_and_cannot_escape_a_handler(self):
+        # Regression: an unannotated lambda performing the handled ability must
+        # not synthesize a pure type and escape through the return clause.
+        type_surface = f"(fn (cap {self.clock}) () (fn Unit () I64))"
+        handled = f"(lam Unit (perform {self.clock} 0 ()))"
+        term = f"(lam (cap {self.clock}) {self.full_clock_handler(handled)})"
+        self.assert_type_error(self.definition(type_surface, term), "not allowed by the ambient effect row")
+
+    def test_synthesized_lambda_body_ignores_ambient_allowance(self):
+        clock_bytes = prelude.HASHES["clock"]
+        checker = MatchChecker(self.registry)
+        lam = [3, [0, 0], [8, clock_bytes, 0, []]]
+        with self.assertRaisesRegex(TypeDirectionError, "not allowed"):
+            checker.synth(lam, [[4, clock_bytes]], (clock_bytes,), "test")
+
+    def test_operationless_ability_cannot_be_handled(self):
+        div = "0x" + prelude.HASH_HEX["div"]
+        type_surface = f"(fn (cap {div}) () I64)"
+        term = f"(lam (cap {div}) (handle {div} (lit i64 1) () (var 0)))"
+        self.assert_type_error(self.definition(type_surface, term), "cannot be handled")
+
     def test_row_polymorphism_fails_explicitly(self):
         checker = MatchChecker(self.registry)
         with self.assertRaisesRegex(TypeDirectionError, "row-polymorphic"):

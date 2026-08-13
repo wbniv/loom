@@ -225,7 +225,10 @@ checked against `C` with exactly `row` as its ambient effect allowance. A closed
 definition begins with no ambient effects. `perform a i args` resolves operation
 `i` in ability `a`, checks arguments against its parameter types, and has its
 declared result type. It is valid only when `a` occurs in the ambient effect row
-and a value of type `cap a` is in the term environment.
+and a value of type `cap a` is in the term environment. A lambda in synthesis
+position is pure: its body is checked with the empty ambient allowance and its
+synthesized type carries the empty row. Latent effects are expressible only by
+checking against an annotated `fn` row.
 
 Checking `handle a term ops ret` against result type `R` checks `term` with `a`
 added to the ambient allowance and obtains handled result type `T`. The return
@@ -234,7 +237,9 @@ the operation parameters in signature order, then a continuation at index 0 of
 type `fn operation-result ambient-row R`; its body checks against `R`. Clauses
 must cover every operation exactly once. The continuation's row is the outer
 ambient row, so the handler discharges `a`; handling an ability already present
-outside does not remove that outer allowance. The v0.1 prototype's
+outside does not remove that outer allowance. An ability that declares no
+operations (`div`) is an effect-row marker only and can never be the subject of
+`handle` — divergence stays visible in every caller's row (§2.5). The v0.1 prototype's
 type-directed layer requires closed rows—row-polymorphic effect checking remains
 future work.
 

@@ -119,8 +119,11 @@ class MatchChecker:
             kinds = {0: [0, 0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0, 4], 5: [0, 5]}
             return kinds[term[1]]
         if tag == 3:
+            # A synthesized lambda is pure: its type carries the empty row, so
+            # its body must not lean on the ambient allowance at the synthesis
+            # site — latent effects require checking against an annotated row.
             parameter_type = term[1]
-            body_type = self.synth(term[2], [parameter_type, *environment], ambient, f"{path}.body")
+            body_type = self.synth(term[2], [parameter_type, *environment], (), f"{path}.body")
             return [2, copy.deepcopy(parameter_type), [], body_type]
         if tag == 4:
             function_type = self.synth(term[1], environment, ambient, f"{path}.function")
@@ -182,7 +185,7 @@ class MatchChecker:
                 try:
                     self.check(arm[2], expected, arm_environment, ambient, f"{arm_path}.body")
                 except TypeDirectionError as exc:
-                    if exc.message.startswith("type mismatch:"):
+                    if exc.path == f"{arm_path}.body" and exc.message.startswith("type mismatch:"):
                         _fail(arm_path, f"arm result type differs from expected type: {exc.message}")
                     raise
             else:
@@ -205,6 +208,8 @@ class MatchChecker:
             ability = self.registry.ability_object(term[1])
         except DeclarationError as exc:
             _fail(path, str(exc))
+        if not ability[2]:
+            _fail(path, "an ability with no operations is an effect marker and cannot be handled")
         handled_ambient = tuple(sorted(set([*ambient, term[1]])))
         handled_type = self.synth(term[2], environment, handled_ambient, f"{path}.handled")
         self.check(term[4], expected, [handled_type, *environment], ambient, f"{path}.return")
