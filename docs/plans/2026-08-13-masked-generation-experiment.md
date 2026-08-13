@@ -148,16 +148,34 @@ Phase A:
   held-out compositional tasks; conditions 1–3 runnable with one command
   under the shared token-budget rule.
 - [x] Model/hardware selection recorded before running. **Recorded
-  2026‑08‑13, operator-approved:** model
-  `Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M`
-  ([Qwen/Qwen2.5-Coder-7B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF),
-  HF `main` as of 2026‑08‑13); backend `llama-cli` built from
+  2026‑08‑13, operator-approved; amended same day after two findings.**
+  Final selection: `Qwen2.5-Coder-3B-Instruct GGUF Q4_K_M` (falling back to
+  the 1.5B variant if measured eval throughput is under ~8 tok/s), served by
+  `llama-server` (`-c 16384 --parallel 1 -ctk q8_0 -ctv q8_0`) built from
   [`ggml-org/llama.cpp@1f368f3`](https://github.com/ggml-org/llama.cpp/commit/1f368f354d9edcfea9fd6a1e0989b3e7335a050f)
-  (the repo's already-pinned revision) at `~/loom-tools/llama.cpp`; hardware
-  Intel i7‑1185G7 (4c/8t, AVX‑512), 32 GB RAM, CPU-only; token budget 512 per
-  task, temperature 0.8, seeds {1,2,3}. Machine-local paths live in the
-  untracked `experiment/phase_a.local.json`; a 21-cell smoke slice
+  at `~/loom-tools/llama.cpp`; hardware Intel i7‑1185G7 (4c/8t, AVX‑512),
+  32 GB RAM, CPU-only; token budget 512 per task, temperature 0.8, seeds
+  {1,2,3}. Machine-local paths live in the untracked
+  `experiment/phase_a.local.json`; a 21-cell smoke slice
   (`phase_a.smoke.json`) runs before the full 774-cell matrix.
+
+  **Amendment record (history kept, not erased):**
+  - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified
+    against HF: sha256 `509287f7…`), is not viable on this hardware: the
+    server's default 131k-context/4-slot KV allocation was OOM-killed by the
+    kernel (10.5 GB anon-rss), and the measured eval rate under memory
+    pressure was 0.10 tok/s — mmap thrash, not compute. The 7B GGUF is kept
+    on disk for a future GPU host. This build's `llama-cli` also exits
+    silently without generating (`-no-cnv` path), so the backend is
+    `llama-server` regardless of model.
+  - Kimi K3 (2.8T MoE, open weights 2026‑07‑27) was evaluated at the
+    operator's request: hosted APIs expose JSON-schema constraints only — no
+    GBNF — so conditions 2–3 cannot run hosted, and self-serving needs
+    multi-node H100/B200 under vLLM+XGrammar. Operator decision: drop K3 for
+    this experiment, keep the original single-local-model design. A future
+    frontier-scale arm (vLLM+XGrammar, which could even host Phase B's masker
+    via custom logits processors) is noted as an option the store/language
+    decisions do not depend on.
 - [ ] Run Phase A; report R3 metrics per condition × regime; produce the
   failure distribution by checker layer.
 

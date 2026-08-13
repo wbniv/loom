@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/eac350c) | Record experiment model/hardware selection; promote the T5 |
 | [2026-08-13](https://github.com/wbniv/loom/commit/c2fbc79) | Amend experiment plan: phases, resample baseline, budget rule, predictions |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3a4df4) | Triage the auto-captured experiment-plan deferral |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+eac350c	author	Will Norris
+eac350c	added	11
+eac350c	deleted	3
+eac350c	files	1
+eac350c	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 c2fbc79	author	Will Norris
 c2fbc79	added	73
 c2fbc79	deleted	13
