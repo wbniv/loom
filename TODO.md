@@ -35,12 +35,6 @@ Check conformance with `task todo:lint`.
   comparison against rejection sampling. (T4: the genuinely new design; do not
   dispatch before Phase A reports.)
 
-- [T5] **Select the experiment's model and hardware.** Needs the operator: a local
-  GGUF under llama.cpp is the natural path (`loom.gbnf` is llama.cpp-format) —
-  which model, what hardware, what total token budget per task. Record in the
-  experiment plan before running; gates the Phase A run. (T5: needs a human and
-  hardware.)
-
 - [T4] **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
   changes and all seven validation contracts are now versioned (contracts.py 1.0).
@@ -77,6 +71,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [experiment-model] Selected Qwen2.5-Coder-7B Q4_K_M under
+  llama-cli @ pinned llama.cpp on CPU-only i7-1185G7; recorded in the plan.
+  See [plan](docs/plans/2026-08-13-masked-generation-experiment.md).
 - ✅ 2026-08-13 — [refinement-subsumption] Typing subsumes refine types via emitted
   VCs behind an opt-in sink; three fixtures re-tiered checked; typecheck 1.1.
   See [plan](docs/plans/2026-08-13-refinement-subsumption.md).

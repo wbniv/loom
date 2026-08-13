@@ -147,9 +147,17 @@ Phase A:
 - [ ] Harness: prompt construction per corpus regime; task set including
   held-out compositional tasks; conditions 1–3 runnable with one command
   under the shared token-budget rule.
-- [ ] Model/hardware selection recorded before running (T5 — needs the
-  operator: local GGUF under llama.cpp is the natural path since `loom.gbnf`
-  is llama.cpp-format).
+- [x] Model/hardware selection recorded before running. **Recorded
+  2026‑08‑13, operator-approved:** model
+  `Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M`
+  ([Qwen/Qwen2.5-Coder-7B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF),
+  HF `main` as of 2026‑08‑13); backend `llama-cli` built from
+  [`ggml-org/llama.cpp@1f368f3`](https://github.com/ggml-org/llama.cpp/commit/1f368f354d9edcfea9fd6a1e0989b3e7335a050f)
+  (the repo's already-pinned revision) at `~/loom-tools/llama.cpp`; hardware
+  Intel i7‑1185G7 (4c/8t, AVX‑512), 32 GB RAM, CPU-only; token budget 512 per
+  task, temperature 0.8, seeds {1,2,3}. Machine-local paths live in the
+  untracked `experiment/phase_a.local.json`; a 21-cell smoke slice
+  (`phase_a.smoke.json`) runs before the full 774-cell matrix.
 - [ ] Run Phase A; report R3 metrics per condition × regime; produce the
   failure distribution by checker layer.
 
