@@ -10,14 +10,17 @@ from scope import ScopeError
 
 I64 = [0, 2]
 BOOL = [0, 1]
+DATA_KEY = b"d" * 32
+LIST_KEY = b"l" * 32
+ABILITY_KEY = b"a" * 32
 
 
 class ReferenceValidationTest(unittest.TestCase):
     def setUp(self):
         # Option a = None | Some a | Pair a a (recursive self is exercised by List).
-        self.option = [4, 1, [[], [[5, 0]], [[5, 0], [5, 0]]]]
-        self.list_decl = [4, 1, [[], [[5, 0], [7, [[5, 0]]]]]]
-        self.ability = [5, [[[], I64], [[I64, BOOL], I64]]]
+        self.option = [4, DATA_KEY, 1, [[], [[5, 0]], [[5, 0], [5, 0]]]]
+        self.list_decl = [4, LIST_KEY, 1, [[], [[5, 0], [7, [[5, 0]]]]]]
+        self.ability = [5, ABILITY_KEY, [[[], I64], [[I64, BOOL], I64]]]
         self.registry = DeclarationRegistry([self.option, self.list_decl, self.ability])
         self.option_hash = declaration_hash(self.option)
         self.list_hash = declaration_hash(self.list_decl)
@@ -44,17 +47,17 @@ class ReferenceValidationTest(unittest.TestCase):
             DeclarationRegistry().add(self.option, b"x" * 32)
 
     def test_registry_snapshot_is_immune_to_caller_mutation(self):
-        declaration = [4, 0, [[]]]
+        declaration = [4, DATA_KEY, 0, [[]]]
         registry = DeclarationRegistry([declaration])
         digest = declaration_hash(declaration)
-        declaration[2].append([I64])
+        declaration[3].append([I64])
         self.assertEqual(registry.data(digest).field_counts, (0,))
 
     def test_declaration_rejects_bad_self_arity_and_ability_self(self):
         with self.assertRaisesRegex(DeclarationError, "self expects 1"):
-            declaration_hash([4, 1, [[ [7, []] ]]])
+            declaration_hash([4, DATA_KEY, 1, [[[7, []]]]])
         with self.assertRaisesRegex(DeclarationError, "self type is forbidden"):
-            declaration_hash([5, [[[ [7, []] ], I64]]])
+            declaration_hash([5, ABILITY_KEY, [[[[7, []]], I64]]])
 
     def test_data_type_parameter_arity_and_wrong_kind(self):
         option = self.h(self.option_hash)

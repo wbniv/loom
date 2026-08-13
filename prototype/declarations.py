@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import copy
+import hashlib
 from dataclasses import dataclass
 
 import cbor_canonical
@@ -29,6 +29,12 @@ def _array(value, path: str, arity: int | None = None) -> list:
 def _uint(value, path: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         _error(path, "expected a nonnegative integer")
+    return value
+
+
+def _nominal_key(value, path: str) -> bytes:
+    if not isinstance(value, bytes) or len(value) != 32:
+        _error(path, "expected a 32-byte nominal key")
     return value
 
 
@@ -96,20 +102,22 @@ def check_declaration_type(ir, type_depth: int, self_arity: int | None, path: st
 
 
 def check_data_declaration(obj) -> None:
-    node = _array(obj, "data", 3)
+    node = _array(obj, "data", 4)
     if node[0] != 4:
         _error("data", "expected object-kind tag 4")
-    parameter_count = _uint(node[1], "data.parameter-count")
-    for ctor_index, constructor in enumerate(_array(node[2], "data.constructors")):
+    _nominal_key(node[1], "data.nominal-key")
+    parameter_count = _uint(node[2], "data.parameter-count")
+    for ctor_index, constructor in enumerate(_array(node[3], "data.constructors")):
         for field_index, field_type in enumerate(_array(constructor, f"data.constructors[{ctor_index}]")):
             check_declaration_type(field_type, parameter_count, parameter_count, f"data.constructors[{ctor_index}].fields[{field_index}]")
 
 
 def check_ability_declaration(obj) -> None:
-    node = _array(obj, "ability", 2)
+    node = _array(obj, "ability", 3)
     if node[0] != 5:
         _error("ability", "expected object-kind tag 5")
-    for op_index, operation in enumerate(_array(node[1], "ability.operations")):
+    _nominal_key(node[1], "ability.nominal-key")
+    for op_index, operation in enumerate(_array(node[2], "ability.operations")):
         op = _array(operation, f"ability.operations[{op_index}]", 2)
         for parameter_index, parameter_type in enumerate(_array(op[0], f"ability.operations[{op_index}].parameters")):
             check_declaration_type(parameter_type, 0, None, f"ability.operations[{op_index}].parameters[{parameter_index}]")
@@ -159,11 +167,11 @@ class DeclarationRegistry:
 
     def data(self, digest: bytes) -> DataInfo:
         obj = self._resolve(digest, 4, "data")
-        return DataInfo(obj[1], tuple(len(fields) for fields in obj[2]))
+        return DataInfo(obj[2], tuple(len(fields) for fields in obj[3]))
 
     def ability(self, digest: bytes) -> AbilityInfo:
         obj = self._resolve(digest, 5, "ability")
-        return AbilityInfo(tuple(len(operation[0]) for operation in obj[1]))
+        return AbilityInfo(tuple(len(operation[0]) for operation in obj[2]))
 
     def operation_arity(self, digest: bytes, operation: int) -> int:
         info = self.ability(digest)

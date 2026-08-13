@@ -39,11 +39,6 @@ Check conformance with `task todo:lint`.
   counts per §11, lease rules) — is never specified. Blocks any real store
   implementation, since §6.3's monotone-rebind check needs a policy to check against.
 
-- [ ] **Define builtin ability signatures — a reference prelude (SPEC.md §2.4 gap).**
-  `clock`, `rand`, `fsRead`, `fsWrite`, `net`, `spawn`, `div`, `ffi` are named as
-  well-known hashes but no operation signature is given for any of them. Needed before
-  §8's generation loop or §11's FFI boundary can be exercised even hypothetically.
-
 - [ ] **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
   names the target fragment (QF_UFLIRA + datatypes) but not the encoding rules from
   Loom refinement terms to SMT-LIB terms. Needed before an `A3 proof` obligation
@@ -86,6 +81,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [builtin-prelude] Pinned eight nominal builtin ability
+  declarations, operation ABIs, hashes, and a preloaded verified registry. See
+  [plan](docs/plans/2026-08-13-builtin-ability-prelude.md).
 - ✅ 2026-08-13 — [declaration-objects] Added hashed data/ability declarations,
   recursive self types, a verified registry, and nominal bounds/arity checks. See
   [plan](docs/plans/2026-08-13-declaration-objects-reference-validation.md).

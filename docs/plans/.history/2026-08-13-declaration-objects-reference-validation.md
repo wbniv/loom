@@ -1,15 +1,10 @@
 | Date | Change |
 |------|--------|
 | [2026-08-13](https://github.com/wbniv/loom/commit/b442b6c) | Add declaration reference validation |
-| [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
 b442b6c	author	Will Norris
-b442b6c	added	1
+b442b6c	added	87
 b442b6c	deleted	0
 b442b6c	files	1
-e22627a	author	Will Norris
-e22627a	added	6
-e22627a	deleted	0
-e22627a	files	1
 -->

@@ -47,12 +47,14 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `scope.py` | Checks term/type de Bruijn indices with path-aware errors; handler checks use an injected ability-operation arity resolver. |
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
+| `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
 | `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
 | `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
 | `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
+| `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
 
 The example fixtures are:
 

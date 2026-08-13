@@ -120,9 +120,53 @@ does not have dependent function arrows.
 
 Abilities (effect interfaces, in the sense of
 [Unison's abilities](https://www.unison-lang.org/docs/fundamentals/abilities/))
-are store definitions: an ability declares a list of operation signatures.
-Builtin abilities ship as well-known hashes: `clock`, `rand`, `fsRead`,
-`fsWrite`, `net`, `spawn`, `div` (§2.5), `ffi` (§11).
+are declaration objects (§5.1.2). The v0.1 reference prelude contains these
+canonical abilities; the listed order is the numeric operation index:
+
+| Ability | Operations |
+|---|---|
+| `clock` | `0 wallMillis : () → I64`; `1 sleepMillis : I64 → Unit` |
+| `rand` | `0 bytes : I64 → Bytes`; `1 i64 : () → I64` |
+| `fsRead` | `0 read : Text → Bytes` |
+| `fsWrite` | `0 write : (Text, Bytes) → Bytes` |
+| `net` | `0 request : Bytes → Bytes` |
+| `spawn` | `0 run : (Text, Bytes) → Bytes` |
+| `div` | no operations; effect-row marker only (§2.5) |
+| `ffi` | `0 call : (Text, Bytes) → Bytes` (§11) |
+
+| Ability | Normative SHA-256 identity |
+|---|---|
+| `clock` | `e6eb1adefeb5a68998deb5f6840f95be2bd5540650fda7b31e79e7440ba2a51d` |
+| `rand` | `0bd4b691815a14f9cc0cc96d38eb3a7d7e718b01ef0ef4dc6172b1e9f66d2475` |
+| `fsRead` | `98e9d59d0eee7d7cdddf1f06b690d2dbcd0dd79e3dde97cf3e119281962e6772` |
+| `fsWrite` | `078fa6902f2133ad6cf9c1c18835aad6ebd875006e99c184f4fe703194c73050` |
+| `net` | `0a87ba35788ecab52716934cc1b3ae9c8a943ad543066d7e74af665f516cc65f` |
+| `spawn` | `9f647c04e8191162b08c6575d0fd115d2823f4487a7fa76dd6551b8d3b0d1451` |
+| `div` | `74d0a12b01b77d554d53344d6ef0565cbb622c3d1becd95560f8482ccf8ce269` |
+| `ffi` | `a87de5c170b63c3e59d998253246b68e69da1070b785cd129783753e252c76fd` |
+
+`wallMillis` returns signed Unix-epoch milliseconds. `sleepMillis n` returns
+immediately when `n ≤ 0`. `rand.bytes n` returns exactly `max(n, 0)` bytes. The
+remaining `Bytes` results are canonical runtime ABI envelopes. At the decoded
+CBOR level the envelope is `[status, payload]`: success uses status `0` and a
+byte-string payload; failure uses status `1` and an NFC-normalized diagnostic
+text payload. `fsRead` succeeds with the file bytes; `fsWrite` succeeds with
+empty bytes. `net.request` accepts canonical CBOR
+`[method-text, url-text, [[header-text, value-text]], body-bytes]` and its success
+payload is canonical CBOR `[status-i64, [[header-text, value-text]], body-bytes]`.
+`spawn.run` takes an executable name plus canonical CBOR
+`[[argument-text], [[env-name-text, env-value-text]], stdin-bytes]`; its success
+payload is canonical CBOR `[exit-i64, stdout-bytes, stderr-bytes]`. `ffi.call`'s
+text selects a registered adapter and its request/success payload bytes are the
+canonical CBOR ABI declared by that adapter's mandatory extern metadata (§11).
+This byte protocol keeps the core prelude usable before standard
+`Result`, filesystem, network, process, and foreign-value data types exist.
+Runtimes must reject noncanonical request envelopes with a failure envelope,
+never trap the Loom evaluator.
+
+The declarations producing these identities are executable in the reference
+implementation (`prototype/prelude.py`); changing a nominal key or signature is
+an ABI and identity change requiring a new language version.
 
 A **capability** is a runtime value of type `cap a`, introduced only by the
 runtime at a program entry point, never constructible in the language.
@@ -277,8 +321,9 @@ collected in v0.1 — history is the feature (P4), and definitions are small.
 
 #### 5.1.1 Data declarations
 
-A data declaration object is `[4, p, [constructors]]`, where `p` is its type
-parameter count and each constructor is `[field-types]`. Constructor and field
+A data declaration object is `[4, nominal-key, p, [constructors]]`, where
+`nominal-key` is a 32-byte declaration seed, `p` is its type parameter count,
+and each constructor is `[field-types]`. Constructor and field
 names are metadata; array order defines the constructor index and field binder
 order used by `con` and `match` (§2.1, §2.3.1).
 
@@ -292,8 +337,8 @@ ordinary `data = [1, hash, [type-arguments]]`.
 
 #### 5.1.2 Ability declarations
 
-An ability declaration object is `[5, [operations]]`, where each operation is
-`[[parameter-types], result-type]`. Operation and parameter names are metadata;
+An ability declaration object is `[5, nominal-key, [operations]]`, where each
+operation is `[[parameter-types], result-type]`. Operation and parameter names are metadata;
 array order defines the operation index used by `perform` and `handle`.
 Abilities are monomorphic in v0.1 because `cap` and effect rows carry an ability
 hash without type arguments. Consequently, ability signature types are checked
@@ -306,6 +351,13 @@ indices, and constructor/operation argument-count mismatches. A `match` node
 does not carry a data hash, so checking its constructor indices and
 `binder-count` values requires the typechecker to infer the scrutinee's data
 type; declaration lookup alone cannot perform that check.
+
+The nominal key distinguishes declarations with identical structure: without
+it, for example, equally shaped `spawn` and `ffi` abilities would share a hash
+and their capabilities would be interchangeable. It is semantic identity, not
+a display name. User/tool-created declarations generate a fresh 32-byte key;
+the reference prelude derives reproducible keys as
+`SHA-256("loom:v0.1:builtin:" || builtin-name)`.
 
 ### 5.2 Meta objects
 

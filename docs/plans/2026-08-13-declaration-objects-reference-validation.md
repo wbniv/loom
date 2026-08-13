@@ -12,9 +12,9 @@ kind, index bounds, argument arity, and handler clause arity.
 
 ## Canonical schema
 
-- Object kind `4`: data declaration `[4, parameter-count, constructors]`, where
+- Object kind `4`: data declaration `[4, nominal-key, parameter-count, constructors]`, where
   each constructor is an array of field types.
-- Object kind `5`: ability declaration `[5, operations]`, where each operation
+- Object kind `5`: ability declaration `[5, nominal-key, operations]`, where each operation
   is `[parameter-types, result-type]`.
 - Constructor and operation names remain metadata. Their array positions are
   the canonical indices used by terms.
