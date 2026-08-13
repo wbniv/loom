@@ -35,14 +35,6 @@ Check conformance with `task todo:lint`.
   See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T2: repetition of a landed
   pattern against a written tranche list; `foldLeft` exercises the accumulator case.)
 
-- [wip T2] <!-- agent:afe53910e38bb6eea --> **State the callback-extern consequence normatively (§5.1.3).** The per-arrow
-  capability rule makes an extern that invokes an effectful callback unwritable
-  without a direct cap parameter — correct blast-radius behavior that exists only as
-  emergent checker behavior. Add the §5.1.3 sentence plus the accepted
-  callback-with-direct-cap / rejected callback-only test pair. See
-  [meta-review](docs/reviews/2026-08-13-remediation-meta-review.md). (T2: one
-  normative sentence and two tests, but the sentence must be precise.)
-
 - [T3] **Build corpus tranche 3: the effectful slice.** Unison ability code against
   §2.4's eight builtins, closed rows only, exercising `perform`, `handle`, and `cap`
   at tier `checked` — the tranche where the Unison-over-F* corpus choice pays off.
@@ -77,6 +69,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [callback-extern] Stated the callback-extern consequence in §5.1.3
+  with the accepted/rejected test pair pinning the per-arrow rule's reach.
+  See [plan](docs/plans/2026-08-13-callback-extern-consequence.md).
 - ✅ 2026-08-13 — [claude-review-remediation] Hardened extern capability order,
   reconciled monomorphic ABIs with forall instantiation, added validated
   definition-type resolution and provenance enforcement, and renamed the
