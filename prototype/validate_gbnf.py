@@ -22,6 +22,8 @@ EXTRA_VALID = [
     f"(def (forall (fn (tyvar 0) ({HASH} (tyvar 1)) (tyvar 0))) (hole (forall (fn (tyvar 0) ({HASH} (tyvar 1)) (tyvar 0))) ()))",
     f"(def I64 (handle {HASH} (perform {HASH} 0 ()) ((0 (var 0))) (var 0)))",
     "(def I64 (fix (fn I64 () I64) (lam I64 (var 0)) (lam I64 (var 0))))",
+    "(def (fn Bool () Bool) (lam Bool (if (var 0) (lit bool false) (lit bool true))))",
+    "(def I64 (if (if (lit bool true) (lit bool false) (var 0)) (lit i64 1) (lit i64 0)))",
 ]
 
 INVALID = [
@@ -36,6 +38,9 @@ INVALID = [
     "(def Bytes (lit bytes 0x0))",
     f"(def I64 (ref {'0x' + 'AA' * 32}))",
     "(def Unit\n(lit unit))",
+    "(def I64 (if (lit bool true) (lit i64 1)))",
+    "(def I64 (if (lit bool true) (lit i64 1) (lit i64 0) (lit i64 2)))",
+    "(def I64 (if (lit bool true) then (lit i64 1) else (lit i64 0)))",
 ]
 
 

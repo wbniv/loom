@@ -37,7 +37,7 @@ INTERPRETED_SYMBOLS = (
     "abs", "and", "distinct", "div", "ite", "mod", "not", "or",
 )
 
-TERM_FRAGMENT_TAGS = (0, 1, 2, 4, 5, 6, 7)
+TERM_FRAGMENT_TAGS = (0, 1, 2, 4, 5, 6, 7, 12)
 
 
 @dataclass(frozen=True)
@@ -180,6 +180,8 @@ class ObligationTranslator:
             return self._constructor(ir, environment, path)
         if tag == 7:
             return self._match(ir, environment, path)
+        if tag == 12:
+            return self._if(ir, environment, path)
         names = {3: "lam", 8: "perform", 9: "handle", 10: "fix", 11: "hole"}
         if tag in names:
             _fail(path, f"`{names[tag]}` is outside the decidable refinement fragment")
@@ -306,6 +308,16 @@ class ObligationTranslator:
         symbol = self._fresh()
         body = self.term(ir[3], [(symbol, sort), *environment], f"{path}.body")
         return Value(f"(let (({symbol} {bound.text})) {body.text})", body.sort)
+
+    def _if(self, ir, environment, path: str) -> Value:
+        condition = self.term(ir[1], environment, f"{path}.condition")
+        if condition.sort != SORT_BOOL:
+            _fail(f"{path}.condition", f"expected sort {SORT_BOOL}, got {condition.sort}")
+        consequent = self.term(ir[2], environment, f"{path}.then")
+        alternative = self.term(ir[3], environment, f"{path}.else")
+        if consequent.sort != alternative.sort:
+            _fail(f"{path}.else", f"expected sort {consequent.sort}, got {alternative.sort}")
+        return Value(_form("ite", [condition.text, consequent.text, alternative.text]), consequent.sort)
 
     def _constructor(self, ir, environment, path: str) -> Value:
         try:

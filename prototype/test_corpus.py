@@ -1,10 +1,11 @@
 """Tests for the bootstrap corpus seed set and its recorded expressiveness limits.
 
-The second half of this file is deliberately a set of *negative* tests. The
-bootstrap plan's tranche ordering rests on three claims about what Loom v0.1 can
-express; each is asserted here so that a later change to the calculus that lifts
-a limit fails loudly and the plan gets revisited, rather than the limit quietly
-outliving the reason for it.
+The second half of this file pins what Loom v0.1 can and cannot express, so that
+a change to the calculus fails loudly here and the bootstrap plan gets revisited
+rather than a limit quietly outliving the reason for it. Two of the original
+three limits were lifted by the polymorphism-and-Bool-elimination plan and are
+re-pinned as the *new* behaviour plus its residue; the limit tests document
+reality, and reality changed.
 """
 
 from __future__ import annotations
@@ -133,17 +134,17 @@ class CorpusFixtureTest(unittest.TestCase):
 
 
 class ExpressivenessLimitTest(unittest.TestCase):
-    """Limits the tranche ordering depends on. Each failure means revisit the plan."""
+    """What the tranche ordering depends on. Each failure means revisit the plan."""
 
     def setUp(self):
         self.registry = corpus_registry.registry()
         self.maybe = corpus_registry.HASHES["Maybe"]
         self.list = corpus_registry.HASHES["List"]
 
-    def test_a_polymorphic_definition_is_unwritable(self):
-        # `forall` binds only inside the type (§2.3.1), and there is no
-        # term-level type abstraction, so a `lam` annotation can never name the
-        # bound type variable. This is why the whole seed set is monomorphic.
+    def test_a_polymorphic_definition_is_written_at_its_forall_depth(self):
+        # Lifted limit (§3.1.3): a definition typed `forall^p` is the type
+        # abstraction itself, so its term is checked at type depth p and a `lam`
+        # annotation may name the bound variable. Was `..._is_unwritable`.
         maybe_a = [1, self.maybe, [[5, 0]]]
         list_a = [1, self.list, [[5, 0]]]
         polymorphic_head = [
@@ -152,20 +153,37 @@ class ExpressivenessLimitTest(unittest.TestCase):
             [3, list_a, [7, [0, 0], [[0, 0, [6, self.maybe, 0, []]],
                                      [1, 2, [6, self.maybe, 1, [[0, 1]]]]]]],
         ]
-        parse_source(def_to_surface(polymorphic_head))  # the surface is well-formed
-        with self.assertRaises(scope.ScopeError) as caught:
-            scope.check_definition(polymorphic_head, self.registry.operation_arity)
-        self.assertIn("type index 0 is out of scope at depth 0", str(caught.exception))
+        source = def_to_surface(polymorphic_head)
+        self.assertEqual(parse_source(source), polymorphic_head)
+        scope.check_definition(polymorphic_head, self.registry.operation_arity)
+        matches.validate_source(source, self.registry)
 
-    def test_bool_has_no_elimination_form(self):
-        # §3.1.1 requires a match scrutinee to synthesize a nominal data type,
-        # and Bool is a base type (§2.2). There is no conditional, so every
-        # branch-on-Bool function is out of tranche 1.
-        branch_on_bool = [0, [2, BOOL, [], I64],
-                          [3, BOOL, [7, [0, 0], [[0, 0, [2, 2, 1]], [1, 0, [2, 2, 0]]]]]]
-        scope.check_definition(branch_on_bool, self.registry.operation_arity)
+    def test_the_forall_prefix_bounds_type_variables_and_must_be_prenex(self):
+        # The residue of the lifted limit. Depth p is exactly the prefix length,
+        # and the prefix must be prenex for p to be well defined at all.
+        beyond_prefix = [0, [6, [2, [5, 0], [], [5, 0]]], [3, [5, 1], [0, 0]]]
+        with self.assertRaises(scope.ScopeError) as caught:
+            scope.check_definition(beyond_prefix, self.registry.operation_arity)
+        self.assertIn("type index 1 is out of scope at depth 1", str(caught.exception))
+
+        rank_two = [0, [2, I64, [], [6, [2, [5, 0], [], [5, 0]]]], [3, I64, [11, I64, []]]]
+        with self.assertRaises(scope.ScopeError) as caught:
+            scope.check_definition(rank_two, self.registry.operation_arity)
+        self.assertIn("must be prenex", str(caught.exception))
+
+    def test_bool_is_eliminated_by_if_and_is_still_not_nominal(self):
+        # Lifted limit (§3.1.4): `if` is the elimination form for Bool. Bool did
+        # not become nominal, so `match` on a Bool scrutinee still fails exactly
+        # as before. Was `test_bool_has_no_elimination_form`.
+        branch_with_if = [0, [2, BOOL, [], I64],
+                          [3, BOOL, [12, [0, 0], [2, 2, 1], [2, 2, 0]]]]
+        matches.validate_source(def_to_surface(branch_with_if), self.registry)
+
+        match_on_bool = [0, [2, BOOL, [], I64],
+                         [3, BOOL, [7, [0, 0], [[0, 0, [2, 2, 1]], [1, 0, [2, 2, 0]]]]]]
+        scope.check_definition(match_on_bool, self.registry.operation_arity)
         with self.assertRaises(matches.TypeDirectionError) as caught:
-            matches.validate_source(def_to_surface(branch_on_bool), self.registry)
+            matches.validate_source(def_to_surface(match_on_bool), self.registry)
         self.assertIn("match scrutinee does not synthesize a nominal data type", str(caught.exception))
 
     def test_recursion_and_stored_references_stop_at_the_structural_tier(self):

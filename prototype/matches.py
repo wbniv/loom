@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from declarations import DeclarationError, DeclarationRegistry
 from references import check_definition_references
-from scope import check_definition
+from scope import check_definition, forall_prefix
 from transcode import parse_source
 
 #: Resolves a stored definition hash to the definition's Loom type. The match
@@ -19,6 +19,8 @@ ReferenceTypeResolver = Callable[[bytes], list]
 #: §2.5 measures map the recursive argument to a number. v0.1 has no natural
 #: base type, so the prototype checks a measure against `fn D () I64`.
 MEASURE_RESULT = [0, 2]
+
+BOOL = [0, 1]
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,11 @@ class MatchChecker:
     def check_definition(self, ir) -> None:
         check_definition(ir, self.registry.operation_arity)
         check_definition_references(ir, self.registry)
-        self.check(ir[2], ir[1], [], (), "definition.term")
+        # §3.1.3: a `forall^p` definition type is the type abstraction itself, so
+        # the term is checked against the quantified body. Type variables stay
+        # opaque atoms under structural type equality, which is parametricity.
+        _, quantified = forall_prefix(ir[1])
+        self.check(ir[2], quantified, [], (), "definition.term")
 
     def check(self, term, expected, environment: list, ambient: tuple[bytes, ...], path: str) -> None:
         tag = term[0]
@@ -117,6 +123,11 @@ class MatchChecker:
             return
         if tag == 10:
             self._check_fix(term, expected, environment, ambient, path)
+            return
+        if tag == 12:
+            self.check(term[1], BOOL, environment, ambient, f"{path}.condition")
+            self.check(term[2], expected, environment, ambient, f"{path}.then")
+            self.check(term[3], expected, environment, ambient, f"{path}.else")
             return
         actual = self.synth(term, environment, ambient, path)
         if actual != expected:
@@ -179,6 +190,13 @@ class MatchChecker:
             return self._check_fix(term, None, environment, ambient, path)
         if tag == 11:
             return copy.deepcopy(term[1])
+        if tag == 12:
+            self.check(term[1], BOOL, environment, ambient, f"{path}.condition")
+            consequent = self.synth(term[2], environment, ambient, f"{path}.then")
+            alternative = self.synth(term[3], environment, ambient, f"{path}.else")
+            if consequent != alternative:
+                _fail(path, f"branch type {alternative!r} differs from {consequent!r}")
+            return consequent
         _fail(path, f"type synthesis for term tag {tag} is not implemented in the nominal match layer")
 
     def _check_match(self, term, environment, ambient, path, expected):

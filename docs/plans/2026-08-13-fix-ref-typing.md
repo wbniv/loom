@@ -19,7 +19,7 @@ complete typechecker, and it deliberately discharges no termination evidence.
 
 ## Rules
 
-Stated normatively in `SPEC.md` §3.1.3; restated here as the implementation
+Stated normatively in `SPEC.md` §3.1.5; restated here as the implementation
 contract.
 
 ### `fix T measure body` (tag 10)
@@ -81,7 +81,7 @@ contract.
   its measure.** Rule 3 fixes the measure's domain to `T`'s domain, so
   `foldRight : (a → b → b) → b → List a → b` cannot use `(ref #List.size)`.
   That is a §2.5 gap — the spec gives no way to name a non-initial argument as
-  the decreasing one — not a checker limitation, and it is recorded in §3.1.3
+  the decreasing one — not a checker limitation, and it is recorded in §3.1.5
   rather than papered over. `list/size`, `list/append`, `list/reverse`, and
   `list/map` are unaffected.
 - Mutual recursion remains out of scope: `fix` binds one value (corpus plan
@@ -91,7 +91,7 @@ contract.
 
 ## Work
 
-- [x] Add `SPEC.md` §3.1.3 stating both rules and the non-discharge of
+- [x] Add `SPEC.md` §3.1.5 stating both rules and the non-discharge of
       `terminates`.
 - [x] Thread a `reference_type` resolver through `MatchChecker` and
       `matches.validate_source`.

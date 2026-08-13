@@ -126,6 +126,11 @@ def check_term_references(ir, registry: DeclarationRegistry, path: str = "term")
         for index, constraint in enumerate(ir[2]):
             check_term_references(constraint, registry, f"{path}.constraints[{index}]")
         return
+    if tag == 12:
+        check_term_references(ir[1], registry, f"{path}.condition")
+        check_term_references(ir[2], registry, f"{path}.then")
+        check_term_references(ir[3], registry, f"{path}.else")
+        return
     _fail(path, f"unknown term tag {tag!r}")
 
 

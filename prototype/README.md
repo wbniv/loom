@@ -67,7 +67,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
-| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the three recorded expressiveness limits. |
+| `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the recorded expressiveness limits (two of them re-pinned as lifted). |
 
 The example fixtures are:
 
@@ -95,11 +95,16 @@ enforces the tier in both directions, so a `structural` entry that starts passin
 the match layer fails the suite rather than keeping a stale deferral.
 
 Transpiling the seed set established three limits of v0.1 by construction, each
-pinned by a negative test: a *definition* cannot be polymorphic, because `forall`
-binds only inside the type and a `lam` annotation cannot name the bound variable;
-`Bool` has no elimination form, so there is no conditional; and `fix` and `ref`
-have no typing rule in the match layer yet. The first tranche is consequently
-monomorphic, branch-free, and recursion-free.
+pinned by a test in `test_corpus.ExpressivenessLimitTest`. Two have since been
+lifted by the
+[polymorphism and Bool-elimination plan](../docs/plans/2026-08-13-polymorphism-and-bool-elimination.md)
+and are re-pinned as the new behaviour: a definition's term is checked at its
+type's `forall` depth, so `corpus/maybe/mapPoly` is a genuinely generic
+definition (what remains is that v0.1 cannot *instantiate* a polymorphic
+reference, so the `I64` instances stay); and `if` (term tag 12) eliminates
+`Bool`, so `corpus/bool/not` — the definition that found the limit — is now a
+fixture. The third limit stands: `fix` and `ref` have no typing rule in the match
+layer yet, so the recursive tranche is still ahead.
 
 ## Golden identity check
 
@@ -118,7 +123,10 @@ identity through deterministic transcoding. The grammar constrains node shape;
 the transcoder additionally enforces field domains and canonical spellings.
 
 `scope.validate_source` establishes de Bruijn scope correctness using the binder
-rules in `SPEC.md` §2.3.1. Handler clauses require a caller-provided resolver for
+rules in `SPEC.md` §2.3.1, including the definition-level rule that a term is
+checked at its type's leading `forall` depth and that the depth is well defined
+because a definition type's quantifiers must be prenex (`scope.forall_prefix`).
+Handler clauses require a caller-provided resolver for
 operation parameter counts; the checker refuses to guess when store information
 is absent. `transcode.transcode_source` remains deliberately store-independent
 and does not perform this stateful check.
@@ -141,9 +149,12 @@ typing, termination, refinement validity, or evidence. The remaining oracle
 layers are described in `SPEC.md` §§3, 6, and 8.
 
 `matches.validate_source` is a deliberately partial type-directed layer. It
-validates nominal constructors and exhaustive matches, closed function effect
+validates nominal constructors and exhaustive matches, `if` against `Bool` with
+both branches at the goal type, closed function effect
 rows, operation signatures and capabilities, and handlers with typed return,
-operation, and continuation clauses. Synthesized lambdas are pure — latent
+operation, and continuation clauses. A definition typed `forall^p` is checked
+against its quantified body, with type variables treated as opaque atoms under
+structural type equality. Synthesized lambdas are pure — latent
 effects require checking against an annotated row — and operation-less
 abilities such as `div` cannot be handled. Row polymorphism and other
 unsupported nodes raise an explicit path-aware error until their typing rules
