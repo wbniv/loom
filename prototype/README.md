@@ -51,6 +51,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
 | `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
+| `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -61,6 +62,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
+| `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 
 The example fixtures are:
 
@@ -125,6 +127,19 @@ capability sorts, polymorphic constructors — raises a path-aware `SmtError`
 rather than being approximated. The module emits and structurally validates
 text; it neither links nor shells out to a solver, so `unsat` is still asserted
 by a human running the script, not by this prototype.
+
+`policies.py` implements `SPEC.md` §5.3.1's policy-object grammar and §5.3.2's
+domination table. It canonically validates a policy object (key range,
+array sortedness/uniqueness, canonical rationals, the closed obligation-kind
+registry, selector and requirement shapes), hashes it via `cbor_canonical`
+(reproducing the pinned default-policy hash `#901f33bd…` from `[6, {}]`), and
+implements two comparisons: `satisfies(evidence, requirement)` — `E ⊒ R` under
+§6.1.2's order, extended across A0–A3 — and `dominates(successor,
+predecessor)` per §5.3.2's per-key table, including the `rules` key's
+deliberately sound-but-incomplete single-rule test. There is no store here:
+the module does not resolve `policy-ref` over live bindings, perform
+admission, or touch leases or amendment descent — it only validates policy
+objects and compares two of them at a time.
 
 The repository does not vendor llama.cpp. To run production GBNF conformance,
 point `LOOM_GBNF_VALIDATOR` at a built `test-gbnf-validator` binary and run:
