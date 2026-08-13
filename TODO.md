@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Build Phase B1: the profile-independent masker core.** Per the
+- [wip T4] <!-- agent:ac705d58c30220ce9 --> **Build Phase B1: the profile-independent masker core.** Per the
   [Phase B plan](docs/plans/2026-08-13-experiment-phase-b.md): transport decision
   (llama-cpp-python logits processor is the likely winner), the syntax-feasibility
   layer with prefix-soundness tests over every corpus fixture, the type-state
