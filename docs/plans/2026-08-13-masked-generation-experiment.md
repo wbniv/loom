@@ -109,6 +109,10 @@ collapsing diversity.
 
 ## Verification
 
+Not yet run, deliberately: this plan is the experiment's design of record and
+nothing is implemented. The steps below run and get recorded when the substrate
+TODO item completes; the triaged inbox deferral points here.
+
 ```sh
 task prototype:test
 python3 -m py_compile prototype/*.py
