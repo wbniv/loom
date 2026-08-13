@@ -37,19 +37,29 @@ def binary(result):
 
 
 class ExternIdentityTest(unittest.TestCase):
-    #: The five tranche-2 externs, pinned. Changing a type, the artifact, or an
-    #: ABI selector changes the hash; changing the human name does not, because
-    #: the name is a §5.2 meta object and never enters identity.
+    #: The nine assumed-base externs, pinned: the five tranche-2 arithmetic
+    #: externs plus the four boolean/comparison externs added alongside
+    #: docs/plans/2026-08-13-boolean-base-externs.md. Changing a type, the
+    #: artifact, or an ABI selector changes the hash; changing the human name
+    #: does not, because the name is a §5.2 meta object and never enters
+    #: identity.
     PINNED = {
         "I64.add": "23d1e0891aef622110302fe247b7148de5eb61a09f30138cfe7bd09d6cf7e6d7",
         "I64.sub": "d3914e25a045031ef17d33eb038ca837c40c55642ceeef902b2d046a322f00b5",
         "I64.eq": "4fb7cc71149d69f56fb423f341abd7be1fe28c6e5d92fbdb22485498d1dea41d",
         "I64.lt": "0e2c1cacb65ffacb2219b4954360798ecebf7b4c43e6e5107f171acf3d562965",
         "List.size": "4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae",
+        "I64.le": "52e63dfa16dffd7ea93f6a9b56a6da10e78c7745fe8a37c4b9e1ec0d859cb53e",
+        "Bool.and": "4e303d5118babab70a13f230e374ac4f710b332213056839e9649d14fec5b9e0",
+        "Bool.or": "3f146d1cf153175629d4e0c7577f4726854c5bb90328f77de7299c3a1c9989f0",
+        "Bool.not": "86b89f7556d56a22c80d71c49651d32d127a5925c1e5b8efddc6297ae9cb52b6",
     }
 
     def test_the_assumed_base_hashes_are_pinned(self):
-        for name in ("I64.add", "I64.sub", "I64.eq", "I64.lt", "List.size"):
+        for name in (
+            "I64.add", "I64.sub", "I64.eq", "I64.lt", "List.size",
+            "I64.le", "Bool.and", "Bool.or", "Bool.not",
+        ):
             self.assertEqual(
                 corpus_registry.EXTERN_HASH_HEX[name],
                 self.PINNED[name],
@@ -62,9 +72,9 @@ class ExternIdentityTest(unittest.TestCase):
             self.assertEqual(hashlib.sha256(cbor_canonical.encode(obj)).digest(), digest)
             self.assertEqual(declaration_hash(obj), digest)
 
-    def test_the_five_are_distinct_and_disjoint_from_declarations(self):
+    def test_the_nine_are_distinct_and_disjoint_from_declarations(self):
         externs = set(corpus_registry.EXTERN_HASHES.values())
-        self.assertEqual(len(externs), 5)
+        self.assertEqual(len(externs), 9)
         self.assertFalse(externs & set(corpus_registry.HASHES.values()))
         self.assertFalse(externs & set(prelude.HASHES.values()))
 
@@ -140,6 +150,12 @@ class ExternShapeTest(unittest.TestCase):
             check_extern_definition([7, [2, I64, [[5, 0]], I64], ARTIFACT, "x"])
         self.assertIn("row type variable is out of scope", str(ctx.exception))
 
+    def test_the_boolean_base_externs_pass_the_validator(self):
+        for name in ("I64.le", "Bool.and", "Bool.or", "Bool.not"):
+            obj = corpus_registry.extern(name)
+            check_extern_definition(obj)
+            self.assertEqual(len(declaration_hash(obj)), 32, name)
+
 
 class ExternCapabilityHonestyTest(unittest.TestCase):
     FFI = prelude.HASHES["ffi"]
@@ -209,7 +225,7 @@ class ExternCapabilityHonestyTest(unittest.TestCase):
         obj = [7, [2, [4, self.CLOCK], [], [2, callback, [self.CLOCK], [0, 0]]], ARTIFACT, "call"]
         check_extern_definition(obj)
 
-    def test_the_five_assumed_base_externs_are_pure_typed(self):
+    def test_the_nine_assumed_base_externs_are_pure_typed(self):
         # Every arrow carries the empty row, which is what §3.2.1 requires of a
         # `ref` in a predicate — and is itself the A0 assumption being signed.
         expected = {
@@ -218,6 +234,10 @@ class ExternCapabilityHonestyTest(unittest.TestCase):
             "I64.eq": binary(BOOL),
             "I64.lt": binary(BOOL),
             "List.size": [2, [1, corpus_registry.HASHES["List"], [I64]], [], I64],
+            "I64.le": binary(BOOL),
+            "Bool.and": [2, BOOL, [], [2, BOOL, [], BOOL]],
+            "Bool.or": [2, BOOL, [], [2, BOOL, [], BOOL]],
+            "Bool.not": [2, BOOL, [], BOOL],
         }
         for name, type_ir in expected.items():
             self.assertEqual(corpus_registry.extern(name)[1], type_ir, name)
@@ -236,6 +256,20 @@ class ExternRegistryTest(unittest.TestCase):
     def test_reference_type_is_what_a_ref_to_an_extern_has(self):
         digest = corpus_registry.EXTERN_HASHES["I64.lt"]
         self.assertEqual(self.registry.reference_type(digest), binary(BOOL))
+
+    def test_the_boolean_base_externs_resolve_by_hash(self):
+        for name, expected_type, abi in (
+            ("Bool.and", [2, BOOL, [], [2, BOOL, [], BOOL]], "bool.and"),
+            ("Bool.or", [2, BOOL, [], [2, BOOL, [], BOOL]], "bool.or"),
+            ("Bool.not", [2, BOOL, [], BOOL], "bool.not"),
+            ("I64.le", binary(BOOL), "i64.le"),
+        ):
+            digest = corpus_registry.EXTERN_HASHES[name]
+            info = self.registry.extern(digest)
+            self.assertEqual(info.type, expected_type, name)
+            self.assertEqual(info.artifact, ARTIFACT, name)
+            self.assertEqual(info.abi, abi, name)
+            self.assertEqual(self.registry.reference_type(digest), expected_type, name)
 
     def test_a_resolved_extern_object_is_isolated_from_the_registry(self):
         digest = corpus_registry.EXTERN_HASHES["I64.add"]
@@ -329,6 +363,72 @@ class ExternSmtInterpretationTest(unittest.TestCase):
             corpus_registry.EXTERN_HASHES["List.size"],
             corpus_registry.SMT_INTERPRETATION,
         )
+
+
+class ExternConjunctionDemonstrationTest(unittest.TestCase):
+    """docs/plans/2026-08-13-boolean-base-externs.md: the predicate tranche 4's
+    `nat/select` obligation says it cannot state — two `nat`-style comparisons
+    conjoined into one hypothesis — is now expressible, because `Bool.and` gives
+    `and` a definition to interpret. `nat` stays spelled `-1 < i` (§3.2.1's
+    interpreted `<` extern, unchanged); what is new is joining two of them with
+    one `and` rather than needing two separate hypotheses.
+
+    This does not touch `corpus_registry.MANIFEST` or `test_corpus.py` — the
+    corpus fixtures are a concurrent tranche-4 agent's — it only demonstrates
+    the translation is now reachable, and that it is deterministic.
+    """
+
+    def setUp(self):
+        self.registry = corpus_registry.registry()
+        self.and_ = corpus_registry.EXTERN_HASHES["Bool.and"]
+        self.lt = corpus_registry.EXTERN_HASHES["I64.lt"]
+        self.signatures = {
+            digest: self.registry.reference_type(digest)
+            for digest in corpus_registry.EXTERN_HASHES.values()
+        }
+        self.interpretations = dict(corpus_registry.SMT_INTERPRETATION)
+
+    def _nat(self, var_index):
+        """`-1 < (var var_index)`, the corpus's existing `nat` spelling."""
+        return [4, [4, [1, self.lt], [2, 2, -1]], [0, var_index]]
+
+    def _hypothesis(self):
+        """`(-1 < a) and (-1 < b)`, two branch values' `nat` conditions
+        conjoined in one hypothesis — exactly what `nat/select`'s obligation
+        note says the assumed base could not previously state."""
+        return [4, [4, [1, self.and_], self._nat(1)], self._nat(2)]
+
+    def _script(self):
+        # base = I64 (the refined value, index 0, unused by this demonstration);
+        # outer_context = (I64 a, I64 b) at indices 1 and 2. Proving the goal
+        # `-1 < a` from the conjoined hypothesis is the smallest instance of the
+        # shape nat/select needs: recovering one erased branch fact from a
+        # multi-part hypothesis, rather than the single hypothesis §3.2.1's VC
+        # shape carries without `and`.
+        return refinements.subtype_script(
+            I64,
+            self._hypothesis(),
+            self._nat(1),
+            self.registry,
+            signatures=self.signatures,
+            interpretations=self.interpretations,
+            outer_context=(I64, I64),
+        )
+
+    def test_the_conjoined_hypothesis_translates_using_the_new_extern_hashes(self):
+        script = self._script()
+        # No `declare-fun` at all: both `Bool.and` and `I64.lt` are interpreted,
+        # so the conjoined hypothesis is pure Core/Ints vocabulary, not two
+        # uninterpreted references the solver could only relate by congruence.
+        self.assertNotIn("declare-fun", script)
+        self.assertIn("(assert (and (< (- 1) loom.x1) (< (- 1) loom.x2)))", script)
+        self.assertIn("(assert (not (< (- 1) loom.x1)))", script)
+
+    def test_the_script_is_deterministic(self):
+        first = self._script()
+        second = self._script()
+        self.assertEqual(first, second)
+        self.assertEqual(refinements.script_hash(first), refinements.script_hash(second))
 
 
 if __name__ == "__main__":

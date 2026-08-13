@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Boolean and comparison base externs](2026-08-13-boolean-base-externs.md) | Implemented; PASS |
 | 2026-08-13 | [Versioned validation contracts](2026-08-13-validation-contracts.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 4: the refinement slice](2026-08-13-corpus-tranche-4.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 3: the effectful slice](2026-08-13-corpus-tranche-3.md) | Implemented; PASS |
