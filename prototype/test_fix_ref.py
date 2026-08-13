@@ -46,60 +46,60 @@ class FixTypingTest(unittest.TestCase):
         return f"(lam {self.list_i64} (match (var 0) {arms}))"
 
     def test_recursive_fix_binds_the_recursive_value_at_index_zero(self):
-        term = f"(fix {self.size_type} {self.measure} {self.size_body('(app (var 3) (var 0))')})"
+        term = f"(fix {self.size_type} 0 {self.measure} {self.size_body('(app (var 3) (var 0))')})"
         validate_source(self.definition(self.size_type, term), self.registry)
 
     def test_recursive_call_arguments_use_the_constructor_binder_types(self):
         # var 1 is the I64 head, not the List tail, so the recursive call fails.
-        term = f"(fix {self.size_type} {self.measure} {self.size_body('(app (var 3) (var 1))')})"
+        term = f"(fix {self.size_type} 0 {self.measure} {self.size_body('(app (var 3) (var 1))')})"
         self.assert_type_error(self.definition(self.size_type, term), "type mismatch")
 
     def test_fix_synthesizes_its_annotation_in_application_position(self):
-        fix = f"(fix {self.size_type} {self.measure} {self.size_body('(app (var 3) (var 0))')})"
+        fix = f"(fix {self.size_type} 0 {self.measure} {self.size_body('(app (var 3) (var 0))')})"
         term = f"(app {fix} (con 0x{self.digest.hex()} 0 ()))"
         validate_source(self.definition("I64", term), self.registry)
 
     def test_fix_annotation_must_equal_the_expected_type(self):
         wrong = f"(fn {self.list_i64} () Bool)"
-        term = f"(fix {wrong} {self.measure} (lam {self.list_i64} (lit bool true)))"
+        term = f"(fix {wrong} 0 {self.measure} (lam {self.list_i64} (lit bool true)))"
         self.assert_type_error(self.definition(self.size_type, term), "fix annotation differs from the expected type")
 
     def test_fix_body_is_checked_against_the_annotation(self):
-        term = f"(fix {self.size_type} {self.measure} (lam {self.list_i64} (lit bool true)))"
+        term = f"(fix {self.size_type} 0 {self.measure} (lam {self.list_i64} (lit bool true)))"
         self.assert_type_error(self.definition(self.size_type, term), "type mismatch")
 
-    def test_measure_must_map_the_recursive_argument_to_i64(self):
-        not_a_function = f"(fix {self.size_type} (lit i64 0) {self.size_body('(lit i64 0)')})"
+    def test_measure_must_map_the_selected_argument_to_i64(self):
+        not_a_function = f"(fix {self.size_type} 0 (lit i64 0) {self.size_body('(lit i64 0)')})"
         self.assert_type_error(self.definition(self.size_type, not_a_function), "type mismatch")
         wrong_result = f"(lam {self.list_i64} (lit bool true))"
-        wrong = f"(fix {self.size_type} {wrong_result} {self.size_body('(lit i64 0)')})"
+        wrong = f"(fix {self.size_type} 0 {wrong_result} {self.size_body('(lit i64 0)')})"
         self.assert_type_error(self.definition(self.size_type, wrong), "type mismatch")
-        wrong_domain = f"(fix {self.size_type} (lam I64 (lit i64 0)) {self.size_body('(lit i64 0)')})"
+        wrong_domain = f"(fix {self.size_type} 0 (lam I64 (lit i64 0)) {self.size_body('(lit i64 0)')})"
         self.assert_type_error(self.definition(self.size_type, wrong_domain), "lambda parameter annotation differs")
 
     def test_measure_is_checked_without_the_recursive_binder(self):
         # var 0 in the measure would be the recursive value if the measure were
         # checked under the fix binder; at the definition's depth it is unbound.
-        term = f"(fix {self.size_type} (var 0) {self.size_body('(lit i64 0)')})"
+        term = f"(fix {self.size_type} 0 (var 0) {self.size_body('(lit i64 0)')})"
         with self.assertRaises(Exception) as caught:
             validate_source(self.definition(self.size_type, term), self.registry)
         self.assertIn("out of scope", str(caught.exception))
 
     def test_fix_at_a_non_function_type_is_refused(self):
-        self.assert_type_error(self.definition("I64", "(fix I64 (lit i64 0) (var 0))"), "not implemented")
+        self.assert_type_error(self.definition("I64", "(fix I64 0 (lit i64 0) (var 0))"), "not implemented")
 
     def test_fix_body_checks_under_the_annotation_row(self):
         effectful = f"(fn (cap {self.clock}) ({self.clock}) I64)"
         measure = f"(lam (cap {self.clock}) (lit i64 0))"
         body = f"(lam (cap {self.clock}) (perform {self.clock} 0 ()))"
-        validate_source(self.definition(effectful, f"(fix {effectful} {measure} {body})"), self.registry)
+        validate_source(self.definition(effectful, f"(fix {effectful} 0 {measure} {body})"), self.registry)
 
     def test_fix_body_cannot_exceed_the_annotation_row(self):
         pure = f"(fn (cap {self.clock}) () I64)"
         measure = f"(lam (cap {self.clock}) (lit i64 0))"
         body = f"(lam (cap {self.clock}) (perform {self.clock} 0 ()))"
         self.assert_type_error(
-            self.definition(pure, f"(fix {pure} {measure} {body})"),
+            self.definition(pure, f"(fix {pure} 0 {measure} {body})"),
             "not allowed by the ambient effect row",
         )
 
@@ -107,8 +107,80 @@ class FixTypingTest(unittest.TestCase):
         # Unconditional self-application: well-typed, obviously non-terminating.
         # §2.5/§6.2 termination is oracle evidence, not a typing rule.
         body = f"(lam {self.list_i64} (app (var 1) (var 0)))"
-        term = f"(fix {self.size_type} {self.measure} {body})"
+        term = f"(fix {self.size_type} 0 {self.measure} {body})"
         validate_source(self.definition(self.size_type, term), self.registry)
+
+
+class MeasureSelectionTest(unittest.TestCase):
+    """§2.5's position field: which curried argument the measure describes."""
+
+    def setUp(self):
+        self.list_decl = [4, KEY, 1, [[], [[5, 0], [7, [[5, 0]]]]]]
+        self.registry = prelude.registry()
+        self.registry.add(self.list_decl)
+        self.digest = declaration_hash(self.list_decl)
+        self.list_i64 = f"(data 0x{self.digest.hex()} (I64))"
+        self.clock = "0x" + prelude.HASH_HEX["clock"]
+        # foldRight : (I64 -> I64 -> I64) -> I64 -> List I64 -> I64
+        self.combine = "(fn I64 () (fn I64 () I64))"
+        self.fold_type = f"(fn {self.combine} () (fn I64 () (fn {self.list_i64} () I64)))"
+        self.size = f"(lam {self.list_i64} (lit i64 0))"
+        # rec=5, f=4, z=3, l=2, x=1, xs=0 inside the Cons arm (§2.3.1).
+        cons = "(app (app (var 4) (var 1)) (app (app (app (var 5) (var 4)) (var 3)) (var 0)))"
+        arms = f"((0 0 (var 1)) (1 2 {cons}))"
+        self.fold_body = f"(lam {self.combine} (lam I64 (lam {self.list_i64} (match (var 0) {arms}))))"
+
+    def definition(self, type_surface: str, term_surface: str) -> str:
+        return f"(def {type_surface} {term_surface})"
+
+    def assert_type_error(self, source: str, message: str, reference_type=None):
+        with self.assertRaises(TypeDirectionError) as caught:
+            validate_source(source, self.registry, reference_type)
+        self.assertIn(message, str(caught.exception))
+
+    def test_a_measure_over_the_third_argument_typechecks(self):
+        term = f"(fix {self.fold_type} 2 {self.size} {self.fold_body})"
+        validate_source(self.definition(self.fold_type, term), self.registry)
+
+    def test_the_same_recursion_cannot_state_its_measure_at_position_zero(self):
+        # Position 0 is the combining function, so `size` no longer matches: this
+        # is exactly the case §2.5's selector exists to make expressible.
+        term = f"(fix {self.fold_type} 0 {self.size} {self.fold_body})"
+        self.assert_type_error(self.definition(self.fold_type, term), "lambda parameter annotation differs")
+
+    def test_the_measure_domain_follows_the_position(self):
+        # Position 1 selects the accumulator, so an I64 measure is what fits.
+        accumulator = "(lam I64 (lit i64 0))"
+        validate_source(
+            self.definition(self.fold_type, f"(fix {self.fold_type} 1 {accumulator} {self.fold_body})"),
+            self.registry,
+        )
+        self.assert_type_error(
+            self.definition(self.fold_type, f"(fix {self.fold_type} 1 {self.size} {self.fold_body})"),
+            "lambda parameter annotation differs",
+        )
+
+    def test_a_position_past_the_curried_spine_is_refused(self):
+        term = f"(fix {self.fold_type} 3 {self.size} {self.fold_body})"
+        self.assert_type_error(self.definition(self.fold_type, term), "measure position 3 exceeds the annotation's 3-argument curried spine")
+
+    def test_rows_walked_past_by_the_selector_are_untouched(self):
+        # Reaching argument 1 performs a clock effect; only the measure's own row
+        # must be empty, because the walked rows say nothing about how many times
+        # the recursion runs (§2.5).
+        annotation = f"(fn (cap {self.clock}) ({self.clock}) (fn I64 () I64))"
+        measure = "(lam I64 (lit i64 0))"
+        body = f"(lam (cap {self.clock}) (lam I64 (perform {self.clock} 0 ())))"
+        self.assert_type_error(self.definition(annotation, f"(fix {annotation} 1 {measure} {body})"), "not allowed by the ambient effect row")
+        pure_body = f"(lam (cap {self.clock}) (lam I64 (var 0)))"
+        validate_source(self.definition(annotation, f"(fix {annotation} 1 {measure} {pure_body})"), self.registry)
+
+    def test_a_measure_over_two_arguments_is_not_expressible(self):
+        # The recorded v0.1 limit: one measure over one argument. A `merge`-style
+        # recursion needing `size xs + size ys` must take `div` instead.
+        both = f"(lam {self.combine} (lam I64 (lit i64 0)))"
+        term = f"(fix {self.fold_type} 0 {both} {self.fold_body})"
+        self.assert_type_error(self.definition(self.fold_type, term), "type mismatch")
 
 
 class ReferenceTypingTest(unittest.TestCase):
@@ -145,8 +217,19 @@ class ReferenceTypingTest(unittest.TestCase):
     def test_reference_serves_as_a_fix_measure(self):
         arms = "((0 0 (lit i64 0)) (1 2 (app (var 3) (var 0))))"
         body = f"(lam {self.list_i64} (match (var 0) {arms}))"
-        term = f"(fix {self.size_type} {self.size} {body})"
+        term = f"(fix {self.size_type} 0 {self.size} {body})"
         validate_source(self.definition(self.size_type, term), self.registry, self.resolve)
+
+    def test_a_stored_reference_measures_a_non_initial_argument(self):
+        # The payoff: `(ref #List.size)` is the measure of a curried recursion
+        # whose decreasing argument is its third, with no eta-reordering.
+        combine = "(fn I64 () (fn I64 () I64))"
+        fold_type = f"(fn {combine} () (fn I64 () (fn {self.list_i64} () I64)))"
+        cons = "(app (app (var 4) (var 1)) (app (app (app (var 5) (var 4)) (var 3)) (var 0)))"
+        arms = f"((0 0 (var 1)) (1 2 {cons}))"
+        body = f"(lam {combine} (lam I64 (lam {self.list_i64} (match (var 0) {arms}))))"
+        term = f"(fix {fold_type} 2 {self.size} {body})"
+        validate_source(self.definition(fold_type, term), self.registry, self.resolve)
 
     def test_unresolved_hash_is_refused(self):
         missing = f"(ref 0x{MISSING_HASH.hex()})"

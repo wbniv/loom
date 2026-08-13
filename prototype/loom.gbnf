@@ -27,7 +27,7 @@ term        ::= ("(var " uint ")"
               | "(match " term " " arm-list ")"
               | "(perform " hash " " uint " " term-list ")"
               | "(handle " hash " " term " " op-list " " term ")"
-              | "(fix " type " " term " " term ")"
+              | "(fix " type " " uint " " term " " term ")"
               | "(hole " type " " term-list ")")
 term-list   ::= "(" (term (" " term)*)? ")"
 arm         ::= "(" uint " " uint " " term ")"

@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Measure selection for curried recursion](2026-08-13-measure-selection.md) | Implemented; PASS |
 | 2026-08-13 | [Extern object encoding](2026-08-13-extern-object-encoding.md) | Implemented; PASS |
 | 2026-08-13 | [Type-directed `fix` and `ref`](2026-08-13-fix-ref-typing.md) | Implemented; PASS (corpus tier re-declared at merge) |
 | 2026-08-13 | [Bootstrap corpus for prior starvation](2026-08-13-bootstrap-corpus.md) | Tranche 1 implemented; PASS |

@@ -118,8 +118,8 @@ def check_term_references(ir, registry: DeclarationRegistry, path: str = "term")
         return
     if tag == 10:
         check_type_references(ir[1], registry, f"{path}.type")
-        check_term_references(ir[2], registry, f"{path}.measure")
-        check_term_references(ir[3], registry, f"{path}.body")
+        check_term_references(ir[3], registry, f"{path}.measure")
+        check_term_references(ir[4], registry, f"{path}.body")
         return
     if tag == 11:
         check_type_references(ir[1], registry, f"{path}.goal-type")

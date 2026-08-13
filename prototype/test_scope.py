@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from scope import ScopeError, validate_source
+from scope import ScopeError, check_definition, validate_source
 
 HASH = "0x" + "11" * 32
 HASH_BYTES = bytes.fromhex("11" * 32)
@@ -58,9 +58,20 @@ class ScopeTest(unittest.TestCase):
         self.assert_scope_error(definition("(fn I64 ((tyvar 0)) I64)", "(lit unit)"), "type index 0")
 
     def test_fix_binds_self_only_in_body(self):
-        self.assert_valid(definition("I64", "(fix I64 (lit i64 0) (var 0))"))
-        self.assert_valid(definition("I64", "(fix I64 (lit i64 0) (lam I64 (var 1)))"))
-        self.assert_scope_error(definition("I64", "(fix I64 (var 0) (var 0))"), ".measure")
+        self.assert_valid(definition("I64", "(fix I64 0 (lit i64 0) (var 0))"))
+        self.assert_valid(definition("I64", "(fix I64 0 (lit i64 0) (lam I64 (var 1)))"))
+        self.assert_scope_error(definition("I64", "(fix I64 0 (var 0) (var 0))"), ".measure")
+
+    def test_fix_measure_position_binds_nothing_and_must_be_a_nonnegative_integer(self):
+        # The position selects a domain of the annotation (§2.5); it is not a
+        # binder, so the body's depth is the same at position 0 and position 7.
+        self.assert_valid(definition("I64", "(fix I64 7 (lit i64 0) (lam I64 (var 1)))"))
+        with self.assertRaises(ScopeError) as caught:
+            check_definition([0, [0, 2], [10, [0, 2], -1, [2, 2, 0], [0, 0]]])
+        self.assertIn("invalid measure position", str(caught.exception))
+        with self.assertRaises(ScopeError) as caught:
+            check_definition([0, [0, 2], [10, [0, 2], True, [2, 2, 0], [0, 0]]])
+        self.assertIn("invalid measure position", str(caught.exception))
 
     def test_handler_requires_resolver(self):
         source = definition("I64", f"(handle {HASH} (lit i64 0) ((0 (var 0))) (var 0))")

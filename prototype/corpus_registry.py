@@ -27,7 +27,9 @@ CORPUS_DIR = Path(__file__).resolve().parent / "corpus"
 
 #: Validation depth a fixture is expected to reach today.
 #:
-#: ``checked``    — parse, scope, references, and the type-directed match layer.
+#: ``checked``    — parse, scope, references, and the type-directed match layer,
+#:                  the last one given `reference_type()` so a `ref` into the
+#:                  assumed base resolves instead of being refused.
 #: ``structural`` — parse, scope, and references only, because the match layer
 #:                  has no typing rule for a node the definition needs. The
 #:                  reason is recorded per entry and is a documented obligation
@@ -140,6 +142,18 @@ def registry() -> DeclarationRegistry:
     return result
 
 
+def reference_type(source: DeclarationRegistry | None = None):
+    """The `ref`-type resolver the match layer needs (§3.1.3).
+
+    The corpus has no store of typed definitions; what it does have is the
+    assumed base, and an extern's type *is* the type a `ref` to it has. So the
+    resolver is the registry's own lookup rather than a second table — a hash
+    outside the assumed base still raises, and the match layer still refuses
+    rather than guessing.
+    """
+    return (source if source is not None else registry()).reference_type
+
+
 @dataclass(frozen=True)
 class CorpusEntry:
     """One seed definition: the §5.2 meta object, minus provenance.
@@ -196,6 +210,14 @@ MANIFEST = (
         spec="Split a list into its head and tail, or nothing when it is empty.",
         source="Unison (unisonweb/unison, MIT) List.uncons, instantiated at I64",
         identity="1aa47aec06e66f1f563d461eedcf951c9cdab11e7fa26d252536c97160798af5",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_fold_right_i64.loom.sexpr",
+        name_path="corpus/list/foldRight",
+        spec="Collapse a list from the right with a combining function and an initial value.",
+        source="Unison (unisonweb/unison, MIT) List.foldRight, instantiated at I64",
+        identity="2509a18eb5e81726042a2cef5cd5444955a71c9dce18221ff8a49d0f93c82893",
         tier="checked",
     ),
 )

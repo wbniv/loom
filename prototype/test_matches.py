@@ -71,7 +71,7 @@ class MatchValidationTest(unittest.TestCase):
         validate_source(self.definition(f"(fn {self.list_i64} () I64)", outer), self.registry)
 
     def test_unsupported_nodes_fail_explicitly(self):
-        self.assert_type_error(self.definition("I64", "(fix I64 (lit i64 0) (var 0))"), "not implemented")
+        self.assert_type_error(self.definition("I64", "(fix I64 0 (lit i64 0) (var 0))"), "not implemented")
 
     def test_checked_arm_mismatch_attribution(self):
         # A mismatch at the arm body itself is reported as an arm-result mismatch.

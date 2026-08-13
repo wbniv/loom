@@ -65,7 +65,8 @@ class CanonicalSurfaceTest(unittest.TestCase):
             "(match (var 0) ((0 1 (var 0))))",
             f"(perform {HASH_A} 2 ((lit bool true)))",
             f"(handle {HASH_A} (perform {HASH_A} 0 ()) ((0 (var 0))) (var 0))",
-            "(fix (fn I64 () I64) (lam I64 (var 0)) (lam I64 (var 0)))",
+            "(fix (fn I64 () I64) 0 (lam I64 (var 0)) (lam I64 (var 0)))",
+            "(fix (fn Bool () (fn I64 () I64)) 1 (lam I64 (var 0)) (lam Bool (lam I64 (var 0))))",
             "(hole I64 ((lit bool true)))",
         ]
         for term in terms:
