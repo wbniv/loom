@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T3] **Build corpus tranche 3: the effectful slice.** Unison ability code against
+- [wip T3] <!-- agent:a8627be33ae0b215c --> **Build corpus tranche 3: the effectful slice.** Unison ability code against
   §2.4's eight builtins, closed rows only, exercising `perform`, `handle`, and `cap`
   at tier `checked` — the tranche where the Unison-over-F* corpus choice pays off.
   Definition selection is open (the plan names the shape, not the list), and R8 says
