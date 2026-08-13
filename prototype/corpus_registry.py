@@ -584,9 +584,19 @@ MANIFEST = (
     # non-dependent — a codomain refinement may name only the refined value,
     # because naming the argument is a dependent arrow and §2.3.1 has none — so
     # every F* postcondition relating a result to an input is weakened here.
-    # Three entries are `structural`: typecheck.py implements no §3.3
-    # refinement subtyping, so a term only ever checks against a `refine` type
-    # by structural equality.
+    # All six carry `refine` types. The first three used to be `structural`:
+    # typecheck.py implemented no §3.3 refinement subtyping, so a term only
+    # ever checked against a `refine` type by structural equality, and each
+    # one's body synthesizes a type that differs from its declared codomain
+    # by exactly a refinement predicate. The
+    # [refinement-subsumption plan](../docs/plans/2026-08-13-refinement-subsumption.md)
+    # closes that: `typecheck.validate_source(..., obligations=sink)` now
+    # admits the mismatch and emits a subtyping obligation for it instead of
+    # rejecting, so all six reach `checked` — opt-in, since a caller with no
+    # sink still gets exactly today's structural-equality rejection.
+    # `test_corpus.CorpusFixtureTest` supplies the sink unconditionally for
+    # `checked` entries, which is harmless for the three that needed no
+    # subsumption to begin with.
     CorpusEntry(
         fixture="math_abs_nat.loom.sexpr",
         name_path="corpus/math/abs",
@@ -598,14 +608,7 @@ MANIFEST = (
             "only the nonnegativity half survives; `int` monomorphizes to I64"
         ),
         identity="722a6900553dbe78a5fea5116255d5519deab85db50049222cfbb9f38c79b093",
-        tier="structural",
-        deferred=(
-            "typecheck.py checks a term against `refine T φ` by structural equality "
-            "only (§3.3 refinement subtyping is unimplemented), so the body's `I64` "
-            "does not inhabit the declared `refine I64 (-1 < v)` codomain: "
-            "`definition.term.body.then: type mismatch`. The subtyping VC that "
-            "would discharge it is pinned below."
-        ),
+        tier="checked",
         obligations=(
             Obligation(
                 name="ensures.nonnegative",
@@ -628,7 +631,17 @@ MANIFEST = (
                     "(§5.1.3), and that assumption is where the overflow hides. The "
                     "script is inexact for exactly that reason (it uses `-`), which "
                     "changes nothing on the `unsat` side but records the A0-relativity "
-                    "as a derived fact rather than a comment."
+                    "as a derived fact rather than a comment. This remains the *only* "
+                    "sound argument for the definition: the checker's own automatic "
+                    "subsumption at each `if` branch (`definition.term.body.then` and "
+                    "`.else`) is admitted at typing time regardless, but its emitted "
+                    "condition uses `weaker = true` (§3.2.1: a bare `I64` is "
+                    "`{v|true}`) because neither branch's *synthesized* type carries "
+                    "the `if`'s own condition as a hypothesis — that condition is "
+                    "translation-exact and a live solver refutes it. Typing is "
+                    "unaffected (§3.2.1's R1: typing never consults the verdict), but "
+                    "it is why this fixture still needs the hand-authored obligation "
+                    "above to reach A3 rather than the checker-emitted one."
                 ),
             ),
         ),
@@ -644,12 +657,7 @@ MANIFEST = (
             "measure primitive is the only list length the corpus has"
         ),
         identity="7ebd41f6467f08bc3876f6a4d137198115b6dd954ba68523440f3f9445cbd636",
-        tier="structural",
-        deferred=(
-            "Same cause as corpus/math/abs: the body synthesizes the extern's `I64` "
-            "result and the codomain is `refine I64 (-1 < v)`, which structural "
-            "equality refuses — `definition.term.body: type mismatch`."
-        ),
+        tier="checked",
         obligations=(
             Obligation(
                 name="ensures.nonnegative",
@@ -670,7 +678,12 @@ MANIFEST = (
                     "are an A0 range assumption on the extern or body-VC generation. "
                     "The `declare-fun` is also what makes the script inexact, so the "
                     "model is an artifact and the outcome is `undischarged`, not a "
-                    "refutation of a true claim."
+                    "refutation of a true claim. As with corpus/math/abs, the "
+                    "checker's own automatic subsumption at `definition.term.body` "
+                    "admits the definition regardless (weaker = true), but that "
+                    "checker-emitted condition is a different, weaker claim than the "
+                    "one pinned here — this hand-authored obligation is still the "
+                    "argument that carries the actual A3 evidence."
                 ),
             ),
         ),
@@ -685,13 +698,7 @@ MANIFEST = (
             "site, and this fixture is that coercion written out as a definition"
         ),
         identity="d9de68ecf5f6203a5b510e60183904138f5d4b71f60b636616cba82417e3b46d",
-        tier="structural",
-        deferred=(
-            "This *is* §3.3 refinement subtyping, and typecheck.py implements none: "
-            "`definition.term.body: type mismatch` between `refine I64 (0 < v)` and "
-            "`refine I64 (-1 < v)`. The obligation below is exactly the verification "
-            "condition that would let the definition through, and it is valid."
-        ),
+        tier="checked",
         obligations=(
             Obligation(
                 name="subtype.pos-nat",
@@ -703,13 +710,19 @@ MANIFEST = (
                 outcome="proved",
                 producer="subtype",
                 note=(
-                    "The tranche's flagship: the one obligation whose discharge would "
-                    "turn its own fixture from `structural` into `checked`. It is also "
-                    "the corpus's only *exact* verification condition (the one it "
-                    "shares with corpus/nat/applyPos) — generated by "
-                    "§3.2.1's one specified producer and translated with no "
-                    "uninterpreted symbol, no opaque sort, no erasure, and no "
-                    "arithmetic — so a `sat` here would have been a real refutation."
+                    "The tranche's flagship: the one obligation whose discharge turns "
+                    "its own fixture from `structural` into `checked`. It is also the "
+                    "corpus's only *exact* verification condition (the one it shares "
+                    "with corpus/nat/applyPos) — generated by §3.2.1's one specified "
+                    "producer and translated with no uninterpreted symbol, no opaque "
+                    "sort, no erasure, and no arithmetic — so a `sat` here would have "
+                    "been a real refutation. This pin was hand-authored before the "
+                    "refinement-subsumption plan; it is now also exactly what "
+                    "`typecheck.py` emits at its one subsumption site "
+                    "(`definition.term.body`, the fixture's whole body being `(var 0)` "
+                    "checked at `pos` against the declared `nat` codomain) — same "
+                    "base, same weaker/stronger predicates, same script, same hash. "
+                    "The pin moved from authored to derived without moving a byte."
                 ),
             ),
         ),

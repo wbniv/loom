@@ -171,11 +171,12 @@ _CONTRACTS = (
     ),
     Contract(
         name="typecheck",
-        version=(1, 0),
+        version=(1, 1),
         module="typecheck",
         summary=(
             "The partial bidirectional checker: nominal matches, effects and handlers, "
-            "`if`, `fix`/`ref`, and first-order `forall` instantiation."
+            "`if`, `fix`/`ref`, first-order `forall` instantiation, and opt-in §3.3 "
+            "refinement subsumption."
         ),
         entry_points=(
             "typecheck.MatchChecker",

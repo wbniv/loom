@@ -23,7 +23,7 @@ PINNED_VERSIONS = {
     "parser": (1, 0),
     "scope": (1, 0),
     "references": (1, 0),
-    "typecheck": (1, 0),
+    "typecheck": (1, 1),
     "declarations": (1, 0),
     "refinements": (1, 0),
     "policies": (1, 0),

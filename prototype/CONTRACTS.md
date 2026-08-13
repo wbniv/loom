@@ -18,7 +18,7 @@ Design and rationale: [Versioned validation contracts](../docs/plans/2026-08-13-
 | `parser` | 1.0 | `transcode.py` | Canonical S-expression surface acceptance, the surface/IR inverse pair, the canonical CBOR definition object, and definition identity. |
 | `scope` | 1.0 | `scope.py` | Term and type de Bruijn index validity, binder depth, handler operation resolution, and the `forall` prefix of a definition type. |
 | `references` | 1.0 | `references.py` | Resolution of nominal data and ability hashes against a registry, plus explicit constructor and operation bounds and arities. |
-| `typecheck` | 1.0 | `typecheck.py` | The partial bidirectional checker: nominal matches, effects and handlers, `if`, `fix`/`ref`, and first-order `forall` instantiation. |
+| `typecheck` | 1.1 | `typecheck.py` | The partial bidirectional checker: nominal matches, effects and handlers, `if`, `fix`/`ref`, first-order `forall` instantiation, and opt-in §3.3 refinement subsumption. |
 | `declarations` | 1.0 | `declarations.py` | Validation, canonical encoding, and hashing of data/ability declaration and extern definition objects, and the registry that holds them. |
 | `refinements` | 1.0 | `refinements.py` | Translation of one §3.2.1 verification condition into one canonical SMT-LIB script, and refusal of everything outside the decidable fragment. |
 | `policies` | 1.0 | `policies.py` | Namespace policy object validation and canonical hashing, obligation-id decomposition, evidence satisfaction (`E ⊒ R`), and policy domination. |

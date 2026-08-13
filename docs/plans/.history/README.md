@@ -1,5 +1,7 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/c1a84ce) | Build masked-generation experiment Phase A harness |
+| [2026-08-13](https://github.com/wbniv/loom/commit/b99ed7e) | Define the obligation pipeline and three-way sat semantics |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 | [2026-08-13](https://github.com/wbniv/loom/commit/914b7f2) | Extend the assumed base with and/or/not/<= externs |
 | [2026-08-13](https://github.com/wbniv/loom/commit/3304435) | Version the validation contracts |
@@ -29,6 +31,16 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+c1a84ce	author	Will Norris
+c1a84ce	added	2
+c1a84ce	deleted	1
+c1a84ce	files	1
+c1a84ce	body	R1's disposable store-shaped resolver, R4's four corpus regimes with eight\nheld-out compositional tasks, R3's checker funnel and operationalized\nsemantic-success rule, and R2's conditions 1-3 under the shared fixed\ntoken-budget-per-task rule, behind `task experiment:phase-a`.\n\nThe deliverable Phase B is gated on is the failure-distribution-by-layer table\nthe runner emits. No per-token masking anywhere; condition 4 is refused by name.\n\nThe model seam is one callable (prompt + optional grammar to tokens) with\nllama.cpp server, llama.cpp CLI, and deterministic stub backends. The stub\ndrives the whole harness end to end in `test_experiment.py`, so the funnel,\nbudget accounting and report are tested without a model. The one-command entry\npoint refuses until the operator supplies and records a model.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
+b99ed7e	author	Will Norris
+b99ed7e	added	1
+b99ed7e	deleted	0
+b99ed7e	files	1
+b99ed7e	body	Closes tranche 4's two escalations, which were entangled: nothing consulted\nthe subtyping VC, and §3.2.1's "`sat` refutes the obligation and the binding is\nrejected" is unsound under abstraction.\n\nDecision (a) — emission. Typing never invokes a solver. The typing layer emits\nan obligation, fixing its verification condition, canonical script, and script\nhash (already the §6.4 ledger key) before any solver runs; a separate oracle\npass discharges it and mints §6.1 evidence; §5.3.2 admission consults the\nevidence. Rejected solver-in-the-typing-loop: it would make `unknown` and a\ntimeout mean *type error*, give evidence two producers, and re-pay per\nregeneration the cost §6.4 exists to eliminate.\n\nDecision (b) — a solver verdict is a raw fact; the outcome is three-way.\n`unsat` proves (unchanged); `sat` refutes only over an *exact* script;\neverything else is undischarged. Exactness has two mechanically checkable\nparts: generator faithfulness (the VC came from a producer §3.2.1 specifies —\nv0.1 has one, refinement subtyping) and translation faithfulness (no\n`declare-fun`, no `declare-sort`, no erased refinement, no `+ - * div mod abs`,\nno `Int`-sorted `match` binder). Concrete evaluation of the countermodel is\nnamed as the reserved stronger rule; the syntactic rule is a floor.\n\nAll three pinned `sat` obligations now land as `undischarged`, so no correct\ncorpus definition is rejected. Reported rather than smoothed:\n`corpus/nat/select`'s script *is* translation-exact — only generator\nfaithfulness saves it, because its VC's `outer_context` spells the branch\narguments `I64` while the definition's type spells them `{n | -1 < n}`. The\npremises were dropped when the VC was authored, one stage before §3.2.1's\nerasure would have acted; its manifest note is corrected accordingly.\n\n`refinements.py` now records which abstractions a translation used and takes no\nposition on them; the new `obligations.py` holds the rule. No emitted script\nbyte changed — all six pinned hashes reproduce, and the six solver verdicts\nwere re-run live under z3 5.0.\n\nSee docs/plans/2026-08-13-obligation-pipeline.md.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 d3f8789	author	Will Norris
 d3f8789	added	1
 d3f8789	deleted	0
