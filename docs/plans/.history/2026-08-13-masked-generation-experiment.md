@@ -1,11 +1,17 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/489f74c) | Amend model selection: 3B local after 7B OOM and K3 evaluation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/eac350c) | Record experiment model/hardware selection; promote the T5 |
 | [2026-08-13](https://github.com/wbniv/loom/commit/c2fbc79) | Amend experiment plan: phases, resample baseline, budget rule, predictions |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3a4df4) | Triage the auto-captured experiment-plan deferral |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+489f74c	author	Will Norris
+489f74c	added	26
+489f74c	deleted	8
+489f74c	files	1
+489f74c	body	The 7B is unrunnable on this box (kernel OOM at the default KV\nallocation; 0.10 tok/s under memory pressure) and this llama.cpp\nbuild's CLI exits silently, so the backend is llama-server. Kimi K3\nwas evaluated at the operator's request: hosted APIs lack GBNF, so\nthe grammar conditions cannot run hosted; operator dropped it for\nthis experiment. History kept in the amendment record.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 eac350c	author	Will Norris
 eac350c	added	11
 eac350c	deleted	3

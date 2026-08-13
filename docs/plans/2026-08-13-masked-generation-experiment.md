@@ -159,6 +159,13 @@ Phase A:
   `experiment/phase_a.local.json`; a 21-cell smoke slice
   (`phase_a.smoke.json`) runs before the full 774-cell matrix.
 
+  **Measurement deviation (recorded before the run):** `cache_prompt` is
+  enabled (`backend_extra`) for CPU feasibility — uncached full-corpus prompts
+  cost ~4 min each at the measured 42 tok/s prompt-eval rate. Latency metrics
+  therefore measure *cached* serving; the masking-overhead comparison (R3) is
+  per-token decode overhead and is unaffected. KV-cache quantization
+  (`-ctk/-ctv q8_0`) is NOT used: it cut prompt eval to ~12 tok/s on this CPU.
+
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified
     against HF: sha256 `509287f7…`), is not viable on this hardware: the
