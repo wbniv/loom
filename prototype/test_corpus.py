@@ -169,9 +169,10 @@ class ExpressivenessLimitTest(unittest.TestCase):
         self.assertIn("match scrutinee does not synthesize a nominal data type", str(caught.exception))
 
     def test_recursion_and_stored_references_stop_at_the_structural_tier(self):
-        # `fix` and `ref` both pass scope and reference checking but have no
-        # typing rule in the match layer yet, so tranche 2 is `structural` until
-        # they do. A stand-in hash stands for the assumed-base List.size.
+        # `fix` and `ref` now have typing rules, but the corpus supplies no
+        # reference-type resolver, so the assumed-base List.size measure is
+        # unresolvable and tranche 2 stays `structural` until the corpus wires
+        # one up. A stand-in hash stands for the assumed-base List.size.
         assumed_size = bytes.fromhex("aa" * 32)
         list_i64 = [1, self.list, [I64]]
         append_type = [2, list_i64, [], [2, list_i64, [], list_i64]]
@@ -186,7 +187,7 @@ class ExpressivenessLimitTest(unittest.TestCase):
         references.validate_source(source, self.registry)
         with self.assertRaises(matches.TypeDirectionError) as caught:
             matches.validate_source(source, self.registry)
-        self.assertIn("term tag 10", str(caught.exception))
+        self.assertIn("has no reference-type resolver", str(caught.exception))
 
 
 if __name__ == "__main__":

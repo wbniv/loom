@@ -44,10 +44,13 @@ Check conformance with `task todo:lint`.
   (`I64.add`, `List.size`, …) cannot be stored. One new object kind, following the
   §5.3.1 authoring pattern.
 
-- [wip T3] <!-- agent:a68fa054bbec849fc --> **Extend the type-directed layer to `fix` and `ref` (corpus finding 3).** Both
-  pass scope/reference validation but have no match-layer typing rule, capping corpus
-  recursion at the structural tier. Measures per §2.5; `ref` types resolved from the
-  registry.
+- [T4] **Decide §2.5 measure selection for curried recursion (fix/ref finding).** A
+  measure checks against `fn D () I64` over the function's *first* domain, so a
+  curried recursion whose decreasing argument is not the first (`foldRight : (a → b
+  → b) → b → List a → b`) cannot state `(ref #List.size)` as its measure — §2.5 has
+  no way to name a non-initial argument. Blocks foldLeft/foldRight from `checked`.
+  See [plan](docs/plans/2026-08-13-fix-ref-typing.md). (T4: any fix likely changes
+  the `fix` node shape, which is identity-affecting.)
 
 - [T5] **Confirm Unison base licensing before scaling the corpus past the seed set.**
   GitHub reports no machine-detectable license for unisonweb/base; nothing is vendored
@@ -79,6 +82,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [fix-ref-typing] Added `fix` typing with measure-shape checking and
+  resolver-backed `ref` typing (20 tests); corpus tier re-declared at merge.
+  See [plan](docs/plans/2026-08-13-fix-ref-typing.md).
 - ✅ 2026-08-13 — [bootstrap-corpus] Chose Unison base, transpiled and validated 4 seed
   definitions, pinned 3 expressiveness limits as tests, specified tranches 2–4.
   See [plan](docs/plans/2026-08-13-bootstrap-corpus.md).
