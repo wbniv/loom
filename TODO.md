@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Implement §3.3 subsumption in typecheck (unblocked by the obligation
+- [wip T2] <!-- agent:a8aac7b108bbf6425 --> **Implement §3.3 subsumption in typecheck (unblocked by the obligation
   pipeline).** The design fork is closed: typing emits obligations and never calls
   a solver, so checking a term against `refine T φ` subsumes via an emitted
   subtyping VC rather than structural equality. Re-tiers the three structural
