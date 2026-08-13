@@ -41,11 +41,6 @@ Check conformance with `task todo:lint`.
   counts per §11, lease rules) — is never specified. Blocks any real store
   implementation, since §6.3's monotone-rebind check needs a policy to check against.
 
-- [wip T3] <!-- agent:a86c35d715653127a --> **Define the refinement-to-SMT-LIB translation rules (SPEC.md §3.2 gap).** §3.2
-  names the target fragment (QF_UFLIRA + datatypes) but not the encoding rules from
-  Loom refinement terms to SMT-LIB terms. Needed before an `A3 proof` obligation
-  (§6.1) can actually be discharged by a solver rather than asserted.
-
 - [T4] **Bootstrap-corpus plan for open problem 1 (SPEC.md §13, prior starvation).**
   Concrete version of "transpile verified existing code": pick a small existing
   typed/verified corpus (candidates: a subset of Unison base, or F*/Idris examples)
@@ -77,6 +72,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [smtlib-rules] Specified §3.2.1 deterministic VC-to-SMT-LIB scripts
+  and implemented the translator with 22 tests and explicit out-of-fragment refusal.
+  See [plan](docs/plans/2026-08-13-refinement-smtlib-translation.md).
 - ✅ 2026-08-13 — [evidence-bounds] Specified the A1 payload with generator, exact
   rational bound/confidence, Clopper–Pearson method, and partial-order rebind rules.
   See [plan](docs/plans/2026-08-13-evidence-confidence-bounds.md).
