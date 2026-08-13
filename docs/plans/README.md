@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Namespace policy object](2026-08-13-namespace-policy-object.md) | Implemented; PASS |
 | 2026-08-13 | [Evidence confidence bounds](2026-08-13-evidence-confidence-bounds.md) | Implemented; PASS |
 | 2026-08-13 | [Effect documentation and fixture consistency](2026-08-13-effect-documentation-fixture-consistency.md) | Implemented; PASS |
 | 2026-08-13 | [Effect purity soundness](2026-08-13-effect-purity-soundness.md) | Implemented; PASS |
