@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from declarations import DeclarationError, DeclarationRegistry
 from references import check_definition_references
 from scope import check_definition
 from transcode import parse_source
+
+#: Resolves a stored definition hash to the definition's Loom type. The match
+#: layer has no store, so the type of a `ref` is supplied the way `scope.py`
+#: supplies ability arities: injected, never guessed.
+ReferenceTypeResolver = Callable[[bytes], list]
+
+#: §2.5 measures map the recursive argument to a number. v0.1 has no natural
+#: base type, so the prototype checks a measure against `fn D () I64`.
+MEASURE_RESULT = [0, 2]
 
 
 @dataclass(frozen=True)
@@ -73,8 +83,9 @@ def constructor_fields(registry: DeclarationRegistry, data_type, constructor: in
 
 
 class MatchChecker:
-    def __init__(self, registry: DeclarationRegistry):
+    def __init__(self, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None):
         self.registry = registry
+        self.reference_type = reference_type
 
     def check_definition(self, ir) -> None:
         check_definition(ir, self.registry.operation_arity)
@@ -104,12 +115,17 @@ class MatchChecker:
         if tag == 9:
             self._check_handler(term, expected, environment, ambient, path)
             return
+        if tag == 10:
+            self._check_fix(term, expected, environment, ambient, path)
+            return
         actual = self.synth(term, environment, ambient, path)
         if actual != expected:
             _fail(path, f"type mismatch: expected {expected!r}, got {actual!r}")
 
     def synth(self, term, environment: list, ambient: tuple[bytes, ...], path: str):
         tag = term[0]
+        if tag == 1:
+            return self._resolve_reference(term[1], path)
         if tag == 0:
             try:
                 return copy.deepcopy(environment[term[1]])
@@ -159,6 +175,8 @@ class MatchChecker:
             return result
         if tag == 9:
             _fail(path, "handler requires an expected result type")
+        if tag == 10:
+            return self._check_fix(term, None, environment, ambient, path)
         if tag == 11:
             return copy.deepcopy(term[1])
         _fail(path, f"type synthesis for term tag {tag} is not implemented in the nominal match layer")
@@ -202,6 +220,40 @@ class MatchChecker:
         if result_type is None:
             _fail(path, "match over an empty data declaration has no synthesizable result")
         return result_type
+
+    def _resolve_reference(self, digest, path):
+        if self.reference_type is None:
+            _fail(path, f"reference {digest.hex()} is unresolved: the match layer has no reference-type resolver")
+        try:
+            resolved = self.reference_type(digest)
+        except (KeyError, LookupError, DeclarationError):
+            resolved = None
+        if not isinstance(resolved, list) or not resolved:
+            _fail(path, f"reference {digest.hex()} has no resolvable type")
+        return copy.deepcopy(resolved)
+
+    def _check_fix(self, term, expected, environment, ambient, path):
+        annotation = term[1]
+        if expected is not None and annotation != expected:
+            _fail(path, f"fix annotation differs from the expected type: expected {expected!r}, got {annotation!r}")
+        if annotation[0] != 2:
+            # §2.5's measure maps the recursive *argument* to a number, so a
+            # recursive value with no argument has nothing to measure.
+            _fail(path, "fix at a non-function type is not implemented in the nominal match layer")
+        self._closed_row(annotation[2], f"{path}.effect-row")
+        # The measure is checked at the current environment (§2.3.1) as a pure
+        # function from the recursive argument to I64. Whether it *decreases*
+        # is the oracle's `terminates` obligation (§2.5, §6.2); this layer
+        # types the term and discharges nothing.
+        measure_type = [2, copy.deepcopy(annotation[1]), [], copy.deepcopy(MEASURE_RESULT)]
+        self.check(term[2], measure_type, environment, ambient, f"{path}.measure")
+        # Forming a recursive function value is itself pure, so the body checks
+        # under the unchanged ambient allowance; because the annotation is a fn
+        # type, a lam body immediately re-anchors that allowance to the
+        # annotation's own row per §3.1.2.
+        body_environment = [copy.deepcopy(annotation), *environment]
+        self.check(term[3], annotation, body_environment, ambient, f"{path}.body")
+        return copy.deepcopy(annotation)
 
     def _check_handler(self, term, expected, environment, ambient, path):
         try:
@@ -249,7 +301,7 @@ class MatchChecker:
             _fail(path, f"ability {ability.hex()} has no capability value in scope")
 
 
-def validate_source(source: str, registry: DeclarationRegistry):
+def validate_source(source: str, registry: DeclarationRegistry, reference_type: ReferenceTypeResolver | None = None):
     ir = parse_source(source)
-    MatchChecker(registry).check_definition(ir)
+    MatchChecker(registry, reference_type).check_definition(ir)
     return ir

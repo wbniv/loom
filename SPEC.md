@@ -250,6 +250,34 @@ operations (`div`) is an effect-row marker only and can never be the subject of
 type-directed layer requires closed rows—row-polymorphic effect checking remains
 future work.
 
+### 3.1.3 Recursion and stored-reference typing
+
+`fix T measure body` checked against expected type `E` requires `T` to equal `E`;
+in synthesis position it synthesizes `T`. `T` must be a `fn D row C`: §2.5's
+measure maps the recursive *argument* to a number, so a recursive value with no
+argument has nothing to measure, and v0.1 refuses it rather than inventing a
+rule. The `measure` is checked at the current environment — without the
+recursive binder (§2.3.1) — against `fn D () I64`: v0.1 has no natural base
+type, and a measure that is itself effectful is meaningless to the oracle, so
+the row is empty. The `body` is checked against `T` with the recursive value at
+term index 0, under the *unchanged* ambient allowance; forming a recursive
+function value is itself pure, and because `T` is a `fn` type a `lam` body
+immediately re-anchors the allowance to `row` per §3.1.2. A curried recursion
+whose decreasing argument is not the first therefore cannot yet state its
+measure; that is a §2.5 gap, not a checker limitation.
+
+This rule discharges no `terminates` obligation. Whether the measure strictly
+decreases is oracle evidence (§2.5, §6.2); the typing layer only establishes
+that the term has type `T`.
+
+`ref h` obtains its type from the store. A checker with no resolution for `h`
+must report an unresolved reference, never guess — the same refusal §2.3.1
+requires for an unresolvable ability operation. Once resolved, `ref h`
+synthesizes that type and checking compares it structurally. A `ref` whose type
+carries a non-empty row interacts with the ambient allowance exactly as any
+other `fn`-typed value: the row is checked at the application site (§3.1.2),
+with no special case for references.
+
 ### 3.2 Refinements and obligations
 
 Refinement predicates live in a decidable fragment: quantifier-free linear
