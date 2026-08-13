@@ -1,9 +1,10 @@
-"""Canonical data/ability declarations and content-addressed registry."""
+"""Canonical data/ability/extern declarations and content-addressed registry."""
 
 from __future__ import annotations
 
 import copy
 import hashlib
+import unicodedata
 from dataclasses import dataclass
 
 import cbor_canonical
@@ -35,6 +36,20 @@ def _uint(value, path: str) -> int:
 def _nominal_key(value, path: str) -> bytes:
     if not isinstance(value, bytes) or len(value) != 32:
         _error(path, "expected a 32-byte nominal key")
+    return value
+
+
+def _hash32(value, path: str, label: str) -> bytes:
+    if not isinstance(value, bytes) or len(value) != 32:
+        _error(path, f"expected a 32-byte {label}")
+    return value
+
+
+def _nfc_text(value, path: str) -> str:
+    if not isinstance(value, str) or not value:
+        _error(path, "expected non-empty text")
+    if value != unicodedata.normalize("NFC", value):
+        _error(path, "text must be NFC-normalized")
     return value
 
 
@@ -124,6 +139,112 @@ def check_ability_declaration(obj) -> None:
         check_declaration_type(op[1], 0, None, f"ability.operations[{op_index}].result")
 
 
+def _row_abilities(ir, path: str, found: set) -> None:
+    """Collect every ability hash occurring in any effect row of a type."""
+    tag = ir[0]
+    if tag == 1:
+        for index, argument in enumerate(ir[2]):
+            _row_abilities(argument, f"{path}.args[{index}]", found)
+        return
+    if tag == 2:
+        _row_abilities(ir[1], f"{path}.domain", found)
+        for effect in ir[2]:
+            if isinstance(effect, bytes):
+                found.add(effect)
+        _row_abilities(ir[3], f"{path}.codomain", found)
+        return
+    if tag == 3:
+        _row_abilities(ir[1], f"{path}.base", found)
+        return
+    if tag == 6:
+        _row_abilities(ir[1], f"{path}.body", found)
+
+
+def _domain_capabilities(ir, path: str, found: set) -> None:
+    """Collect every ability hash for which a `cap` value is taken as an argument."""
+    tag = ir[0]
+    if tag == 1:
+        for index, argument in enumerate(ir[2]):
+            _domain_capabilities(argument, f"{path}.args[{index}]", found)
+        return
+    if tag == 2:
+        _capabilities_in(ir[1], found)
+        _domain_capabilities(ir[3], f"{path}.codomain", found)
+        return
+    if tag == 3:
+        _domain_capabilities(ir[1], f"{path}.base", found)
+        return
+    if tag == 6:
+        _domain_capabilities(ir[1], f"{path}.body", found)
+
+
+def _capabilities_in(ir, found: set) -> None:
+    tag = ir[0]
+    if tag == 4:
+        found.add(ir[1])
+        return
+    if tag == 1:
+        for argument in ir[2]:
+            _capabilities_in(argument, found)
+        return
+    if tag == 2:
+        _capabilities_in(ir[1], found)
+        _capabilities_in(ir[3], found)
+        return
+    if tag in (3, 6):
+        _capabilities_in(ir[1], found)
+
+
+def check_extern_type(ir, path: str = "extern.type") -> None:
+    """An extern's signature: closed, monomorphic, and capability-honest (§5.1.3).
+
+    `forall` is rejected outright — v0.1 has no term-level type application, so a
+    polymorphic extern could never be used at an instance — and checking at type
+    depth 0 with no `self` arity rejects `tyvar`, row variables, and the
+    declaration-local `self` form along with it.
+    """
+    _reject_forall(ir, path)
+    check_declaration_type(ir, 0, None, path)
+    abilities: set = set()
+    capabilities: set = set()
+    _row_abilities(ir, path, abilities)
+    _domain_capabilities(ir, path, capabilities)
+    missing = sorted(abilities - capabilities)
+    if missing:
+        _error(path, f"effect row names ability {missing[0].hex()} without taking a matching cap parameter")
+
+
+def _reject_forall(ir, path: str) -> None:
+    node = _array(ir, path)
+    if not node:
+        _error(path, "empty type node")
+    tag = node[0]
+    if tag == 6:
+        _error(path, "an extern type may not be polymorphic: v0.1 has no term-level type application")
+    if tag == 1:
+        for index, argument in enumerate(_array(node[2], f"{path}.args")):
+            _reject_forall(argument, f"{path}.args[{index}]")
+        return
+    if tag == 2:
+        _array(node, path, 4)
+        _reject_forall(node[1], f"{path}.domain")
+        _reject_forall(node[3], f"{path}.codomain")
+        return
+    if tag == 3:
+        _array(node, path, 3)
+        _reject_forall(node[1], f"{path}.base")
+
+
+def check_extern_definition(obj) -> None:
+    """Validate an extern definition object `[7, type, artifact, abi]` (§5.1.3)."""
+    node = _array(obj, "extern", 4)
+    if node[0] != 7:
+        _error("extern", "expected object-kind tag 7")
+    check_extern_type(node[1], "extern.type")
+    _hash32(node[2], "extern.artifact", "artifact hash")
+    _nfc_text(node[3], "extern.abi")
+
+
 def declaration_bytes(obj) -> bytes:
     node = _array(obj, "declaration")
     if not node:
@@ -132,8 +253,10 @@ def declaration_bytes(obj) -> bytes:
         check_data_declaration(node)
     elif node[0] == 5:
         check_ability_declaration(node)
+    elif node[0] == 7:
+        check_extern_definition(node)
     else:
-        _error("declaration", f"expected object kind 4 or 5, got {node[0]!r}")
+        _error("declaration", f"expected object kind 4, 5, or 7, got {node[0]!r}")
     return cbor_canonical.encode(node)
 
 
@@ -150,6 +273,15 @@ class DataInfo:
 @dataclass(frozen=True)
 class AbilityInfo:
     parameter_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ExternInfo:
+    """A resolved extern: a type and an ABI, and deliberately no body (§5.1.3)."""
+
+    type: list
+    artifact: bytes
+    abi: str
 
 
 class DeclarationRegistry:
@@ -180,6 +312,18 @@ class DeclarationRegistry:
     def ability_object(self, digest: bytes) -> list:
         """Return an isolated copy of a verified ability declaration."""
         return copy.deepcopy(self._resolve(digest, 5, "ability"))
+
+    def extern(self, digest: bytes) -> ExternInfo:
+        obj = self._resolve(digest, 7, "extern")
+        return ExternInfo(copy.deepcopy(obj[1]), obj[2], obj[3])
+
+    def extern_object(self, digest: bytes) -> list:
+        """Return an isolated copy of a verified extern definition."""
+        return copy.deepcopy(self._resolve(digest, 7, "extern"))
+
+    def reference_type(self, digest: bytes) -> list:
+        """The Loom type a `ref` to this extern has. Externs have no body, ever."""
+        return self.extern(digest).type
 
     def operation_signature(self, digest: bytes, operation: int) -> tuple[list, list]:
         if not isinstance(operation, int) or isinstance(operation, bool) or operation < 0:

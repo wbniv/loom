@@ -71,11 +71,71 @@ def declaration(name: str) -> list:
         raise KeyError(f"unknown corpus data declaration {name!r}") from exc
 
 
+#: The assumed base (layer 1 of the bootstrap corpus): the five §11 extern
+#: definitions tranche 2 needs. They are host primitives, not a WASM component,
+#: so their pinned artifact is the host adapter's published ABI identity, derived
+#: reproducibly under the corpus prefix exactly like a nominal key. One artifact,
+#: five ABI selectors.
+#:
+#: The `abi` text is not a display name — it is the byte string §2.4's `ffi.call`
+#: resolves, and changing it changes what is called. The human names (`I64.add`,
+#: `List.size`) are §5.2 metadata and never enter identity, which is why the keys
+#: of this table and the selectors inside it are deliberately not the same
+#: spellings.
+HOST_ARTIFACT = hashlib.sha256(b"loom:v0.1:corpus:host").digest()
+
+_I64 = [0, 2]
+_BOOL = [0, 1]
+
+
+def _binary(result):
+    """`I64 -> I64 -{}> result`, fully curried with empty rows throughout."""
+    return [2, _I64, [], [2, _I64, [], result]]
+
+
+_EXTERNS = {
+    # I64.add : I64 -> I64 -> I64        (§3.2.1 interpretation `+`)
+    "I64.add": [7, _binary(_I64), HOST_ARTIFACT, "i64.add"],
+    # I64.sub : I64 -> I64 -> I64        (§3.2.1 interpretation `-`)
+    "I64.sub": [7, _binary(_I64), HOST_ARTIFACT, "i64.sub"],
+    # I64.eq  : I64 -> I64 -> Bool       (§3.2.1 interpretation `=`)
+    "I64.eq": [7, _binary(_BOOL), HOST_ARTIFACT, "i64.eq"],
+    # I64.lt  : I64 -> I64 -> Bool       (§3.2.1 interpretation `<`)
+    "I64.lt": [7, _binary(_BOOL), HOST_ARTIFACT, "i64.lt"],
+    # List.size : List I64 -> I64        uninterpreted; the R4 measure primitive
+    "List.size": [7, [2, [1, HASHES["List"], [_I64]], [], _I64], HOST_ARTIFACT, "list.size"],
+}
+
+EXTERN_HASHES = MappingProxyType({name: declaration_hash(obj) for name, obj in _EXTERNS.items()})
+EXTERN_HASH_HEX = MappingProxyType({name: digest.hex() for name, digest in EXTERN_HASHES.items()})
+
+#: Toolchain interpretation table (§3.2.1): extern hash to allowlisted SMT-LIB
+#: symbol. Policy, never part of an object — supplied to the translator, so
+#: identity is untouched. `List.size` is deliberately absent and stays
+#: uninterpreted.
+SMT_INTERPRETATION = MappingProxyType({
+    EXTERN_HASHES["I64.add"]: "+",
+    EXTERN_HASHES["I64.sub"]: "-",
+    EXTERN_HASHES["I64.eq"]: "=",
+    EXTERN_HASHES["I64.lt"]: "<",
+})
+
+
+def extern(name: str) -> list:
+    """Return an isolated copy of a canonical assumed-base extern definition."""
+    try:
+        return copy.deepcopy(_EXTERNS[name])
+    except KeyError as exc:
+        raise KeyError(f"unknown corpus extern {name!r}") from exc
+
+
 def registry() -> DeclarationRegistry:
-    """Builtin abilities (§2.4) plus every corpus data declaration."""
+    """Builtin abilities (§2.4), every corpus data declaration, and the assumed base."""
     result = prelude.registry()
     for name, digest in HASHES.items():
         result.add(_DECLARATIONS[name], expected_hash=digest)
+    for name, digest in EXTERN_HASHES.items():
+        result.add(_EXTERNS[name], expected_hash=digest)
     return result
 
 

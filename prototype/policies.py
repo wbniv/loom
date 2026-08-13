@@ -90,7 +90,7 @@ def _check_sorted_unique(items: list, path: str) -> None:
 #: The closed obligation-kind registry (SPEC.md §5.3.1). A kind outside it,
 #: on either side — an obligation id or a policy selector/requirement — is
 #: rejected rather than admitted at a degraded level (§6.1.1's discipline).
-OBLIGATION_KINDS = {0: "ensures", 1: "terminates", 2: "exhaustive-match", 3: "property"}
+OBLIGATION_KINDS = {0: "ensures", 1: "terminates", 2: "exhaustive-match", 3: "property", 4: "extern"}
 _KIND_TAG_BY_NAME = {name: tag for tag, name in OBLIGATION_KINDS.items()}
 
 

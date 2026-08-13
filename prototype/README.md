@@ -46,13 +46,13 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `sexpr.py` | Bounds-safe lexer and structural reader with source-offset errors. |
 | `transcode.py` | Validates the surface, maps all term/type/literal tags to IR, renders IR back to its canonical surface, encodes definitions, and computes identity. |
 | `scope.py` | Checks term/type de Bruijn indices with path-aware errors; handler checks use an injected ability-operation arity resolver. |
-| `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
+| `declarations.py` | Validates, hashes, and registers canonical data/ability declaration and extern definition objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
 | `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
-| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the seed-set manifest, and the §8.4 few-shot pairs. |
+| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the seed-set manifest, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -65,6 +65,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
+| `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the three recorded expressiveness limits. |
 
 The example fixtures are:
@@ -120,6 +121,18 @@ rules in `SPEC.md` §2.3.1. Handler clauses require a caller-provided resolver f
 operation parameter counts; the checker refuses to guess when store information
 is absent. `transcode.transcode_source` remains deliberately store-independent
 and does not perform this stateful check.
+
+`declarations.py` also validates `SPEC.md` §5.1.3 extern definition objects
+`[7, type, artifact, abi]` — the FFI boundary's store form. An extern's type must
+be closed and monomorphic (`forall`, `tyvar`, row variables, and `self` are all
+refused), its artifact a 32-byte pin, its ABI selector non-empty NFC text, and
+every ability its rows name must be matched by a `cap` parameter so §2.4's
+blast-radius bound survives the boundary. There is no nominal key: `(artifact,
+abi)` is the discriminator, so two externs stating the same call are one object.
+`DeclarationRegistry.extern` resolves one to a type with no body, which is what a
+`ref` to an extern has. The five assumed-base externs the bootstrap corpus's
+tranche 2 needs are pinned in `corpus_registry.EXTERN_HASHES`; see the
+[extern-object plan](../docs/plans/2026-08-13-extern-object-encoding.md).
 
 `references.validate_source` checks nominal declaration existence, kind, and
 explicit `con`/`perform`/`handle` bounds and arities. It does not establish
