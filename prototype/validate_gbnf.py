@@ -25,6 +25,15 @@ EXTRA_VALID = [
     "(def I64 (fix (fn Bool () (fn I64 () I64)) 1 (lam I64 (var 0)) (lam Bool (lam I64 (var 0)))))",
     "(def (fn Bool () Bool) (lam Bool (if (var 0) (lit bool false) (lit bool true))))",
     "(def I64 (if (if (lit bool true) (lit bool false) (var 0)) (lit i64 1) (lit i64 0)))",
+    # Two bootstrap-corpus tranche-2 fixtures (docs/plans/2026-08-13-corpus-
+    # tranche-2.md): `fix`+`ref`+`match`+`con` together (list/append), and a
+    # `fix` whose body itself `ref`s another corpus definition (list/flatMap) —
+    # the surface `validate_gbnf.py.EXTRA_VALID` had not yet exercised a `ref`
+    # nested inside a `fix` body rather than only as a measure. The corpus
+    # directory itself is not globbed here (unlike `examples/`), so these are
+    # copied in rather than read from disk.
+    "(def (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)))) (fix (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)))) 0 (ref 0x4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae) (lam (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) (lam (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) (match (var 1) ((0 0 (var 0)) (1 2 (con 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba 1 ((var 1) (app (app (var 4) (var 0)) (var 2)))))))))))",
+    "(def (fn (fn I64 () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64))) () (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)))) (fix (fn (fn I64 () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64))) () (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)))) 1 (ref 0x4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae) (lam (fn I64 () (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64))) (lam (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) (match (var 0) ((0 0 (con 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba 0 ())) (1 2 (app (app (ref 0x32f5d833f0b7c42ea8252e7ec8810657e9e9d132d395d30a7259e683bc31f791) (app (var 3) (var 1))) (app (app (var 4) (var 3)) (var 0))))))))))",
 ]
 
 INVALID = [

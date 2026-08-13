@@ -247,6 +247,66 @@ MANIFEST = (
         identity="2509a18eb5e81726042a2cef5cd5444955a71c9dce18221ff8a49d0f93c82893",
         tier="checked",
     ),
+    # --- Tranche 2, continued: the remaining recursive list definitions. Every
+    # fix below measures `(ref #List.size)` (the R4 assumed base) and takes no
+    # `div`; `list/concat` and `list/flatMap` additionally `ref` `list/append`,
+    # the corpus's first cross-definition dependency chain (docs/plans/
+    # 2026-08-13-corpus-tranche-2.md).
+    CorpusEntry(
+        fixture="list_append_i64.loom.sexpr",
+        name_path="corpus/list/append",
+        spec="Concatenate two lists, the second following the first.",
+        source="Unison (unisonweb/unison, MIT) List.++, instantiated at I64",
+        identity="32f5d833f0b7c42ea8252e7ec8810657e9e9d132d395d30a7259e683bc31f791",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_reverse_i64.loom.sexpr",
+        name_path="corpus/list/reverse",
+        spec="Reverse a list's element order.",
+        source="Unison (unisonweb/unison, MIT) List.reverse, instantiated at I64",
+        identity="9d677953e4471fb4b1c80accfd4f2cb48d59b08073a9e431f74bd1f0020e249b",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_map_i64.loom.sexpr",
+        name_path="corpus/list/map",
+        spec="Apply a function to every element of a list, preserving its order.",
+        source="Unison (unisonweb/unison, MIT) List.map, instantiated at I64 -> I64",
+        identity="617903dc2f185adc90f658f482357c9961001882d693cab0c4701ae518e21ade",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_fold_left_i64.loom.sexpr",
+        name_path="corpus/list/foldLeft",
+        spec="Collapse a list from the left with a combining function and an initial accumulator.",
+        source="Unison (unisonweb/unison, MIT) List.foldLeft, instantiated at I64",
+        identity="7c880749df1f488a834cc9b2352d0d064dba904e2c7cfd83af762cee2d3b665f",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_concat_i64.loom.sexpr",
+        name_path="corpus/list/concat",
+        spec="Concatenate two lists by delegating to `append`.",
+        source=(
+            "Unison (unisonweb/unison, MIT) List.++, instantiated at I64 "
+            "(second instantiation, composed via `ref` into corpus/list/append "
+            "to exercise the manifest's first cross-definition reference)"
+        ),
+        identity="9bdf05836448d24d7c66f987cbf6de55e7a7bfa303c4636db9b259958c9d93a1",
+        tier="checked",
+    ),
+    CorpusEntry(
+        fixture="list_flat_map_i64.loom.sexpr",
+        name_path="corpus/list/flatMap",
+        spec="Apply a list-producing function to every element and concatenate the results.",
+        source=(
+            "Unison (unisonweb/unison, MIT) List.flatMap, instantiated at I64 "
+            "-> I64, composed via `ref` into corpus/list/append for its Cons step"
+        ),
+        identity="72fe5503bbf99fd187a83b5fd5cca4f6df2c5747fcd0d934457e7c96f6f4e6ed",
+        tier="checked",
+    ),
 )
 
 

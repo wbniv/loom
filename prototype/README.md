@@ -115,6 +115,23 @@ the new rule leaves in place: a measure reads one argument, so a recursion
 descending on two at once, where neither decreases alone, still has to take
 `div`.
 
+Tranche 2 (the recursive slice) is now built out: `list/append`, `list/reverse`,
+`list/map`, `list/foldLeft`, `list/concat`, and `list/flatMap` join
+`list/foldRight`, all reaching `checked` with the measure `(ref #List.size)`
+and no `div`, per the
+[tranche-2 plan](../docs/plans/2026-08-13-corpus-tranche-2.md). `list/size`
+itself stays assumed base (`corpus_registry.EXTERN_HASHES`), never a fixture.
+`list/concat` and `list/flatMap` are the manifest's first cross-definition
+`ref`s — each `ref`s `list/append` rather than re-deriving structural
+recursion, and `corpus_registry.reference_type()` resolves the reference
+through `definition_types.DefinitionTypeRegistry` exactly as it already did
+for the assumed base, just against a manifest entry's validated type instead
+of an extern's. The tranche stays monomorphic at `I64`: a genuine
+`List (List I64)`-flattening `concat`, or any generic recursion over a
+`forall`-bound element type, would need a second `List.size`-shaped measure
+instantiated at the nested type, which is out of scope here and recorded as
+residue in the tranche-2 plan.
+
 The instantiation gap that remained after the first lift — v0.1 could write a
 polymorphic definition but not *call* one at a concrete type — is itself now
 closed by the

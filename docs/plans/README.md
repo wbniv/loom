@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Bootstrap corpus tranche 2: the recursive slice](2026-08-13-corpus-tranche-2.md) | Implemented; PASS |
 | 2026-08-13 | [Claude review remediation and tranche integration](2026-08-13-claude-review-remediation.md) | Implemented; PASS |
 | 2026-08-13 | [Callback-extern consequence, stated normatively](2026-08-13-callback-extern-consequence.md) | Implemented; PASS |
 | 2026-08-13 | [First-order `forall` instantiation](2026-08-13-forall-instantiation.md) | Implemented; PASS |
