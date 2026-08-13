@@ -5,6 +5,9 @@ lives in [SPEC.md](SPEC.md). Loom is a thought experiment made precise:
 what a language looks like when its only authors are LLM agents and human
 ergonomics get zero design weight.
 
+The canonical generation surface uses S-expressions, but Loom is not a Lisp
+dialect; see [Is Loom a Lisp?](docs/loom-vs-lisp.md).
+
 **Status: design fiction, unimplemented.** Every rule in the spec is
 written as normative so the design can be attacked concretely, not because
 any of it runs.
