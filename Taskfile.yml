@@ -1,0 +1,32 @@
+version: '3'
+
+includes:
+  shared:
+    taskfile: ../python-tui-lib/Taskfile.shared.yml
+    optional: true
+    flatten: true
+
+silent: true
+
+tasks:
+  todo:lint:
+    desc: Check TODO.md against the four-bucket + delegation-tier spec
+    cmds:
+      - python3 ../python-tui-lib/scripts/todo-lint.py TODO.md
+
+  todo:fix:
+    desc: Apply the mechanical TODO.md fixes (never assigns a tier)
+    cmds:
+      - python3 ../python-tui-lib/scripts/todo-lint.py --fix TODO.md
+
+  todo:stale:
+    desc: Surface open TODO items older than N days (N=30 by default)
+    vars:
+      DAYS: '{{.DAYS | default "30"}}'
+    cmds:
+      - python3 ../python-tui-lib/scripts/old-todos.py --days {{.DAYS}} --project {{base .TASKFILE_DIR}}
+
+  todo:init:
+    desc: Scaffold TODO.md from the shared template (refuses to clobber)
+    cmds:
+      - bash ../python-tui-lib/scripts/todo-init.sh .
