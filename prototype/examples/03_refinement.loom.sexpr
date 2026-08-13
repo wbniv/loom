@@ -1,0 +1,18 @@
+; pos_of : I64 -> {y : I64 | y > 0}
+; Exercises: `refine` type (SS2.3), `hole` term (SS2.6) standing in for a
+; proof-carrying body, and a predicate term built from `ref`/`app`/`lit`.
+; `gt` is a prototype fixture hash: 0xf41412f6... = sha256("loom-proto:builtin:gt").
+
+(def
+  (fn I64 ()
+    (refine I64
+      (app (app (ref 0xf41412f633b062bb8caf5461a0e69aeb94ab3fb5646b290aa1a1ae65e9c04fa8)
+                (var 0))
+           (lit i64 0))))
+  (lam I64
+    (hole
+      (refine I64
+        (app (app (ref 0xf41412f633b062bb8caf5461a0e69aeb94ab3fb5646b290aa1a1ae65e9c04fa8)
+                  (var 0))
+             (lit i64 0)))
+      ())))

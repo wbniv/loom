@@ -62,7 +62,9 @@ elaborated terms, and prose lives in metadata (§5.2), never in the term.
 
 Literal kinds: `0` unit, `1` bool, `2` i64, `3` f64 (8 raw bytes,
 IEEE‑754 big-endian byte string — NaNs canonicalized to a single quiet NaN),
-`4` text (Unicode NFC), `5` bytes.
+`4` text (Unicode NFC), `5` bytes. `unit` has no payload: its node is the
+2-element array `[2, 0]` — `v` is omitted, not null-padded — since kind 0 is
+the only one with nothing to carry.
 
 ### 2.3 Types
 

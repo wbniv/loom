@@ -1,0 +1,65 @@
+# loom.gbnf — llama.cpp-style grammar for the Loom S-expression isomorph
+# surface (SPEC.md SS8.4). Constrains sampling to well-formed *shapes* only:
+# node arity and keyword choice, matching the term/type tag tables in
+# SPEC.md SS2.1/SS2.3 and the literal-kind table in SS2.2.
+#
+# What this grammar CANNOT enforce (SPEC.md SS8.2's honest limit, restated
+# for this concrete artifact): `var` index < enclosing binder depth, `match`
+# arm exhaustiveness, `con` constructor-index bounds against its `data`
+# definition, and every type/refinement obligation. Those need either a
+# stateful logit processor tracking traversal depth (scope) or the oracle
+# at check time (typing, refinements) — see prototype/README.md. A CFG only
+# ever buys syntactic well-formedness; transcode.py's test suite is what
+# currently stands in for the rest.
+
+root       ::= ws "(" ws "def" ws type ws term ws ")" ws
+
+# --- types (SPEC.md SS2.3) --------------------------------------------------
+type       ::= base-kw
+             | "(" ws "base" ws base-kw ws ")"
+             | "(" ws "data" ws hash ws "(" ws type-list ws ")" ws ")"
+             | "(" ws "fn" ws type ws "(" ws hash-list ws ")" ws type ws ")"
+             | "(" ws "refine" ws type ws term ws ")"
+             | "(" ws "cap" ws hash ws ")"
+             | "(" ws "tyvar" ws int ws ")"
+             | "(" ws "forall" ws type ws ")"
+base-kw    ::= "Unit" | "Bool" | "I64" | "F64" | "Text" | "Bytes"
+type-list  ::= "" | type (ws type)*
+
+# --- terms (SPEC.md SS2.1) --------------------------------------------------
+term       ::= "(" ws "var" ws int ws ")"
+             | "(" ws "ref" ws hash ws ")"
+             | literal
+             | "(" ws "lam" ws type ws term ws ")"
+             | "(" ws "app" ws term ws term ws ")"
+             | "(" ws "let" ws type ws term ws term ws ")"
+             | "(" ws "con" ws hash ws int ws "(" ws term-list ws ")" ws ")"
+             | "(" ws "match" ws term ws "(" ws arm-list ws ")" ws ")"
+             | "(" ws "perform" ws hash ws int ws "(" ws term-list ws ")" ws ")"
+             | "(" ws "handle" ws hash ws term ws "(" ws op-list ws ")" ws term ws ")"
+             | "(" ws "fix" ws type ws term ws term ws ")"
+             | "(" ws "hole" ws type ws "(" ws term-list ws ")" ws ")"
+term-list  ::= "" | term (ws term)*
+arm        ::= "(" ws int ws int ws term ws ")"
+arm-list   ::= "" | arm (ws arm)*
+op         ::= "(" ws int ws term ws ")"
+op-list    ::= "" | op (ws op)*
+
+# --- literals (SPEC.md SS2.2) -----------------------------------------------
+literal    ::= "(" ws "lit" ws "unit" ws ")"
+             | "(" ws "lit" ws "bool" ws bool ws ")"
+             | "(" ws "lit" ws "i64" ws int ws ")"
+             | "(" ws "lit" ws "f64" ws float ws ")"
+             | "(" ws "lit" ws "text" ws string ws ")"
+             | "(" ws "lit" ws "bytes" ws hash ws ")"
+bool       ::= "true" | "false"
+
+# --- lexical -----------------------------------------------------------------
+hash-list  ::= "" | hash (ws hash)*
+hash       ::= "0x" hexdigit{64}
+hexdigit   ::= [0-9a-fA-F]
+int        ::= "-"? [0-9]+
+float      ::= "-"? [0-9]+ "." [0-9]+ ("e" ("+"|"-")? [0-9]+)?
+             | "nan"
+string     ::= "\"" ([^"\\] | "\\" .)* "\""
+ws         ::= [ \t\n\r]*
