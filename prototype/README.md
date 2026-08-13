@@ -49,7 +49,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `declarations.py` | Validates, hashes, and registers canonical data/ability declaration objects, including recursive data `self` types. |
 | `references.py` | Resolves nominal data/ability hashes and checks explicit constructor/operation bounds and arities. |
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
-| `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
+| `matches.py` | Bidirectional nominal/match, closed-row effect/handler, and `fix`/`ref` checking for the first type-directed subset; `ref` types come from an injected resolver. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
 | `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the seed-set manifest, and the §8.4 few-shot pairs. |
@@ -63,6 +63,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_prelude.py` | Pins builtin ABI hashes and validates representative operations, handlers, rows, and capabilities. |
 | `test_matches.py` | Parameter substitution, recursive self, binder ordering, exhaustiveness, and arm-type agreement tests. |
 | `test_effects.py` | Function-row, operation-signature, capability, handler, and continuation typing tests. |
+| `test_fix_ref.py` | Recursive-binder, measure-shape, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, dependency order, and the three recorded expressiveness limits. |
