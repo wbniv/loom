@@ -27,24 +27,24 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Decide definition-level polymorphism (corpus finding 1).** Rank-1 `forall`
+- [wip T4] <!-- agent:a78b419a50bbcf3fd --> **Decide definition-level polymorphism (corpus finding 1).** Rank-1 `forall`
   is uninhabitable by any `lam`: §2.3.1 checks terms at type depth 0, so a polymorphic
   signature's own parameter annotation is out of scope. Options: `tylam`/`tyapp` nodes
   (mask cost), thread the type's `forall` depth into the term, or declare Loom
   honestly monomorphic at definition level. See
   [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T4: core §2 design call.)
 
-- [T4] **Decide the Bool elimination form (corpus finding 2).** `Bool` is a base type
+- [wip T4] <!-- agent:a78b419a50bbcf3fd --> **Decide the Bool elimination form (corpus finding 2).** `Bool` is a base type
   with no conditional and no nominal match, so `not`, `filter`, `contains` are
   inexpressible. Options: an `if` node, demoting Bool to prelude data, or accepting
   the gap. Deliberately not worked around with a corpus `Bool2`. (T4: core §2 design.)
 
-- [T3] **Specify the extern object encoding (§11; blocks corpus tranche 2).** §11's
+- [wip T3] <!-- agent:acd6df31962cc59f2 --> **Specify the extern object encoding (§11; blocks corpus tranche 2).** §11's
   `extern` has no object encoding among §4.3's kinds, so assumed-base definitions
   (`I64.add`, `List.size`, …) cannot be stored. One new object kind, following the
   §5.3.1 authoring pattern.
 
-- [T3] **Extend the type-directed layer to `fix` and `ref` (corpus finding 3).** Both
+- [wip T3] <!-- agent:a68fa054bbec849fc --> **Extend the type-directed layer to `fix` and `ref` (corpus finding 3).** Both
   pass scope/reference validation but have no match-layer typing rule, capping corpus
   recursion at the structural tier. Measures per §2.5; `ref` types resolved from the
   registry.
