@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/317c514) | Implement §3.3 subsumption in typecheck, re-tier tranche-4 fixtures |
 | [2026-08-13](https://github.com/wbniv/loom/commit/c1a84ce) | Build masked-generation experiment Phase A harness |
 | [2026-08-13](https://github.com/wbniv/loom/commit/b99ed7e) | Define the obligation pipeline and three-way sat semantics |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
@@ -31,6 +32,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+317c514	author	Will Norris
+317c514	added	1
+317c514	deleted	0
+317c514	files	1
+317c514	body	typecheck.py's check() now admits a refinement-only type mismatch as\n{x:T|φ} <: {x:T|ψ} instead of rejecting it structurally: erase every\n`refine` node from both sides, and if the erased shapes agree, emit one\nsubtyping obligation per differing position (a missing predicate on\neither side is `true`, per §3.2.1). This is opt-in via a new\n`obligations` collector on MatchChecker/validate_source — with no\ncollector the rejection is byte-for-byte what it was before, which is\nwhat makes the typecheck contract bump MINOR (1.0 -> 1.1) rather than\nMAJOR. Typing never consults a solver (unchanged from the\nobligation-pipeline plan's R1): admission is unconditional once the\nerased shapes agree.\n\nRe-tiers corpus/math/abs, corpus/list/lengthNat, and corpus/nat/widenPos\nfrom `structural` to `checked` (residue 1 of the obligation-pipeline\nplan). All six pinned obligation script hashes are unchanged;\nnat/widenPos's pinned obligation is now also exactly what the checker\nemits at its one subsumption site. math/abs and lengthNat still need\ntheir hand-authored obligations for real soundness -- the checker's own\nautomatic obligation at their sites is a weaker claim that a live z3 run\nrefutes, which is recorded rather than smoothed over.\n\nSee docs/plans/2026-08-13-refinement-subsumption.md for the erasure\nrule, the per-position/outer-context design, and the live-solver\nre-derivation.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 c1a84ce	author	Will Norris
 c1a84ce	added	2
 c1a84ce	deleted	1

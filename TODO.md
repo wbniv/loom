@@ -27,13 +27,19 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Build experiment Phase B: the incremental type-state masker (gated on
-  Phase A's failure profile).** The per-token prefix-feasibility API — GBNF syntax
-  layer plus the §8.2 type-state subset, prioritized by whichever checker layer
-  Phase A shows killing most GBNF-valid generations; record which checker
-  operations cannot run per token. Then run condition 4 and complete the R5
-  comparison against rejection sampling. (T4: the genuinely new design; do not
-  dispatch before Phase A reports.)
+- [T4] **Build Phase B1: the profile-independent masker core.** Per the
+  [Phase B plan](docs/plans/2026-08-13-experiment-phase-b.md): transport decision
+  (llama-cpp-python logits processor is the likely winner), the syntax-feasibility
+  layer with prefix-soundness tests over every corpus fixture, the type-state
+  skeleton with two toggleable timed pruners, condition-4 runner integration
+  stub-tested end-to-end, and per-token instrumentation. (T4: transport and mask
+  design; soundness is the critical property.)
+
+- [T4] **Complete Phase B2: profile-directed pruners and the condition-4 run
+  (gated on Phase A's failure distribution).** Pruner priority from the Phase A
+  report, the live condition-4 run, the R5 comparison, prediction scoring. See
+  [plan](docs/plans/2026-08-13-experiment-phase-b.md). (T4: do not dispatch before
+  Phase A reports.)
 
 - [T4] **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
@@ -174,4 +180,5 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [verify] **2026-08-13-experiment-phase-b** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-13-experiment-phase-b.md](docs/plans/2026-08-13-experiment-phase-b.md)_  <!-- fp:354c93a95639b259 -->
 <!-- END auto-captured-deferrals -->
