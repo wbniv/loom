@@ -1,5 +1,7 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/a19d194) | Close effect-consistency review follow-ups |
+| [2026-08-13](https://github.com/wbniv/loom/commit/64e1cf8) | Specify the namespace policy object format |
 | [2026-08-13](https://github.com/wbniv/loom/commit/749804c) | Define the refinement-to-SMT-LIB translation rules |
 | [2026-08-13](https://github.com/wbniv/loom/commit/42ffcdd) | Add confidence-bound fields to A1 property evidence |
 | [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
@@ -11,6 +13,16 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+a19d194	author	Will Norris
+a19d194	added	1
+a19d194	deleted	0
+a19d194	files	1
+a19d194	body	Eight doc/test-level fixes from the 2026-08-13 effect-consistency change\nreview plus two later review notes: complete SPEC.md §3.1.2's expected-type\ncontext list, fix SPEC.md's stale status header, add a dedicated pinned test\nfor the direct-application effect rejection, correct the effect-purity\nchange review's resolution note (the rejection test actually already\nexisted, contrary to the later review's finding), document the GBNF\nvalidator build recipe, import the design sketch from outside the repo and\nrepair all broken ../docs/ references, reword §6.1.1's circular confidence\nclause, and record the F64 bitwise-equality design fork. No checker or\ntranslator behavior changed.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
+64e1cf8	author	Will Norris
+64e1cf8	added	1
+64e1cf8	deleted	0
+64e1cf8	files	1
+64e1cf8	body	Close SPEC.md §13 open problem 6(a). `policy-ref` (§5.3), "the level the\npolicy allows" (§6.3), "policy-required properties" (§6.2), §11's assumption\ncount and §8.3's redraw budget were all normative uses of an object with no\nspecified format, which blocked any store implementation.\n\n- New object kind 6 `policy` (§4.3, §5.1), encoded `[6, policy-map]` — a\n  CBOR map with unsigned-integer keys where an absent key states no\n  constraint, and an unrecognized key rejects the object.\n- §5.3.1: ten keys; a closed obligation-kind registry; selectors as prefixes\n  of the (kind, detail) decomposition matching conjunctively with no\n  precedence; requirements as points in the §6.1.2 lattice with a mandatory\n  (bound, confidence, generator) triple at A1; injected `property.<name>`\n  obligations; global and per-ability assumption budgets.\n- §5.3.2: `POLICY` reserved as a leaf name; resolution walks strictly upward\n  and bottoms out at the pinned default policy `[6, {}]` = #901f33bd, so\n  nothing resolves in a circle; a descendant policy must dominate its\n  ancestor, so `policy-ref` is a complete audit record; policy amendment is\n  monotone unless the predecessor states `relax`, without which §6.3 is\n  defeatable in two individually-passing steps.\n- Surgical consistency edits to §3.4, §6.2, §6.3, §8.3, §9, §11 and §12,\n  which now shows `stats/POLICY`'s actual contents.\n- §13 open problem 6(a) narrowed to residue; the lease protocol stays open\n  problem 4 and generator comparability stays 6(b).\n\nPlan: docs/plans/2026-08-13-namespace-policy-object.md\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 749804c	author	Will Norris
 749804c	added	1
 749804c	deleted	0
