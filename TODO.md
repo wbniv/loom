@@ -27,19 +27,14 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:a78b419a50bbcf3fd --> **Decide definition-level polymorphism (corpus finding 1).** Rank-1 `forall`
-  is uninhabitable by any `lam`: §2.3.1 checks terms at type depth 0, so a polymorphic
-  signature's own parameter annotation is out of scope. Options: `tylam`/`tyapp` nodes
-  (mask cost), thread the type's `forall` depth into the term, or declare Loom
-  honestly monomorphic at definition level. See
-  [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T4: core §2 design call.)
+- [T2] **Implement first-order `forall` instantiation (§3.1.3's stated future rule).**
+  A quantified `ref` is instantiated by first-order matching against an expected type
+  supplied through a typed `let`; the rule is spelled out in §3.1.3 and the `ref`
+  typing rule it needed now exists (§3.1.5). Proof: a definition calling
+  `corpus/maybe/mapPoly` at `I64`. (T2: the spec states the rule; ~20-line checker
+  change plus tests.)
 
-- [wip T4] <!-- agent:a78b419a50bbcf3fd --> **Decide the Bool elimination form (corpus finding 2).** `Bool` is a base type
-  with no conditional and no nominal match, so `not`, `filter`, `contains` are
-  inexpressible. Options: an `if` node, demoting Bool to prelude data, or accepting
-  the gap. Deliberately not worked around with a corpus `Bool2`. (T4: core §2 design.)
-
-- [T4] **Decide §2.5 measure selection for curried recursion (fix/ref finding).** A
+- [wip T4] <!-- agent:a3a8d49ee66a1f961 --> **Decide §2.5 measure selection for curried recursion (fix/ref finding).** A
   measure checks against `fn D () I64` over the function's *first* domain, so a
   curried recursion whose decreasing argument is not the first (`foldRight : (a → b
   → b) → b → List a → b`) cannot state `(ref #List.size)` as its measure — §2.5 has
@@ -72,6 +67,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [poly-and-bool] Threaded `forall` depth into term checking (zero
+  tags, prenex rank-1 enforced) and added `if` as tag 12; both corpus limits lifted.
+  See [plan](docs/plans/2026-08-13-polymorphism-and-bool-elimination.md).
 - ✅ 2026-08-13 — [extern-encoding] Specified kind-7 extern objects (§5.1.3) with
   capability-honest rows, five pinned corpus externs, and 29 tests; tranche 2 unblocked.
   See [plan](docs/plans/2026-08-13-extern-object-encoding.md).
