@@ -54,7 +54,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
-| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the five assumed-base §11 externs with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest with its §3.2.1 obligations and pinned script hashes, and the §8.4 few-shot pairs. |
+| `corpus_registry.py` | Bootstrap-corpus data declarations with reproducible nominal keys, the nine assumed-base §11 externs (five arithmetic, four boolean/comparison) with their pinned identities and interpretation table, the registry-backed `ref`-type resolver, the seed-set manifest with its §3.2.1 obligations and pinned script hashes, and the §8.4 few-shot pairs. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
 | `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
@@ -69,7 +69,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `test_instantiation.py` | First-order `forall` instantiation: monomorphic and polymorphic-caller instantiation via a typed `let`, the `corpus/maybe/mapPoly`-at-`I64` proof definition, and inconsistent-binding/unbound-`tyvar`/structural-mismatch/row-variable rejection tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
-| `test_externs.py` | Pinned identities for the five assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, and the §3.2.1 interpretation table over extern hashes. |
+| `test_externs.py` | Pinned identities for the nine assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, the §3.2.1 interpretation table over extern hashes, and a demonstration that a hypothesis conjoining two comparisons with `and` now translates deterministically. |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, the §3.2.1 obligations with their pinned script hashes and expected verdicts (also both directions, plus an optional solver run), and the recorded expressiveness limits (two of them re-pinned as lifted). |
 
 The example fixtures are:
@@ -233,9 +233,12 @@ every ability its rows name must be matched by a `cap` parameter so §2.4's
 blast-radius bound survives the boundary. There is no nominal key: `(artifact,
 abi)` is the discriminator, so two externs stating the same call are one object.
 `DeclarationRegistry.extern` resolves one to a type with no body, which is what a
-`ref` to an extern has. The five assumed-base externs the bootstrap corpus's
-tranche 2 needs are pinned in `corpus_registry.EXTERN_HASHES`; see the
-[extern-object plan](../docs/plans/2026-08-13-extern-object-encoding.md).
+`ref` to an extern has. The nine assumed-base externs — the five the bootstrap
+corpus's tranche 2 needs plus `Bool.and`/`Bool.or`/`Bool.not`/`I64.le`, which give
+§3.2.1's `and or not <=` interpreted symbols something to interpret — are pinned
+in `corpus_registry.EXTERN_HASHES`; see the
+[extern-object plan](../docs/plans/2026-08-13-extern-object-encoding.md) and the
+[boolean-base-externs plan](../docs/plans/2026-08-13-boolean-base-externs.md).
 
 `references.validate_source` checks nominal declaration existence, kind, and
 explicit `con`/`perform`/`handle` bounds and arities. It does not establish

@@ -80,10 +80,12 @@ def declaration(name: str) -> list:
 
 
 #: The assumed base (layer 1 of the bootstrap corpus): the five §11 extern
-#: definitions tranche 2 needs. They are host primitives, not a WASM component,
-#: so their pinned artifact is the host adapter's published ABI identity, derived
-#: reproducibly under the corpus prefix exactly like a nominal key. One artifact,
-#: five ABI selectors.
+#: definitions tranche 2 needs, plus the four boolean/comparison externs that
+#: give §3.2.1's `and or not <=` interpreted symbols something to interpret
+#: (docs/plans/2026-08-13-boolean-base-externs.md). They are host primitives,
+#: not a WASM component, so their pinned artifact is the host adapter's
+#: published ABI identity, derived reproducibly under the corpus prefix exactly
+#: like a nominal key. One artifact, nine ABI selectors.
 #:
 #: The `abi` text is not a display name — it is the byte string §2.4's `ffi.call`
 #: resolves, and changing it changes what is called. The human names (`I64.add`,
@@ -101,6 +103,16 @@ def _binary(result):
     return [2, _I64, [], [2, _I64, [], result]]
 
 
+def _binary_bool(result):
+    """`Bool -> Bool -{}> result`, fully curried with empty rows throughout."""
+    return [2, _BOOL, [], [2, _BOOL, [], result]]
+
+
+def _unary_bool(result):
+    """`Bool -{}> result`, curried with an empty row."""
+    return [2, _BOOL, [], result]
+
+
 _EXTERNS = {
     # I64.add : I64 -> I64 -> I64        (§3.2.1 interpretation `+`)
     "I64.add": [7, _binary(_I64), HOST_ARTIFACT, "i64.add"],
@@ -112,6 +124,14 @@ _EXTERNS = {
     "I64.lt": [7, _binary(_BOOL), HOST_ARTIFACT, "i64.lt"],
     # List.size : List I64 -> I64        uninterpreted; the R4 measure primitive
     "List.size": [7, [2, [1, HASHES["List"], [_I64]], [], _I64], HOST_ARTIFACT, "list.size"],
+    # I64.le  : I64 -> I64 -> Bool       (§3.2.1 interpretation `<=`)
+    "I64.le": [7, _binary(_BOOL), HOST_ARTIFACT, "i64.le"],
+    # Bool.and : Bool -> Bool -> Bool    (§3.2.1 interpretation `and`)
+    "Bool.and": [7, _binary_bool(_BOOL), HOST_ARTIFACT, "bool.and"],
+    # Bool.or  : Bool -> Bool -> Bool    (§3.2.1 interpretation `or`)
+    "Bool.or": [7, _binary_bool(_BOOL), HOST_ARTIFACT, "bool.or"],
+    # Bool.not : Bool -> Bool            (§3.2.1 interpretation `not`)
+    "Bool.not": [7, _unary_bool(_BOOL), HOST_ARTIFACT, "bool.not"],
 }
 
 EXTERN_HASHES = MappingProxyType({name: declaration_hash(obj) for name, obj in _EXTERNS.items()})
@@ -126,6 +146,10 @@ SMT_INTERPRETATION = MappingProxyType({
     EXTERN_HASHES["I64.sub"]: "-",
     EXTERN_HASHES["I64.eq"]: "=",
     EXTERN_HASHES["I64.lt"]: "<",
+    EXTERN_HASHES["I64.le"]: "<=",
+    EXTERN_HASHES["Bool.and"]: "and",
+    EXTERN_HASHES["Bool.or"]: "or",
+    EXTERN_HASHES["Bool.not"]: "not",
 })
 
 #: Reference signatures the §3.2.1 translator needs to uncurry a `ref` occurring
