@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+import obligations
 import prelude
 import refinements
 from declarations import DeclarationRegistry, declaration_hash
@@ -200,16 +201,22 @@ def reference_type(source: DeclarationRegistry | None = None):
     return resolve
 
 
-#: A pinned obligation's expected solver verdict on its canonical script.
+#: A pinned obligation's raw solver answer on its canonical script. This is an
+#: observation and stays one: the optional solver run reproduces it, and no
+#: interpretation of it is allowed to overwrite it.
 #:
-#: ``unsat`` — the refutation fails, so the goal is valid under the hypothesis
-#:             and the obligation earns A3 `proof` evidence (§3.2.1, §6.1).
-#: ``sat``   — the refutation succeeds: the verification condition **as v0.1 can
-#:             build it** is refuted. That is never "we did not try hard enough";
-#:             §3.2.1 says a `sat` rejects the binding. Every `sat` here is a
-#:             true `ensures` claim whose proof needs a fact the v0.1 VC shape
-#:             cannot carry, and each one records which fact in `note`.
+#: ``unsat`` — the refutation fails, so the goal is valid under the hypothesis.
+#: ``sat``   — the refutation succeeds: the script has a model. Whether that
+#:             model *refutes the obligation* is a separate question §3.2.1
+#:             answers with exactness, and `outcome` below records the answer.
 VERDICTS = ("unsat", "sat")
+
+#: The §3.2.1 three-way result an obligation reaches, derived from `verdict` and
+#: the emitted script's exactness by `obligations.outcome`. Pinned as manifest
+#: data and checked against a fresh derivation, the way `tier` and `effect_free`
+#: are — so the manifest can neither invent an outcome the rule does not produce
+#: nor silence one it does.
+OUTCOMES = obligations.OUTCOMES
 
 
 @dataclass(frozen=True)
@@ -230,7 +237,14 @@ class Obligation:
     this tranche, not a gap papered over.
 
     `script_hash` pins the SHA-256 of the canonical script, which is the memo
-    ledger's payload key (§6.4). `verdict` pins what a solver returns for it.
+    ledger's payload key (§6.4). `verdict` pins the raw answer a solver returns
+    for it and `outcome` pins what §3.2.1 makes of that answer.
+
+    `producer` says which verification-condition producer built this triple.
+    Only `subtype` is one §3.2.1 specifies; `authored` marks the hand-written
+    body summaries above, and it is what stops a `sat` over one of them from
+    refuting a definition that is in fact correct. The field is not taken on
+    trust — `test_corpus` derives it from the fixture's own declared type.
     """
 
     name: str
@@ -239,8 +253,28 @@ class Obligation:
     stronger: list
     script_hash: str
     verdict: str
+    outcome: str
+    producer: str
     note: str = ""
     outer_context: tuple = ()
+
+    def condition(self) -> obligations.VerificationCondition:
+        """This obligation as a §3.2.1 `(Γ, H, g)` carrying its producer."""
+        if self.producer == obligations.PRODUCER_SUBTYPING:
+            return obligations.subtyping_condition(
+                self.base, self.weaker, self.stronger, self.outer_context)
+        return obligations.authored_condition(
+            [self.base, *self.outer_context], [self.weaker], self.stronger)
+
+    def emit(self, declarations: DeclarationRegistry | None = None) -> obligations.EmittedObligation:
+        """Run this obligation through the emission layer (§3.2.1, §6.2)."""
+        return obligations.emit_condition(
+            self.name,
+            self.condition(),
+            declarations if declarations is not None else registry(),
+            SMT_SIGNATURES,
+            SMT_INTERPRETATION,
+        )
 
     def script(self, declarations: DeclarationRegistry | None = None) -> str:
         """The canonical SMT-LIB script for this verification condition."""
@@ -583,13 +617,18 @@ MANIFEST = (
                 stronger=_NAT,
                 script_hash="3f2827e45b57868083f5281a54e7527086fce2ed7fd1e2b562fb61c602c6b883",
                 verdict="unsat",
+                outcome="proved",
+                producer="authored",
                 note=(
                     "Valid in the encoding, and a live instance of §3.2.1's stated "
                     "`Int` fidelity limit: at x = -2^63 the real `I64.sub 0 x` wraps "
                     "back to a negative value, but the domain axiom on the result "
                     "makes that model infeasible rather than modelling the wrap. The "
                     "A3 this earns is A3 relative to `I64.sub`'s A0 extern assumption "
-                    "(§5.1.3), and that assumption is where the overflow hides."
+                    "(§5.1.3), and that assumption is where the overflow hides. The "
+                    "script is inexact for exactly that reason (it uses `-`), which "
+                    "changes nothing on the `unsat` side but records the A0-relativity "
+                    "as a derived fact rather than a comment."
                 ),
             ),
         ),
@@ -620,13 +659,18 @@ MANIFEST = (
                 stronger=_NAT,
                 script_hash="253432acedceb5a09769bb82edff1c73f0f8100a213b7a940107493b1cfbe4c5",
                 verdict="sat",
+                outcome="undischarged",
+                producer="authored",
                 note=(
                     "`List.size` is deliberately absent from SMT_INTERPRETATION, so it "
                     "translates to an uninterpreted function about which the solver "
                     "learns congruence and nothing else — no lower bound. F* proves "
                     "`length` nonnegative by induction over the list; the v0.1 "
                     "fragment is quantifier-free and has no induction, so the routes "
-                    "are an A0 range assumption on the extern or body-VC generation."
+                    "are an A0 range assumption on the extern or body-VC generation. "
+                    "The `declare-fun` is also what makes the script inexact, so the "
+                    "model is an artifact and the outcome is `undischarged`, not a "
+                    "refutation of a true claim."
                 ),
             ),
         ),
@@ -656,9 +700,16 @@ MANIFEST = (
                 stronger=_NAT,
                 script_hash="0aee355cf7a5bdffb9ae32b9c859203e96140431c978d21b0572d3f1a9cf00c1",
                 verdict="unsat",
+                outcome="proved",
+                producer="subtype",
                 note=(
                     "The tranche's flagship: the one obligation whose discharge would "
-                    "turn its own fixture from `structural` into `checked`."
+                    "turn its own fixture from `structural` into `checked`. It is also "
+                    "the corpus's only *exact* verification condition (the one it "
+                    "shares with corpus/nat/applyPos) — generated by "
+                    "§3.2.1's one specified producer and translated with no "
+                    "uninterpreted symbol, no opaque sort, no erasure, and no "
+                    "arithmetic — so a `sat` here would have been a real refutation."
                 ),
             ),
         ),
@@ -686,6 +737,8 @@ MANIFEST = (
                                       [1, 2, _app([1, _LT], _i64(-1), [0, 1])]]],
                 script_hash="067345e1c37280e8047dfb020e7f5086a7bcd19bbda18406ba4a7b2f92ff30db",
                 verdict="sat",
+                outcome="undischarged",
+                producer="authored",
                 note=(
                     "The element refinement is erased: §3.2.1 refinement-erases a type "
                     "in sort position 'recursively, including inside data type "
@@ -693,7 +746,10 @@ MANIFEST = (
                     "SMT-LIB sort and the element predicate contributes no hypothesis. "
                     "Nothing inside the fragment recovers it — and stating the "
                     "invariant for a whole list would need a quantifier the fragment "
-                    "does not have."
+                    "does not have. That erasure is one of §3.2.1's exactness "
+                    "conditions, and the `match` additionally binds an `Int`-sorted "
+                    "field the domain axiom does not reach, so the model is doubly an "
+                    "artifact and the outcome is `undischarged`."
                 ),
             ),
         ),
@@ -718,6 +774,8 @@ MANIFEST = (
                 stronger=_NAT,
                 script_hash="0aee355cf7a5bdffb9ae32b9c859203e96140431c978d21b0572d3f1a9cf00c1",
                 verdict="unsat",
+                outcome="proved",
+                producer="subtype",
                 note=(
                     "Deliberately the same verification condition as "
                     "corpus/nat/widenPos, arrived at from the other side — there it is "
@@ -751,12 +809,23 @@ MANIFEST = (
                 stronger=_NAT,
                 script_hash="952812314f7eb1da073261e40ec289e7a0a8b8d3a6afef61073e596eb4bbaa08",
                 verdict="sat",
+                outcome="undischarged",
+                producer="authored",
                 note=(
-                    "§3.2.1's VC carries exactly one hypothesis — `H = [φ]` — and the "
-                    "two branch values' own `nat` refinements are erased in Γ, so "
-                    "neither is assumable alongside the body summary. The claim is "
-                    "true and the VC shape cannot express its premises; conjoining "
-                    "them would need `and`, which the assumed base does not supply."
+                    "The one obligation in the corpus whose script is *translation*-"
+                    "exact and still does not refute. It uses only `=`, `ite`, and `<` "
+                    "over `Int` context variables the domain axiom bounds: no "
+                    "uninterpreted function, no opaque sort, no datatype, and — read "
+                    "the Γ above — nothing for the translator to erase, because "
+                    "`outer_context` already spells the two branch arguments `I64`. "
+                    "The definition's declared type spells them "
+                    "`{n | -1 < n}`. The premises were therefore dropped when this "
+                    "verification condition was *authored*, one stage before §3.2.1's "
+                    "erasure would have acted, so the countermodel (b true, "
+                    "x2 = x0 = -5) is a real valuation of the VC and not of the "
+                    "definition. That is what `producer='authored'` is for. Carrying "
+                    "the premises needs a multi-hypothesis VC: `and` in the assumed "
+                    "base is one half, body-VC generation the other."
                 ),
             ),
         ),

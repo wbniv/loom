@@ -69,7 +69,8 @@ applying them.
 | `typecheck.py` | Partial bidirectional checker: nominal matches, effects/handlers, `if`, `fix`/`ref`, and first-order instantiation. |
 | `matches.py` | Compatibility import shim for the checker's former name. |
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
-| `refinements.py` | Translates one verification condition into one canonical SMT-LIB script and rejects everything outside the decidable fragment. |
+| `refinements.py` | Translates one verification condition into one canonical SMT-LIB script, rejects everything outside the decidable fragment, and records which abstractions the translation used. |
+| `obligations.py` | The typing/oracle seam: verification conditions with their producer, obligation emission to `(id, script, script-hash)` triples, §3.2.1's exactness rule, and the three-way verdict outcome. Never calls a solver. |
 | `policies.py` | Validates and canonically hashes namespace policy objects, checks evidence-satisfies-requirement (`E ⊒ R`) and policy domination. |
 | `contracts.py` | The versioned validation contract for each layer: version, entry points, injected-resolver conventions, and pinned artifacts, with the coverage and bump rules in its module docstring. |
 | `CONTRACTS.md` | The conformance narrative for those versions — what a version covers, what it does not, what bumps it, and the discipline that keeps the record honest. |
@@ -87,6 +88,7 @@ applying them.
 | `test_fix_ref.py` | Recursive-binder, measure-shape and measure-position, annotation-row, and resolver-backed `ref` resolution/refusal tests. |
 | `test_instantiation.py` | First-order `forall` instantiation: monomorphic and polymorphic-caller instantiation via a typed `let`, the `corpus/maybe/mapPoly`-at-`I64` proof definition, and inconsistent-binding/unbound-`tyvar`/structural-mismatch/row-variable rejection tests. |
 | `test_refinements.py` | Golden script bytes, sort mapping, datatype monomorphization, determinism, and fragment-refusal tests. |
+| `test_obligations.py` | The §3.2.1 outcome table, one test per exactness condition (uninterpreted reference, opaque sort, erased refinement, idealizing symbol, unbounded `Int` binder), generator faithfulness, and the emission pipeline's typecheck-before-emit ordering. |
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the nine assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, the §3.2.1 interpretation table over extern hashes, and a demonstration that a hypothesis conjoining two comparisons with `and` now translates deterministically. |
 | `test_contracts.py` | Pins every contract version, and checks the record against the code: entry points resolve and are callable, resolver conventions and pinned artifacts exist, the four Watch-named layers are versioned, and `CONTRACTS.md` states each current version. |
@@ -198,14 +200,15 @@ every script from `refinements.py` and re-hashes it, and additionally runs a
 solver over each one when `LOOM_SMT_SOLVER` is set or `z3` is on `PATH` —
 never a hard dependency.
 
-Three of the six obligations are pinned at `sat`, i.e. §3.2.1 *refutes* the
-verification condition as v0.1 builds it, and each records which fact the VC
-shape could not carry: refinement erasure inside data type arguments makes
-`List {n | 0 ≤ n}` and `List I64` one sort, `List.size` stays uninterpreted so
-nothing bounds it below, and `H` holds exactly one hypothesis so a claim needing
-two premises cannot state them. Those are the honest boundary of "exercising
-§3.2.1 end to end" today; the tranche-4 plan scopes them against the body-VC
-generation §3.2.1 lists as future work.
+Three of the six obligations are pinned at `sat`, and each records which fact the
+verification condition could not carry: refinement erasure inside data type
+arguments makes `List {n | 0 ≤ n}` and `List I64` one sort, `List.size` stays
+uninterpreted so nothing bounds it below, and `H` holds exactly one hypothesis so
+a claim needing two premises cannot state them. All three claims are *true*, so
+under the [obligation-pipeline plan](../docs/plans/2026-08-13-obligation-pipeline.md)
+all three land as `undischarged` rather than `refuted` — see below. Those are
+the honest boundary of "exercising §3.2.1 end to end" today; the tranche-4 plan
+scopes them against the body-VC generation §3.2.1 lists as future work.
 
 The instantiation gap that remained after the first lift — v0.1 could write a
 polymorphic definition but not *call* one at a concrete type — is itself now
@@ -295,7 +298,40 @@ with linearity checked at each call site. Everything else — `lam`, `perform`,
 capability sorts, polymorphic constructors — raises a path-aware `SmtError`
 rather than being approximated. The module emits and structurally validates
 text; it neither links nor shells out to a solver, so `unsat` is still asserted
-by a human running the script, not by this prototype.
+by a human running the script, not by this prototype. Alongside the script it
+now records what it had to abstract away — uninterpreted references, opaque
+sorts, dropped refinements, which interpreted symbols it used, and whether a
+`match` bound an `Int`-sorted field — as facts, taking no position on what they
+mean.
+
+`obligations.py` is the seam between typing and the oracle, and it is where
+those facts become a decision. It implements `SPEC.md` §3.2.1's pipeline —
+typing emits obligations, a later pass discharges them, admission consults the
+resulting evidence — as `emit_definition`, which typechecks a definition and
+*then* yields one `(obligation-id, script, script-hash)` triple per obligation,
+so an ill-typed definition emits nothing. It also implements the verdict rule: a
+solver answer is a raw fact, and the obligation's outcome is `proved`,
+`refuted`, or `undischarged` depending on that answer plus the script's
+**exactness**. A script is exact when it was built by a producer §3.2.1
+specifies (v0.1: refinement subtyping only — a hand-authored body summary is
+not) and when the translation abstracted nothing away: no `declare-fun`, no
+`declare-sort`, no erased refinement, no `+ - * div mod abs` (SMT-LIB `Int` does
+not wrap where `I64` does), and no `Int`-sorted `match` binder outside the reach
+of the domain axiom. Only a `sat` over an exact script refutes; every other
+`sat` is `undischarged`. Nothing in the module calls a solver, and a test
+asserts that from the source.
+
+Across the six pinned corpus obligations that rule leaves the three `unsat`
+cases `proved` and all three `sat` cases `undischarged`, so no correct
+definition is rejected. One result is worth reading twice:
+`corpus/nat/select`'s script *is* translation-exact — it uses only `=`, `ite`,
+and `<` over domain-bounded `Int` variables — and what stops its countermodel
+from being a refutation is the other half of the rule. Its verification
+condition's `outer_context` spells the two branch arguments `I64` while the
+definition's type spells them `{n | -1 < n}`, so the premises were dropped when
+the condition was *authored*, one stage before §3.2.1's erasure would have
+acted. `test_corpus` pins that finding so it cannot be smoothed away by a later
+edit.
 
 `policies.py` implements `SPEC.md` §5.3.1's policy-object grammar and §5.3.2's
 domination table. It canonically validates a policy object (key range,
