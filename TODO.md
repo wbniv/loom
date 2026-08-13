@@ -37,13 +37,6 @@ Check conformance with `task todo:lint`.
   literals makes float equality bitwise (`+0.0 ≠ -0.0`). (T2: bounded doc/test edits
   against an enumerated findings list.)
 
-- [wip T4] <!-- agent:a549fbbe783ffe3df --> **Specify the namespace policy object format (SPEC.md §5.3, §6.2 gap).**
-  `policy-ref` (§5.3) and "policy allows"/"policy-required properties" (§6.2) are used
-  normatively but the policy object itself — what a `stats/POLICY`-style definition
-  actually contains (required evidence levels per obligation kind, allowed assumption
-  counts per §11, lease rules) — is never specified. Blocks any real store
-  implementation, since §6.3's monotone-rebind check needs a policy to check against.
-
 - [T4] **Bootstrap-corpus plan for open problem 1 (SPEC.md §13, prior starvation).**
   Concrete version of "transpile verified existing code": pick a small existing
   typed/verified corpus (candidates: a subset of Unison base, or F*/Idris examples)
@@ -75,6 +68,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [policy-object] Specified §5.3.1–§5.3.2 policy objects: rules and
+  selectors, budgets, upward resolution over a pinned default, monotone amendment.
+  See [plan](docs/plans/2026-08-13-namespace-policy-object.md).
 - ✅ 2026-08-13 — [smtlib-rules] Specified §3.2.1 deterministic VC-to-SMT-LIB scripts
   and implemented the translator with 22 tests and explicit out-of-fragment refusal.
   See [plan](docs/plans/2026-08-13-refinement-smtlib-translation.md).
