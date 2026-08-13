@@ -27,20 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:aced408ce08acf448 --> **Implement first-order `forall` instantiation (§3.1.3's stated future rule).**
-  A quantified `ref` is instantiated by first-order matching against an expected type
-  supplied through a typed `let`; the rule is spelled out in §3.1.3 and the `ref`
-  typing rule it needed now exists (§3.1.5). Proof: a definition calling
-  `corpus/maybe/mapPoly` at `I64`. (T2: the spec states the rule; ~20-line checker
-  change plus tests.)
-
-- [wip T4] <!-- agent:a3a8d49ee66a1f961 --> **Decide §2.5 measure selection for curried recursion (fix/ref finding).** A
-  measure checks against `fn D () I64` over the function's *first* domain, so a
-  curried recursion whose decreasing argument is not the first (`foldRight : (a → b
-  → b) → b → List a → b`) cannot state `(ref #List.size)` as its measure — §2.5 has
-  no way to name a non-initial argument. Blocks foldLeft/foldRight from `checked`.
-  See [plan](docs/plans/2026-08-13-fix-ref-typing.md). (T4: any fix likely changes
-  the `fix` node shape, which is identity-affecting.)
+_Nothing open._
 
 ## Watch
 
@@ -67,6 +54,12 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [forall-instantiation] Implemented first-order instantiation of
+  quantified refs in checking position; mapPoly-at-I64 proof definition validates.
+  See [plan](docs/plans/2026-08-13-forall-instantiation.md).
+- ✅ 2026-08-13 — [measure-selection] Added the `fix` position field `[10, T, k, m, b]`
+  selecting the decreasing argument; `list/foldRight` reaches `checked` at k=2.
+  See [plan](docs/plans/2026-08-13-measure-selection.md).
 - ✅ 2026-08-13 — [poly-and-bool] Threaded `forall` depth into term checking (zero
   tags, prenex rank-1 enforced) and added `if` as tag 12; both corpus limits lifted.
   See [plan](docs/plans/2026-08-13-polymorphism-and-bool-elimination.md).
