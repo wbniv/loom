@@ -136,6 +136,27 @@ LOOM_GBNF_VALIDATOR=/path/to/test-gbnf-validator task grammar:test
 This is model-free. The harness checks canonical examples and additional surface
 variants, then confirms that representative noncanonical forms are rejected.
 
+### Building the validator
+
+The binary is not distributed; earlier verification runs recorded
+`LOOM_GBNF_VALIDATOR=/tmp/loom-llama-cpp/build/bin/test-gbnf-validator`, an
+ephemeral local build. That checkout is pinned at
+[`ggml-org/llama.cpp@1f368f3`](https://github.com/ggml-org/llama.cpp/commit/1f368f354d9edcfea9fd6a1e0989b3e7335a050f)
+(`ggml : fix arm builds, unused var (#26991)`, 2026-08-13). Reproduce it with:
+
+```sh
+git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/loom-llama-cpp
+git -C /tmp/loom-llama-cpp fetch --depth 1 origin 1f368f354d9edcfea9fd6a1e0989b3e7335a050f
+git -C /tmp/loom-llama-cpp checkout 1f368f354d9edcfea9fd6a1e0989b3e7335a050f
+cmake -B /tmp/loom-llama-cpp/build -S /tmp/loom-llama-cpp -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/loom-llama-cpp/build --target test-gbnf-validator -j"$(nproc)"
+```
+
+No non-default CMake options are required — the recorded build used a plain
+`Release` configuration. Any later `ggml-org/llama.cpp` revision that still
+builds `test-gbnf-validator` should work equally well; the pin above is only
+for reproducing the exact binary earlier verification runs used.
+
 ## Spec clarification found during implementation
 
 The unit literal has no payload. Its canonical node is the two-element array

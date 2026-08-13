@@ -82,6 +82,17 @@ class EffectTypingTest(unittest.TestCase):
             "not allowed by the ambient effect row",
         )
 
+    def test_effectful_lambda_as_direct_application_callee_is_rejected(self):
+        # Regression, pinning §3.1.2's normative claim on its own: an
+        # unannotated effectful lambda as the direct callee of an application
+        # is a synthesis-only position, so it never receives the annotated
+        # `fn` row that would let its `perform` through, even though the
+        # surrounding ambient row does permit the ability.
+        outer_type = f"(fn (cap {self.clock}) ({self.clock}) I64)"
+        inner_lambda = f"(lam Unit (perform {self.clock} 0 ()))"
+        term = f"(lam (cap {self.clock}) (app {inner_lambda} (lit unit)))"
+        self.assert_type_error(self.definition(outer_type, term), "not allowed by the ambient effect row")
+
     def test_call_checks_effect_allowance_but_not_a_redundant_capability(self):
         clock_bytes = prelude.HASHES["clock"]
         function_type = [2, [0, 0], [clock_bytes], [0, 2]]

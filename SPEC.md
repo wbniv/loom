@@ -1,9 +1,10 @@
 # Loom — Language Specification, v0.1
 
-**Status:** Design fiction made precise. Nothing here is implemented; every
-rule is written as if it were normative so that the design can be attacked
+**Status:** Design specification with a working validation prototype — see
+[README.md](README.md) for the implemented/missing boundary. Every rule below
+is still written as if it were normative so that the design can be attacked
 concretely. Derived from the six design pressures in
-[the design sketch](../docs/investigations/2026-08-12-loom-agent-native-language-sketch.md)
+[the design sketch](docs/investigations/2026-08-12-loom-agent-native-language-sketch.md)
 (P1–P6 are referenced throughout).
 **Date:** 2026‑08‑12
 
@@ -230,8 +231,8 @@ position is pure: its body is checked with the empty ambient allowance and its
 synthesized type carries the empty row. Latent effects are expressible only by
 checking against an annotated `fn` row. Expected types flow into a term from a
 definition annotation, a checked lambda codomain, a constructor field, an
-application parameter, a typed `let` binding, an expected match-arm result, or
-a handler clause result. Loom v0.1 has no type-ascription term. Consequently an
+application parameter, an operation argument's declared parameter type, a
+typed `let` binding, an expected match-arm result, or a handler clause result. Loom v0.1 has no type-ascription term. Consequently an
 effectful lambda in a synthesis-only position, including as the direct callee
 of an application, is rejected even when the surrounding ambient row permits
 its effect; bind it through a typed `let` to supply its annotated function row.
@@ -307,7 +308,14 @@ sort becomes a declared constant named `loom.f64.`, `loom.text.`, or
 `loom.bytes.` followed by the SHA-256 hex of its canonical payload (the eight
 IEEE-754 bytes, the NFC UTF-8 bytes, or the byte string). When a sort has two or
 more such constants the script asserts one `distinct` over all of them — the
-only fact the encoding claims about opaque literals.
+only fact the encoding claims about opaque literals. Keying the constant on
+the literal's raw payload makes `F64` equality in the encoding **bitwise**,
+not IEEE-754 numeric equality: `+0.0` and `-0.0` have different eight-byte
+payloads, so two such literals are two different constants and are asserted
+`distinct` even though `+0.0 = -0.0` under IEEE-754. This is a deliberate
+consequence of §4.1's intensional identity, not an oversight — see the design
+forks in [the refinement-to-SMT-LIB plan](docs/plans/2026-08-13-refinement-smtlib-translation.md)
+for the alternative considered and rejected.
 
 **Data declarations are monomorphized.** An applied data type is refinement-
 erased, encoded with the canonical CBOR of §4.2, and named
@@ -877,13 +885,14 @@ propositions (§3.4), so a failing draw is a refutation, recorded with a false
 p ≤ 1 − (1 − c)^(1/n)
 ```
 
-A checker recomputes the bound from `(method, runs, failures, confidence)` and
-**rejects any payload whose recorded `bound` is smaller than the recomputed
-one, or whose recorded `confidence` is larger than the one the recomputation
-assumed.** Rounding the bound up (or the confidence down) is always sound and
-always permitted, so a limited-precision implementation stays conservative
-rather than becoming non-interoperable. The claim is therefore checkable
-arithmetic, not an assertion the producer is trusted on.
+A checker recomputes the bound from `(method, runs, failures)` **at the
+payload's recorded `confidence`** — confidence is an input to the
+recomputation, not a separate quantity compared against it — and **rejects
+any payload whose recorded `bound` is smaller than the bound recomputed at
+that confidence.** Rounding the bound up is always sound and always
+permitted, so a limited-precision implementation stays conservative rather
+than becoming non-interoperable. The claim is therefore checkable arithmetic,
+not an assertion the producer is trusted on.
 
 `runs` and `seed` remain in the payload as the observation and its
 reproduction data. They no longer *rank* evidence on their own: `bound`,
@@ -1200,5 +1209,5 @@ IDE affordances.
 ---
 
 *Companions:
-[design sketch](../docs/investigations/2026-08-12-loom-agent-native-language-sketch.md) ·
-[essay analysis](../docs/investigations/2026-08-12-english-as-source-code-analysis.md)*
+[design sketch](docs/investigations/2026-08-12-loom-agent-native-language-sketch.md) ·
+[essay analysis](docs/investigations/2026-08-12-english-as-source-code-analysis.md)*

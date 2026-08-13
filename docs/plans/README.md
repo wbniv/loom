@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-13 | [Effect-consistency review follow-ups](2026-08-13-effect-consistency-followups.md) | Implemented; PASS |
 | 2026-08-13 | [Namespace policy object](2026-08-13-namespace-policy-object.md) | Implemented; PASS |
 | 2026-08-13 | [Refinement-to-SMT-LIB translation rules](2026-08-13-refinement-smtlib-translation.md) | Implemented; PASS |
 | 2026-08-13 | [Evidence confidence bounds](2026-08-13-evidence-confidence-bounds.md) | Implemented; PASS |

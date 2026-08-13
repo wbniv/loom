@@ -173,7 +173,9 @@ Implemented on 2026-08-13 under the
 - `SPEC.md` now defines the contexts that propagate expected types and the
   deliberate rejection of effectful lambdas in synthesis-only positions.
 - Tests cover both a typed-`let` acceptance case and direct-application
-  rejection.
+  rejection, both asserted in
+  `test_effectful_function_application_checks_row_and_capability`
+  (`prototype/test_effects.py`), added by this same commit.
 - Handler continuation wording and the purity plan's GBNF record are aligned
   with observed behavior.
 - The clock-handler sample is the canonical `05_clock_handler` fixture and is
@@ -181,3 +183,18 @@ Implemented on 2026-08-13 under the
 - The root README now describes the working prototype and its missing layers.
 
 All 65 prototype tests and all 23 GBNF cases pass.
+
+**Addendum (2026-08-13, effect-consistency follow-ups pass).** The later
+[effect-consistency change review](2026-08-13-effect-consistency-change-review.md)'s
+finding 2 states that "no test in the suite exercises a direct `(app (lam …)
+…)` with an effectful body" and that this resolution note "overstate[s] test
+coverage." That finding is itself mistaken: `git show 7776d05 --
+prototype/test_effects.py` shows the `assert_type_error(..., "not allowed by
+the ambient effect row")` assertion over the `direct` application was added
+by that same commit, alongside the acceptance case — so the bullet above was
+accurate when written. This follow-up pass does not need to add a missing
+test; it instead gives the claim its own pinned, distinctly named test,
+`test_effectful_lambda_as_direct_application_callee_is_rejected`, so the
+direct-application rejection no longer depends on surviving as a second
+assertion tacked onto a test named for the acceptance case (the concern
+finding 2 was actually gesturing at).
