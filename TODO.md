@@ -39,11 +39,6 @@ Check conformance with `task todo:lint`.
   inexpressible. Options: an `if` node, demoting Bool to prelude data, or accepting
   the gap. Deliberately not worked around with a corpus `Bool2`. (T4: core §2 design.)
 
-- [wip T3] <!-- agent:acd6df31962cc59f2 --> **Specify the extern object encoding (§11; blocks corpus tranche 2).** §11's
-  `extern` has no object encoding among §4.3's kinds, so assumed-base definitions
-  (`I64.add`, `List.size`, …) cannot be stored. One new object kind, following the
-  §5.3.1 authoring pattern.
-
 - [T4] **Decide §2.5 measure selection for curried recursion (fix/ref finding).** A
   measure checks against `fn D () I64` over the function's *first* domain, so a
   curried recursion whose decreasing argument is not the first (`foldRight : (a → b
@@ -77,6 +72,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [extern-encoding] Specified kind-7 extern objects (§5.1.3) with
+  capability-honest rows, five pinned corpus externs, and 29 tests; tranche 2 unblocked.
+  See [plan](docs/plans/2026-08-13-extern-object-encoding.md).
 - ✅ 2026-08-13 — [corpus-license] Re-sourced corpus attributions to the MIT-licensed
   unisonweb/unison main repo (metadata only, no identity change); scaling unblocked.
   See [plan](docs/plans/2026-08-13-bootstrap-corpus.md).
