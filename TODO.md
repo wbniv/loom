@@ -27,15 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T3] <!-- agent:a8627be33ae0b215c --> **Build corpus tranche 3: the effectful slice.** Unison ability code against
-  §2.4's eight builtins, closed rows only, exercising `perform`, `handle`, and `cap`
-  at tier `checked` — the tranche where the Unison-over-F* corpus choice pays off.
-  Definition selection is open (the plan names the shape, not the list), and R8 says
-  the per-definition cost stops falling here, so also record whether a transpiler
-  tool is now warranted. See [plan](docs/plans/2026-08-13-bootstrap-corpus.md). (T3:
-  multi-definition selection judgment plus a tool-threshold call, against a settled
-  plan.)
-
 - [T3] **Build corpus tranche 4: the refinement slice.** F*-sourced
   refinement-carrying definitions, transpiled type-first, non-dependent arrows only —
   the first tranche to generate `ensures` obligations and exercise §3.2.1 end to end
@@ -85,6 +76,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [corpus-tranche-3] Built seven effectful fixtures at tier checked
+  spanning perform/handle/cap shapes; purity test reworked; R8 verdict: no tool yet.
+  See [plan](docs/plans/2026-08-13-corpus-tranche-3.md).
 - ✅ 2026-08-13 — [corpus-tranche-2] Built six recursive fixtures at tier checked with
   the corpus's first ref dependency chain; concat's monomorphic wall recorded.
   See [plan](docs/plans/2026-08-13-corpus-tranche-2.md).
