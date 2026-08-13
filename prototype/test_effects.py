@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 
 import prelude
@@ -75,6 +76,11 @@ class EffectTypingTest(unittest.TestCase):
         outer_type = f"(fn (cap {self.clock}) ({self.clock}) I64)"
         body = f"(let {function_type} {function} (app (var 0) (lit unit)))"
         validate_source(self.definition(outer_type, f"(lam (cap {self.clock}) {body})"), self.registry)
+        direct = f"(app {function} (lit unit))"
+        self.assert_type_error(
+            self.definition(outer_type, f"(lam (cap {self.clock}) {direct})"),
+            "not allowed by the ambient effect row",
+        )
 
     def test_call_checks_effect_allowance_but_not_a_redundant_capability(self):
         clock_bytes = prelude.HASHES["clock"]
@@ -105,6 +111,11 @@ class EffectTypingTest(unittest.TestCase):
         type_surface = f"(fn (cap {div}) () I64)"
         term = f"(lam (cap {div}) (handle {div} (lit i64 1) () (var 0)))"
         self.assert_type_error(self.definition(type_surface, term), "cannot be handled")
+
+    def test_clock_handler_documentation_fixture(self):
+        path = os.path.join(os.path.dirname(__file__), "examples", "05_clock_handler.loom.sexpr")
+        with open(path, encoding="utf-8") as source_file:
+            validate_source(source_file.read(), self.registry)
 
     def test_row_polymorphism_fails_explicitly(self):
         checker = MatchChecker(self.registry)

@@ -82,13 +82,15 @@ class ScopeTest(unittest.TestCase):
         source = definition(f"(refine I64 {predicate})", "(lit i64 0)")
         self.assert_valid(source, resolver)
 
-    def test_existing_examples_are_scoped_without_handlers(self):
+    def test_existing_examples_are_scoped_with_builtin_handler_resolution(self):
         from pathlib import Path
+        import prelude
 
         examples = Path(__file__).resolve().parent / "examples"
+        ability_arity = prelude.registry().operation_arity
         for path in sorted(examples.glob("*.loom.sexpr")):
             with self.subTest(path=path):
-                self.assert_valid(path.read_text(encoding="utf-8"))
+                self.assert_valid(path.read_text(encoding="utf-8"), ability_arity)
 
 
 if __name__ == "__main__":

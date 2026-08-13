@@ -8,9 +8,11 @@ ergonomics get zero design weight.
 The canonical generation surface uses S-expressions, but Loom is not a Lisp
 dialect; see [Is Loom a Lisp?](docs/loom-vs-lisp.md).
 
-**Status: design fiction, unimplemented.** Every rule in the spec is
-written as normative so the design can be attacked concretely, not because
-any of it runs.
+**Status: design specification with a working validation prototype.** The
+prototype implements canonical parsing/rendering, deterministic CBOR identity,
+scope and nominal-reference validation, a builtin ability registry, and a
+partial bidirectional type checker. Loom still has no runtime, content-addressed
+store, complete type system, refinement solver, or evidence oracle.
 
 ## The shape of it
 

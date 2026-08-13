@@ -228,7 +228,13 @@ declared result type. It is valid only when `a` occurs in the ambient effect row
 and a value of type `cap a` is in the term environment. A lambda in synthesis
 position is pure: its body is checked with the empty ambient allowance and its
 synthesized type carries the empty row. Latent effects are expressible only by
-checking against an annotated `fn` row.
+checking against an annotated `fn` row. Expected types flow into a term from a
+definition annotation, a checked lambda codomain, a constructor field, an
+application parameter, a typed `let` binding, an expected match-arm result, or
+a handler clause result. Loom v0.1 has no type-ascription term. Consequently an
+effectful lambda in a synthesis-only position, including as the direct callee
+of an application, is rejected even when the surrounding ambient row permits
+its effect; bind it through a typed `let` to supply its annotated function row.
 
 Checking `handle a term ops ret` against result type `R` checks `term` with `a`
 added to the ambient allowance and obtains handled result type `T`. The return

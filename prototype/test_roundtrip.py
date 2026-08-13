@@ -48,7 +48,7 @@ class CanonicalSurfaceTest(unittest.TestCase):
 
     def test_every_example_is_canonical_and_round_trips(self):
         paths = sorted(glob.glob(os.path.join(EXAMPLES_DIR, "*.loom.sexpr")))
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(len(paths), 5)
         for path in paths:
             with self.subTest(path=path), open(path, encoding="utf-8") as source_file:
                 self.assert_round_trip(source_file.read())

@@ -78,4 +78,5 @@ one line:
 ```
 
 The prototype parser, scope checker, declaration resolver, and effect-directed
-checker all accept this canonical form.
+checker all accept this canonical form. Its authoritative, regression-tested
+copy is [`05_clock_handler.loom.sexpr`](../prototype/examples/05_clock_handler.loom.sexpr).

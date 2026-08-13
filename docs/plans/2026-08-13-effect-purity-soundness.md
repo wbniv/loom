@@ -13,7 +13,8 @@ closure can perform the handled ability, escape through the return clause typed
 as pure, and be applied outside any handler — defeating §2.4's central claim
 that a type mentioning no ability cannot exercise it.
 
-Accepted counterexample before this fix:
+Schematic counterexample accepted before this fix (`clock` abbreviates the
+pinned builtin ability hash; canonical Loom uses that hash at each occurrence):
 
 ```loom
 (def (fn (cap clock) () (fn Unit () I64))
@@ -88,7 +89,7 @@ git diff --check
 
 Run on 2026-08-13.
 
-**Result: PASS** (GBNF step not run — see note)
+**Result: PASS**
 
 1. `task prototype:test`
 
@@ -108,16 +109,14 @@ Run on 2026-08-13.
 
     PASS.
 
-3. `LOOM_GBNF_VALIDATOR=... task grammar:test`
+3. `LOOM_GBNF_VALIDATOR=/tmp/loom-llama-cpp/build/bin/test-gbnf-validator task grammar:test`
 
     ```text
-    GBNF validator not found. Pass its path as the first argument or set
-    LOOM_GBNF_VALIDATOR for `task grammar:test`.
+    GBNF PASS: 12 valid cases accepted; 11 invalid cases rejected
     ```
 
-    NOT RUN — no `test-gbnf-validator` binary is installed on this machine and
-    the repository does not vendor llama.cpp. `loom.gbnf` is untouched by this
-    change; the previously recorded grammar PASS stands.
+    PASS (rerun during the 2026-08-13 consistency review using the pinned
+    model-free llama.cpp validator).
 
 4. `task todo:lint`
 

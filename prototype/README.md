@@ -52,7 +52,7 @@ exercise both `surface -> IR -> surface` and `IR -> surface -> IR`.
 | `matches.py` | Bidirectional nominal/match and closed-row effect/handler checking for the first type-directed subset. |
 | `loom.gbnf` | llama.cpp-style grammar for the same fixed-spacing generation surface. |
 | `validate_gbnf.py` | Runs positive and negative conformance cases through llama.cpp's model-free validator. |
-| `examples/*.loom.sexpr` | Four canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
+| `examples/*.loom.sexpr` | Five canonical definition fixtures. Descriptions live here rather than as comments in the machine-emission files. |
 | `test_roundtrip.py` | Golden identity, exhaustive tag/literal coverage, inverse round trips, boundary checks, and malformed/noncanonical rejection tests. |
 | `test_scope.py` | Exhaustive binder-depth, shadowing, handler-resolution, and out-of-scope rejection tests. |
 | `test_references.py` | Declaration identity, registry integrity, missing/wrong-kind references, and bounds/arity tests. |
@@ -66,8 +66,11 @@ The example fixtures are:
 2. `02_effect_row`: a nonempty effect row with `perform` and `let`.
 3. `03_refinement`: a refinement predicate and constrained hole.
 4. `04_match_con`: construction and matching for a fixture data type.
+5. `05_clock_handler`: a locally handled builtin clock operation with typed
+   continuations and an empty outer effect row.
 
-The hashes in examples 2–4 are prototype fixtures rather than store content.
+The hashes in examples 2–4 are prototype fixtures rather than store content;
+example 5 uses the pinned builtin clock declaration.
 
 ## Golden identity check
 

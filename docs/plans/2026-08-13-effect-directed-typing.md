@@ -61,7 +61,8 @@ git diff --check
 - Unauthorized, undeclared, or capability-less operations are rejected.
 - Operation signatures are read from verified canonical declarations.
 - Handlers type their return and every operation clause consistently.
-- The handled ability is absent from the continuation's ambient row.
+- The continuation receives the unchanged outer ambient row; the handler
+  removes only the additional allowance it introduces for the handled term.
 - All verification steps PASS and the golden definition hash is unchanged.
 
 ## Recorded verification

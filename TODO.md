@@ -76,6 +76,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [effect-consistency] Specified contextual effectful-lambda
+  checking, aligned effect plans, and promoted the clock-handler documentation
+  sample to a round-trip and type-checked fixture. See
+  [plan](docs/plans/2026-08-13-effect-documentation-fixture-consistency.md).
 - ✅ 2026-08-13 — [effect-purity] Fixed effectful-closure escape (synthesized lambdas
   are now pure), banned handling operation-less abilities, with regression tests. See
   [plan](docs/plans/2026-08-13-effect-purity-soundness.md).
