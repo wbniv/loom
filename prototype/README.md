@@ -97,11 +97,17 @@ applying them.
 | `experiment/` | The §8.4 masked-generation experiment's Phase A harness, which only ever *consumes* the layers above. See [the experiment section](#the-masked-generation-experiment-phase-a) below. |
 | `experiment/resolver.py` | The plan's R1 "disposable store-shaped resolver": one hash-keyed lookup surface over the declaration registry, the definition-type snapshot, and the corpus fixture bytes. No namespaces, leases, policy admission, persistence, or garbage collection, by rule. |
 | `experiment/prompts.py` | The four corpus regimes (`none`, `few_shot`, `full_corpus`, `held_out`), the corpus-drawn task set, and eight held-out compositional tasks with expected types built from corpus hashes and rendered through the canonical transcoder. |
-| `experiment/backends.py` | The pluggable model seam: one callable, prompt plus optional grammar to tokens. A llama.cpp server backend (exact token counts), a `llama-cli --grammar-file` backend (refuses to estimate a token count it cannot read), and a deterministic no-model stub. |
+| `experiment/backends.py` | The pluggable model seam: one callable, prompt plus optional grammar to tokens. A llama.cpp server backend (exact token counts), a `llama-cli --grammar-file` backend (refuses to estimate a token count it cannot read), a deterministic no-model stub, and Phase B's optional second seam `generate_masked` — implemented by the in-process `llama-cpp` backend and by the stub's scripted-logits path. |
+| `experiment/gbnf.py` | Phase B's syntax layer: a GBNF compiler and incremental byte-level prefix oracle over `loom.gbnf`, read at run time so the grammar file stays the single source of truth. Answers "which bytes keep this prefix extendable" and "may it end here". |
+| `experiment/masker.py` | Phase B's two-layer mask: the incremental type state (atom kind, de Bruijn term/type depths, prenex `forall` count), the pluggable pruners (`ref-hash`, `de-bruijn`) with per-layer toggles and timings, the vocabulary trie, and the per-token `Masker` API with R3's instrumentation. |
+| `experiment/llama_ffi.py` | The condition-4 transport: about fifteen `ctypes` declarations over the pinned `libllama.so`. Refuses on an ABI mismatch, and refuses any tokenizer whose detokenization is not concatenation of token pieces — the assumption a byte-level mask rests on. |
+| `experiment/live_mask_sanity.py` | The by-hand live check: loads a GGUF in process, walks corpus fixtures through the mask under the *model's own* tokenizer, and runs one masked generation. Deliberately outside `task prototype:test`. |
+| `experiment/phase_b.config.json` | The shipped condition-4 run config. `backend` is empty, so the entry point refuses until an operator fills in the model, exactly as Phase A's does. |
 | `experiment/evaluate.py` | The funnel — parse, scope, references, typecheck classification by error class through each layer's published `validate_source` — plus the operationalized semantic-success rule and rejection sampling's narrowing note. |
 | `experiment/runner.py` | Conditions 1–3 under the shared fixed-token-budget-per-task rule, the per-draw JSONL record, and the aggregate report including the failure-distribution-by-layer table that gates Phase B. |
 | `experiment/phase_a.config.json` | The shipped run config. `backend` is empty, so the one-command entry point refuses with a message naming the model-selection item that blocks it. |
 | `test_experiment.py` | The whole harness end to end on the stub backend: resolver agreement with `corpus_registry.reference_type`, regime and leave-one-out construction, every held-out expected type proven well-formed as a typed hole, one canned output per contract layer, budget accounting, run reproducibility, and report generation. |
+| `test_masker.py` | Phase B's mask, with no model: the grammar prefix oracle, the type state against `scope.py`'s binder rules, each pruner's proof probed where it claims one and where it abstains, the **soundness suite** (all 26 corpus fixtures × four tokenizations, the fixture's own next token never masked), and condition 4 end to end on the stub including the pruner-toggle divergences. |
 
 The example fixtures are:
 
@@ -266,9 +272,10 @@ Phase A runs three of the plan's four conditions:
    completed definition, and a rejected draw redrawn with the rejecting layer's
    error handed back. This is per-token masking's real economic rival.
 
-Condition 4 (type-directed per-token masking) is Phase B and is refused by name:
-it gets built against Phase A's failure distribution, not before it. **There is
-no per-token masking anywhere in this package.**
+Condition 4 (`gbnf+typemask`) is Phase B's and is described in [its own
+section](#phase-b-the-type-state-masker-condition-4) below. Nothing in
+conditions 1-3 changed when it arrived: a Phase A run's records, summary and
+report are byte-for-byte what they were.
 
 All conditions are compared under one rule — a **fixed total token budget per
 task**, spent across as many draws as it takes, with accepted definitions
@@ -298,6 +305,57 @@ draws, which is the input Phase B's masker design is gated on.
 backend that emits one valid corpus surface and one output broken at each of the
 four contract layers, so the funnel, the budget accounting and the report are
 all tested without a model.
+
+## Phase B: the type-state masker (condition 4)
+
+Condition 4 does not hand the model a grammar at all. It masks logits at every
+decoding step, so syntax errors and the pruned classes of type error become
+*unreachable* rather than rejected after the fact. The plan of record is
+[`docs/plans/2026-08-13-experiment-phase-b.md`](../docs/plans/2026-08-13-experiment-phase-b.md);
+B1 (the profile-independent core) is built, B2 (pruner priority from Phase A's
+failure distribution, and the live matrix) is gated on Phase A reporting.
+
+Two layers, both byte oracles, composed into one memoized transition and walked
+once per step over a trie of the token pieces:
+
+1. **Syntax** — `gbnf.py`, an incremental prefix automaton over `loom.gbnf`.
+   Ours rather than llama.cpp's, so the soundness suite runs with no model on
+   every `task prototype:test` and the grammar file stays the single source of
+   truth.
+2. **Type state** — `masker.py` tracks which grammar atom is being written and
+   the de Bruijn depths in force, and pruners veto bytes. Two ship, each
+   toggleable and individually timed: `ref-hash` (a hash atom must stay a prefix
+   of a digest the resolver can resolve) and `de-bruijn` (a `var`/`tyvar` index
+   must stay below the binder depth — including refusing the `v` of `var`
+   outright where nothing is in scope).
+
+**Soundness is the property everything else is subordinate to.** A pruner may
+veto a byte only where it can *prove* no completion of the current atom reaches
+an accepted definition; where it cannot prove — a `handle` operation body, whose
+binder count needs ability resolution a byte prefix does not carry — it
+abstains and the fact is recorded. `test_masker.py` walks all 26 corpus fixtures
+under four tokenizations and asserts the fixture's own next token is never
+masked, which is the tokenizer-boundary case that matters: the mask works on
+*model tokens* while the grammar works on *bytes*, so a token that ends
+mid-hash has to be handled rather than assumed away.
+
+The transport is `experiment/llama_ffi.py` — `ctypes` over the pinned llama.cpp
+build's `libllama.so`, the same engine `llama-server` runs for Phase A. No PyPI
+dependency is added; `llama-cpp-python` was rejected because it ships
+source-only and would mean building a second, differently pinned copy of
+llama.cpp, which is the engine identity the comparability criterion asks us to
+hold fixed. Wall clock is therefore **not** comparable across the Phase A /
+Phase B line; the report says so, and the comparable numbers are accepted
+definitions per token and the per-token mask overhead.
+
+```sh
+LOOM_EXPERIMENT_CONFIG=experiment/phase_b.config.json task experiment:phase-a
+task experiment:mask-sanity -- --fixtures 0    # live: real tokenizer, real logits
+```
+
+A live condition-4 run needs `backend: "llama-cpp"`, a GGUF `model_path`, a
+recorded `model_identity`, and optionally `llama_lib` (or `LOOM_LLAMA_LIB`) when
+the pinned build is not at its default path.
 
 ## Golden identity check
 

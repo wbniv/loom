@@ -3,7 +3,7 @@
 | Date | Plan | Status |
 |---|---|---|
 | 2026-08-13 | [§3.3 subsumption in `typecheck.py`](2026-08-13-refinement-subsumption.md) | Implemented; PASS |
-| 2026-08-13 | [Experiment Phase B: the incremental type-state masker](2026-08-13-experiment-phase-b.md) | Planned; B1 dispatched, B2 gated |
+| 2026-08-13 | [Experiment Phase B: the incremental type-state masker](2026-08-13-experiment-phase-b.md) | B1 implemented; B2 gated |
 | 2026-08-13 | [The obligation pipeline, and what a `sat` verdict means](2026-08-13-obligation-pipeline.md) | Implemented; PASS |
 | 2026-08-13 | [Masked-generation experiment, Phase A substrate and harness](2026-08-13-experiment-phase-a.md) | Implemented; PASS (live run gated on the T5 model item) |
 | 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Designed; Phase A substrate built |

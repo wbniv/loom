@@ -24,9 +24,25 @@ generation's early-and-cheap ones are paid for out of the same purse. A
 per-attempt budget would make the conditions incomparable, and the runner has no
 way to express one.
 
-Condition 4 (type-directed per-token masking) is Phase B and is refused here by
-name — building it before this run's failure distribution exists risks building
-an expensive pruner for the wrong layer (R2.1).
+``gbnf+typemask``   Phase B's condition 4: no grammar is handed to the model at
+                    all. Instead every decoding step is masked by
+                    `masker.Masker` — `loom.gbnf` prefix-feasibility, then the
+                    type-state pruners — so syntax *and* the pruned type errors
+                    become unreachable rather than rejected after the fact. It
+                    needs a backend that exposes logits, which is why it has its
+                    own transport (`llama-cpp`) and its own no-model stub path.
+
+Comparability boundary, stated because R1 requires it: condition 4 runs on a
+different transport from conditions 1-3 (in-process `libllama.so` rather than
+`llama-server`), so **end-to-end wall clock is not comparable across the
+Phase A / Phase B line**. What is comparable is the budget-rule axis — accepted
+definitions per token — and R3's per-token *mask* overhead, which is measured
+inside the masker and is transport-independent. The report says so on the page.
+
+The B1 dispatch builds the machinery and proves it on the stub; B2 decides
+pruner priority from Phase A's failure distribution and runs the live matrix.
+The legacy placeholder condition name `masked` is refused by name, pointing at
+the implemented one.
 """
 
 from __future__ import annotations
@@ -42,7 +58,7 @@ from pathlib import Path
 
 import contracts
 
-from .backends import BackendUnavailable, grammar_text, make_backend
+from .backends import NO_MASK_BACKEND_MESSAGE, BackendUnavailable, grammar_text, make_backend
 from .evaluate import (
     ACCEPTED,
     LAYERS,
@@ -53,21 +69,35 @@ from .evaluate import (
     run_funnel,
     score_semantic,
 )
+from .masker import PRUNER_NAMES, build_masker
 from .prompts import KIND_CORPUS, KIND_HELD_OUT, REGIMES, Task, all_tasks, build_prompt, tasks_for_regime
 from .resolver import ExperimentResolver
 
 CONDITION_UNCONSTRAINED = "unconstrained"
 CONDITION_GBNF = "gbnf"
 CONDITION_GBNF_REJECTION = "gbnf+rejection"
+CONDITION_TYPEMASK = "gbnf+typemask"
+#: Phase B's placeholder name before it was implemented. Kept only so a config
+#: written against the plan's earlier wording fails with a pointer, not a shrug.
 CONDITION_MASKED = "masked"
 
 #: The three Phase A conditions, in R2's order.
 CONDITIONS = (CONDITION_UNCONSTRAINED, CONDITION_GBNF, CONDITION_GBNF_REJECTION)
 
+#: Every condition the runner can run, Phase A's three plus Phase B's one.
+ALL_CONDITIONS = (*CONDITIONS, CONDITION_TYPEMASK)
+
 #: Conditions that sample under `loom.gbnf`. Their funnel outcomes are the
 #: "failure distribution by checker layer for GBNF-valid generations" that R2.1
-#: names as Phase A's deliverable into Phase B's design.
+#: names as Phase A's deliverable into Phase B's design. Condition 4 is
+#: deliberately **not** here: the gate table is Phase A's product and adding a
+#: condition whose syntax failures are impossible by construction would change
+#: what that table means.
 GRAMMAR_CONDITIONS = (CONDITION_GBNF, CONDITION_GBNF_REJECTION)
+
+#: Conditions whose syntax cannot fail — by grammar sampling (2, 3) or by mask
+#: (4). Used for reporting, never for the Phase A gate.
+SYNTAX_CONSTRAINED = (*GRAMMAR_CONDITIONS, CONDITION_TYPEMASK)
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "phase_a.config.json"
 
@@ -106,6 +136,18 @@ class Config:
 
     stub_outputs: list = field(default_factory=list)
     stub_grammar_outputs: list = field(default_factory=list)
+    #: Condition 4's stub targets. Defaults to `stub_grammar_outputs`.
+    stub_masked_outputs: list = field(default_factory=list)
+
+    # -- Phase B, condition 4 -------------------------------------------
+    #: Which type-state pruners are active, by name. An empty list runs the
+    #: syntax layer alone, which is the honest ablation baseline for R5.
+    pruners: list = field(default_factory=lambda: list(PRUNER_NAMES))
+    #: `libllama.so` of the pinned llama.cpp build; empty uses `llama_ffi`'s
+    #: default, which is the path the parent plan records.
+    llama_lib: str = ""
+    n_ctx: int = 4096
+    n_threads: int = 0
 
     source_path: str = ""
 
@@ -133,12 +175,18 @@ class Config:
         for condition in self.conditions:
             if condition == CONDITION_MASKED:
                 raise SystemExit(
-                    "condition 'masked' is Phase B and is not implemented. R2.1: the "
-                    "per-token masker is built against Phase A's failure distribution, "
-                    "not before it.")
-            if condition not in CONDITIONS:
+                    "condition 'masked' was Phase B's placeholder name before the masker "
+                    f"existed; the implemented condition is {CONDITION_TYPEMASK!r}. R2.1 "
+                    "still holds for what it runs: B1 built the core, and pruner priority "
+                    "comes from Phase A's failure distribution in B2.")
+            if condition not in ALL_CONDITIONS:
                 raise SystemExit(
-                    f"unknown condition {condition!r}; Phase A runs: {', '.join(CONDITIONS)}")
+                    f"unknown condition {condition!r}; known conditions: "
+                    f"{', '.join(ALL_CONDITIONS)}")
+        for pruner in self.pruners:
+            if pruner not in PRUNER_NAMES:
+                raise SystemExit(
+                    f"unknown pruner {pruner!r}; known pruners: {', '.join(PRUNER_NAMES)}")
         for regime in self.regimes:
             if regime not in REGIMES:
                 raise SystemExit(f"unknown regime {regime!r}; known regimes: {', '.join(REGIMES)}")
@@ -146,7 +194,7 @@ class Config:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
             raise SystemExit("at least one seed is required; the run must be reproducible")
-        if self.backend in ("llama-server", "llama-cli") and not self.model_identity:
+        if self.backend in ("llama-server", "llama-cli", "llama-cpp") and not self.model_identity:
             raise SystemExit(
                 "model_identity is empty. R2.1 requires the model and hardware to be "
                 "recorded before the run, not reconstructed after it — set "
@@ -172,7 +220,20 @@ def _select_tasks(config: Config, regime: str) -> tuple[Task, ...]:
     return tuple(task for task in chosen if task.kind == kind)
 
 
-def run_task(task, condition, regime, seed, backend, resolver, config, grammar):
+def make_masker(config, backend, resolver):
+    """Condition 4's masker, over whatever vocabulary the backend tokenizes with.
+
+    The mask is the same object either way; only the vocabulary and the logits
+    are the backend's. A backend that cannot expose a vocabulary cannot run
+    condition 4, and says so by name rather than failing mid-run.
+    """
+    vocabulary = getattr(backend, "mask_vocabulary", None)
+    if vocabulary is None:
+        raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
+    return build_masker(vocabulary(), resolver, names=config.pruners)
+
+
+def run_task(task, condition, regime, seed, backend, resolver, config, grammar, masker=None):
     """One (task, condition, regime, seed) cell, spent down to the budget."""
     budget = config.token_budget_per_task
     used = 0
@@ -189,13 +250,30 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar):
         # The seed varies per draw or every redraw repeats the first draw
         # exactly; the derivation is deterministic so the run still reproduces.
         draw_seed = seed * 100_003 + draws
-        generation = backend.generate(
-            prompt,
-            grammar=grammar if condition in GRAMMAR_CONDITIONS else None,
-            max_tokens=max_tokens,
-            seed=draw_seed,
-            temperature=config.temperature,
-        )
+        mask_fields: dict = {}
+        if condition == CONDITION_TYPEMASK:
+            if masker is None:  # pragma: no cover - `run` builds it
+                raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
+            # Counters only: the transition and mask caches survive, because
+            # they are the reason the per-token cost is what it is.
+            masker.reset_stats()
+            generation = backend.generate_masked(
+                prompt,
+                masker=masker,
+                max_tokens=max_tokens,
+                seed=draw_seed,
+                temperature=config.temperature,
+            )
+            mask_fields = masker.stats()
+            mask_fields["mask"] = True
+        else:
+            generation = backend.generate(
+                prompt,
+                grammar=grammar if condition in GRAMMAR_CONDITIONS else None,
+                max_tokens=max_tokens,
+                seed=draw_seed,
+                temperature=config.temperature,
+            )
         spent = max(1, int(generation.completion_tokens))
         used += spent
         source = extract_definition(generation.text)
@@ -233,6 +311,7 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar):
             "rubric_pending": semantic.rubric_pending,
             "source": source,
             "raw": generation.text[: config.raw_text_limit],
+            **mask_fields,
         })
         draws += 1
         if condition == CONDITION_GBNF_REJECTION:
@@ -247,6 +326,8 @@ def run(config: Config, resolver=None, backend=None):
     resolver = resolver or ExperimentResolver()
     backend = backend or make_backend(config)
     grammar = grammar_text()
+    masker = (make_masker(config, backend, resolver)
+              if CONDITION_TYPEMASK in config.conditions else None)
     started = time.monotonic()
     records = []
     for regime in config.regimes:
@@ -255,7 +336,8 @@ def run(config: Config, resolver=None, backend=None):
             for seed in config.seeds:
                 for task in tasks:
                     records.extend(run_task(
-                        task, condition, regime, seed, backend, resolver, config, grammar))
+                        task, condition, regime, seed, backend, resolver, config, grammar,
+                        masker=masker))
     summary = summarize(records, config, resolver, time.monotonic() - started)
     return records, summary
 
@@ -271,6 +353,51 @@ def _cells(records):
     for record in records:
         grouped.setdefault((record["condition"], record["regime"]), []).append(record)
     return grouped
+
+
+def _mask_metrics(rows):
+    """R3's per-cell masking numbers, or `{}` when the cell did not mask.
+
+    Returning `{}` is what keeps a Phase A summary byte-identical to what it was
+    before condition 4 existed: no masked draw, no key, no report section.
+    """
+    masked = [row for row in rows if row.get("mask")]
+    if not masked:
+        return {}
+    steps = sum(row.get("mask_steps", 0) for row in masked)
+    seconds = sum(row.get("mask_seconds", 0.0) for row in masked)
+    decode = sum(row["latency_s"] for row in masked)
+    pruned: dict[str, int] = {}
+    layer_seconds: dict[str, float] = {}
+    calls: dict[str, int] = {}
+    for row in masked:
+        for layer, count in row.get("mask_pruned_by_layer", {}).items():
+            pruned[layer] = pruned.get(layer, 0) + count
+        for layer, value in row.get("mask_seconds_by_layer", {}).items():
+            layer_seconds[layer] = layer_seconds.get(layer, 0.0) + value
+        for layer, count in row.get("mask_calls_by_layer", {}).items():
+            calls[layer] = calls.get(layer, 0) + count
+    return {
+        "draws": len(masked),
+        "mask_steps": steps,
+        "mask_seconds": round(seconds, 6),
+        "mask_seconds_per_token": round(seconds / steps, 9) if steps else 0.0,
+        "mask_seconds_per_token_uncached": (
+            round(statistics.fmean(
+                [row["mask_seconds_per_token_uncached"] for row in masked
+                 if row.get("mask_seconds_per_token_uncached")]), 9)
+            if any(row.get("mask_seconds_per_token_uncached") for row in masked) else 0.0),
+        # R3's headline for the masking-overhead Watch item: what share of the
+        # wall clock of a masked draw the mask itself accounts for.
+        "mask_share_of_draw_latency": round(seconds / decode, 4) if decode else None,
+        "pruned_by_layer": pruned,
+        "seconds_by_layer": {layer: round(value, 6) for layer, value in layer_seconds.items()},
+        "calls_by_layer": calls,
+        "fallbacks": sum(row.get("mask_fallbacks", 0) for row in masked),
+        "pruners_enabled": sorted({
+            name for row in masked for name in row.get("mask_pruners_enabled", [])}),
+        "vocab_size": max(row.get("mask_vocab_size", 0) for row in masked),
+    }
 
 
 def _cell_metrics(rows):
@@ -294,7 +421,9 @@ def _cell_metrics(rows):
         first_success_tokens.append(spent)
     identities = [row["identity"] for row in accepted if row["identity"]]
     latencies = [row["latency_s"] for row in rows]
+    masking = _mask_metrics(rows)
     return {
+        **({"masking": masking} if masking else {}),
         "draws": len(rows),
         "attempts": len(attempts),
         "tokens": tokens,
@@ -342,7 +471,9 @@ def summarize(records, config, resolver, elapsed_s):
     for row in grammar_rows:
         overall.add(row["funnel_outcome"])
     scope_rows = [r for r in grammar_rows if r["funnel_outcome"] == "scope"]
+    masking = _mask_metrics(records)
     return {
+        **({"masking": masking} if masking else {}),
         "started_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "elapsed_s": round(elapsed_s, 3),
         "config": {k: v for k, v in asdict(config).items() if k not in ("stub_outputs", "stub_grammar_outputs")},
@@ -377,10 +508,59 @@ def _table(headers, rows):
     return "\n".join(lines)
 
 
+def _render_masking(summary):
+    """Phase B's section. Empty for a Phase A run, by construction."""
+    masking = summary.get("masking")
+    if not masking:
+        return []
+    out = [
+        "",
+        "## Masking overhead — condition 4 (R3)",
+        "",
+        "Comparability boundary (R1): condition 4 decodes on the in-process "
+        "transport, conditions 1-3 on `llama-server`, so **wall clock is not "
+        "comparable across that line**. The comparable numbers are accepted "
+        "definitions per token (the budget rule) and the per-token mask "
+        "overhead below, which is measured inside the masker.",
+        "",
+        f"**Masked draws:** {masking['draws']}  ",
+        f"**Mask steps:** {masking['mask_steps']}  ",
+        f"**Mask time:** {masking['mask_seconds']} s "
+        f"({masking['mask_seconds_per_token']} s/token; "
+        f"{masking['mask_seconds_per_token_uncached']} s/token uncached)  ",
+        f"**Mask share of masked-draw latency:** {masking['mask_share_of_draw_latency']}  ",
+        f"**Pruners enabled:** {', '.join(masking['pruners_enabled']) or '(none — syntax only)'}  ",
+        f"**Vocabulary:** {masking['vocab_size']} tokens  ",
+        f"**Liveness fallbacks:** {masking['fallbacks']} "
+        "(steps where the type layer would have emptied a non-empty syntax mask)",
+        "",
+        "### Tokens pruned and time spent, by layer",
+        "",
+    ]
+    layers = sorted(set(masking["pruned_by_layer"]) | set(masking["seconds_by_layer"]))
+    rows = [[
+        layer,
+        masking["pruned_by_layer"].get(layer, 0),
+        masking["calls_by_layer"].get(layer, 0),
+        round(masking["seconds_by_layer"].get(layer, 0.0), 6),
+    ] for layer in layers]
+    out.append(_table(["layer", "tokens pruned", "evaluations", "seconds"], rows))
+    out += [
+        "",
+        "Pruner seconds are *uncached* evaluation time — the marginal cost of "
+        "the check. The combined transition and mask caches are part of the "
+        "design, not an artefact of the measurement, and their hit rate is in "
+        "the per-draw records.",
+    ]
+    return out
+
+
 def render_report(summary, records):
     config = summary["config"]
+    masked = bool(summary.get("masking"))
     out = [
-        "# Masked-generation experiment — Phase A results",
+        "# Masked-generation experiment — "
+        + ("Phase A results, with Phase B condition 4" if masked else "Phase A results"),
         "",
         f"**Run (UTC):** {summary['started_utc']}  ",
         f"**Backend:** {config['backend'] or '(none)'}  ",
@@ -396,8 +576,12 @@ def render_report(summary, records):
         f"**Resolver objects:** {json.dumps(summary['resolver_objects'], sort_keys=True)}  ",
         f"**Contract versions:** {json.dumps(summary['contract_versions'], sort_keys=True)}",
         "",
-        "Conditions 1-3 only. Condition 4 (type-directed per-token masking) is "
-        "Phase B and is gated on the failure distribution below.",
+        ("Condition 4 (type-directed per-token masking) ran; its masking numbers "
+         "are in their own section below. The failure-distribution gate stays a "
+         "conditions-2-and-3 table by rule."
+         if masked else
+         "Conditions 1-3 only. Condition 4 (type-directed per-token masking) is "
+         "Phase B and is gated on the failure distribution below."),
         "",
         "## R3 metrics per condition × regime",
         "",
@@ -474,6 +658,7 @@ def render_report(summary, records):
         paths = summary["error_paths"][layer]
         if paths:
             out.append(f"**{layer}** — " + ", ".join(f"`{p}` ×{n}" for p, n in paths))
+    out += _render_masking(summary)
     out += [
         "",
         "## Outstanding by rule, not by omission",
@@ -507,7 +692,9 @@ def write_outputs(records, summary, output_dir):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python3 -m experiment.runner",
-        description="Masked-generation experiment, Phase A (conditions 1-3).")
+        description=(
+            "Masked-generation experiment: Phase A's conditions 1-3, and Phase "
+            "B's condition 4 ('gbnf+typemask') when the config asks for it."))
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="path to the run config JSON")
     parser.add_argument("--out", default="", help="output directory (overrides the config)")
     parser.add_argument("--dry-run", action="store_true",
