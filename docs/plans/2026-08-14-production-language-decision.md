@@ -347,7 +347,7 @@ buy?" is unanswerable without it.
 **Batch 2** — Standard ML, Haskell, Clojure, Perl and Ruby scored against this same matrix
 at these same weights in
 [the batch‑2 investigation](../investigations/2026-08-14-language-eval-batch-2.md); best
-total 94 (Haskell), so Rust's 114 and this decision stand unchanged.
+total 90 (Haskell and Standard ML, tied), so Rust's 114 and this decision stand unchanged.
 
 **Sensitivity — the result is not an artifact of the weights.** Three adversarial
 re-weightings, each chosen to attack the winner:
