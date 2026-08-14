@@ -27,12 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Build store v0: persistent content-addressed objects in Rust**
-  (Track G; trigger M2). Object layout, oracle-gated admission, the
-  experiment-shaped read API (`export-resolver`, `prefix`, `type`), corpus
-  seeding, `StoreResolver` equivalence. First production Rust in the repo —
-  greenfield design judgment plus a new toolchain, hence T4.
-  See [plan](docs/plans/2026-08-14-store-v0.md).
 
 ## Watch
 
@@ -63,6 +57,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [store-v0] Built the Rust store: 47 corpus objects seeded, fsck 3-invariant, 172-prompt resolver equivalence proven; first Track G code. See [plan](docs/plans/2026-08-14-store-v0.md).
 - ✅ 2026-08-14 — [phase-b2] Condition-4 matrix complete (773 draws): masking ≥ rejection everywhere, +70% no-example; typecheck 41% survivor. See [plan](docs/plans/2026-08-13-experiment-phase-b.md).
 - ✅ 2026-08-14 — [language-decision] Rust when migration fires (114/130 vs Zig 86,
   Go 83, OCaml 79); migration deferred — masker is 25x under trigger (d) in every
