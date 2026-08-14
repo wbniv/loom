@@ -1295,25 +1295,25 @@ class ConditionFourTest(unittest.TestCase):
         died in `none`, whose longest prompt is 279 tokens, so a 4096 context
         looked fine right up until the fourth regime.
 
-        Measured in characters rather than tokens so the check needs no model:
-        the ratio is conservative for this tokenizer on this surface, and the
-        assertion is about the config having *room*, not about an exact count.
+        Measured in characters rather than tokens so the check needs no model.
+        The divisor used to be 4 characters per token, on the "conservative for
+        English" rule of thumb. It is not conservative here: this run's own
+        numbers put the `full_corpus` prompt at 17,979 characters and 11,906
+        real tokens — **1.51** chars/token, because 64-hex hash literals
+        tokenize densely — so the old floor under-estimated by 2.6x, in the
+        direction that lets a too-small `n_ctx` through. `prompts.CHARS_PER_TOKEN`
+        now carries the measured figure and `prompts.context_required` applies
+        it; this config still passes, with room, under the honest divisor.
         """
         config = runner.Config.load(HERE / "experiment" / "phase_b.config.json")
-        resolver = self.resolver
-        longest = 0
-        for regime in config.regimes:
-            for task in prompts.tasks_for_regime(regime):
-                text = prompts.build_prompt(
-                    task, regime, resolver, leave_one_out=config.leave_one_out)
-                longest = max(longest, len(text))
-        # A conservative floor on tokens: no tokenizer emits fewer than one
-        # token per 4 characters of this surface.
-        needed = longest // 4 + config.max_tokens_per_draw
+        needed = prompts.context_required(
+            config.regimes, self.resolver,
+            leave_one_out=config.leave_one_out,
+            draw_tokens=config.max_tokens_per_draw)
         self.assertGreaterEqual(
             config.n_ctx, needed,
-            f"n_ctx={config.n_ctx} cannot hold the longest prompt "
-            f"(~{longest // 4} tokens) plus a {config.max_tokens_per_draw}-token draw")
+            f"n_ctx={config.n_ctx} cannot hold the longest prompt plus a "
+            f"{config.max_tokens_per_draw}-token draw ({needed} tokens)")
 
     def test_the_shipped_phase_b_config_is_ready_for_the_live_matrix(self):
         """The condition-4 config an operator launches, checked as a whole.
