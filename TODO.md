@@ -27,14 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:ac705d58c30220ce9 --> **Build Phase B1: the profile-independent masker core.** Per the
-  [Phase B plan](docs/plans/2026-08-13-experiment-phase-b.md): transport decision
-  (llama-cpp-python logits processor is the likely winner), the syntax-feasibility
-  layer with prefix-soundness tests over every corpus fixture, the type-state
-  skeleton with two toggleable timed pruners, condition-4 runner integration
-  stub-tested end-to-end, and per-token instrumentation. (T4: transport and mask
-  design; soundness is the critical property.)
-
 - [T4] **Complete Phase B2: profile-directed pruners and the condition-4 run
   (gated on Phase A's failure distribution).** Pruner priority from the Phase A
   report, the live condition-4 run, the R5 comparison, prediction scoring. See
@@ -77,6 +69,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [phase-b1] Built the masker core: ctypes transport over the pinned
+  libllama, byte-oracle mask with proof-or-abstain soundness (0 violations, 26
+  fixtures x 151k vocab), 0.03% warm overhead. See
+  [plan](docs/plans/2026-08-13-experiment-phase-b.md).
 - ✅ 2026-08-13 — [experiment-model] Selected Qwen2.5-Coder-7B Q4_K_M under
   llama-cli @ pinned llama.cpp on CPU-only i7-1185G7; recorded in the plan.
   See [plan](docs/plans/2026-08-13-masked-generation-experiment.md).
