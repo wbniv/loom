@@ -291,7 +291,13 @@ B2 (gated on Phase A's report):
     no upload, no self-delete — salvaged manually to
     `prototype/runs/phase-b-partial-oom/`). Root cause found by
     measurement and fixed — see [the run log](#condition-4-run-log).
-  - *Launch 3*: pending, from merged post-fix code.
+  - *Launch 3* (16:27 UTC, from merged post-fix code): **STOCKOUT** —
+    us-east1-b, the zone with capacity all morning, had none by afternoon
+    (`ZONE_RESOURCE_POOL_EXHAUSTED`); clean fail-fast and teardown. A zone
+    hunt now sweeps us-east1-c/d, us-east4-a/c, us-west1-a/b,
+    us-central1-a/b/c in order, running the full matrix in the first zone
+    that takes the instance (us-east1-c: also stocked out, 16:28 UTC).
+    L4 capacity is evidently diurnal; morning launches have fared better.
 
 ## The B2 decisions
 

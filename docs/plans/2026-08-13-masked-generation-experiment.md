@@ -243,6 +243,17 @@ Phase A:
     (`full_corpus` prompts reach 11,952 tokens in Phase A's records).
     Prediction 4's bar: 1.452 acc/1k tok; the report lands with the R5
     table and verdicts pre-wired against the committed Phase A summary.
+    *Launch history* (full log in the
+    [Phase B plan](2026-08-13-experiment-phase-b.md)): launch 1 killed at
+    68 records — in-process transport decoded on CPU with the L4 idle
+    (`n_gpu_layers` hardcoded 0); launch 2 reached 99–100 % SM and
+    2.19 s/record, then was OOM-killed at 259 records by a B1-substrate
+    masker defect (string-literal bytes exploded the type-state memo;
+    found by measurement, fixed as `ATOM_READ` collapse + a bounded
+    transition cache, mask proven byte-identical, 259 `none`-regime
+    records salvaged to `prototype/runs/phase-b-partial-oom/`); launch 3
+    hit L4 STOCKOUT in us-east1-b — a zone hunt is sweeping nine US
+    zones for the live run.
 
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified

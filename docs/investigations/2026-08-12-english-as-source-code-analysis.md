@@ -197,3 +197,31 @@ maintained artifact is prose plus an illegible generated blob, surviving
 multiple years of requirement changes and a security audit, with no formal
 intermediate representation anyone can inspect. If those start existing and
 persisting, the essay was right and this document was wrong.
+
+## Postscript: first empirical data (2026‑08‑14)
+
+The Phase A experiment ([results](../results/2026-08-14-phase-a-report.md),
+[design](../plans/2026-08-13-masked-generation-experiment.md)) put the "will
+agents use an agent-native notation" question under measurement for the first
+time. A 7B model over 2,335 draws:
+
+- **Given its corpus in context and a grammar, it writes real Loom**:
+  28.5 % of draws produced checker-accepted definitions and 13 were
+  byte-identical to the canonical fixture asked for. The notation is not too
+  alien for a small model to emit.
+- **Recall, not synthesis**: held-out tasks — definitions absent from the
+  context — produced 1 acceptance and 0 semantic successes across every
+  condition. What the essay imagines (agents fluently composing in their own
+  language) did not happen at this scale; what happened is high-fidelity
+  retrieval under constraint.
+- **The machine-checkable substrate is what makes constraint possible at
+  all**: grammar constraints tripled per-token acceptance over free
+  generation, and per-token type-directed masking (Phase B, running) has
+  already shown scope errors — a quarter of unconstrained failures — driven
+  to ~3 %. None of that is available to prose-as-source: the essay's
+  proposal removes exactly the layers the measurement shows doing the work.
+
+One data point, one small model — but it lands on this document's side:
+the value concentrated in the *inspectable, checkable* representation, and
+the model's fluency came from a curated corpus of it, not from the notation
+being dispensable.

@@ -1,5 +1,7 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/7e68eb7) | Give the masked transport a context and a GPU, and stop it re-tying batch to n_ctx |
+| [2026-08-14](https://github.com/wbniv/loom/commit/a3ebdf3) | Record the condition-4 OOM incident and its fix in the Phase B plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a0f7137) | Plumb n_gpu_layers through the in-process transport |
 | [2026-08-14](https://github.com/wbniv/loom/commit/23b6c2f) | Record the condition-4 launch and close out the build-cache plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/475999a) | Fix a brittle anchor and a split path in the Phase B plan |
@@ -9,6 +11,16 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d9a5368) | Plan experiment Phase B with a B1/B2 split |
 
 <!--history-meta v1
+7e68eb7	author	Will Norris
+7e68eb7	added	35
+7e68eb7	deleted	0
+7e68eb7	files	1
+7e68eb7	body	Two landmines sitting just past the point attempt 1 died, both found while\nfixing the OOM and both fatal to a relaunch.\n\nn_ctx was far too small. Measured with the real tokenizer, the longest prompt\nper regime is none 279, few_shot 1,843, full_corpus 11,906, held_out 11,959\ntokens; phase_b.config.json shipped n_ctx 4096. LlamaCppBackend does refuse a\nprompt that will not fit, naming the config key, so this would have stopped the\nrun rather than corrupted it -- but it would have stopped it at the third\nregime, after paying for the first two. Raised to 16384, matching what Phase A\nserved with, and a test now computes the requirement from the prompts so the\nconfig cannot drift back under it.\n\nThe masked transport was pinned to CPU in committed code: llama_ffi carried\n`params.n_gpu_layers = 0` with the comment "this box is CPU-only, by the plan",\nwhich was true on the laptop it was written on and catastrophic on the run host\n-- a relaunch from committed code would have run the entire matrix on four vCPUs\nwith a 24 GB L4 idle. Now a config knob defaulting to -1, llama.cpp's own "all\nlayers, falling back where there is no device", which is correct on both.\nAttempt 1 reportedly ran at 99-100% SM, which committed code cannot do, so the\nbox was carrying a local patch; attempt 2 should run from committed code.\n\nAlso: _recreate runs once per draw and was building fresh context params, so it\nsilently dropped n_threads and re-tied the batch to n_ctx after the very first\ndraw. It now reuses the params built at load. And batch sizes no longer track\nn_ctx (2048/512, llama.cpp's defaults) -- sizing a compute buffer for a 16k\nmicro-batch that never occurs is pure allocation.\n\nVerified: 549 tests pass; live mask-sanity is byte-for-byte unchanged (26/26\nfixtures, 0 violations, same definition reproduced, same per-layer prune counts),\nso none of this moves the mask.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
+a3ebdf3	author	Will Norris
+a3ebdf3	added	111
+a3ebdf3	deleted	5
+a3ebdf3	files	1
+a3ebdf3	body	Attempt 1's run log: what the salvaged records showed (mask cost spiky rather\nthan monotone, concentrated in the five draws that contain a text literal), the\nmeasured cause, the before/after table, the two-part fix, the regression guard,\nand the attribution -- the defect is B1-substrate, not B2, since the transition\ncount at a literal is identical with syntax only, with B1's pruners and with\nB2's.\n\nAlso records what the incident did not turn up: the run's 81 liveness fallbacks\nare the documented goal-layer behaviour, not a defect.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 a0f7137	author	Will Norris
 a0f7137	added	13
 a0f7137	deleted	0

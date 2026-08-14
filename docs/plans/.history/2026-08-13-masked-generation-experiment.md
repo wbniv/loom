@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/23b6c2f) | Record the condition-4 launch and close out the build-cache plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/f8617b7) | Close out the Phase A run log; grace-poll the driver deadline |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4fe8157) | Land Phase A results: predictions scored, report preserved |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ff5f6ba) | Update plans: GPU attempt log, spot-vs-on-demand lesson, cache status |
@@ -13,6 +14,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+23b6c2f	author	Will Norris
+23b6c2f	added	9
+23b6c2f	deleted	0
+23b6c2f	files	1
+23b6c2f	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 f8617b7	author	Will Norris
 f8617b7	added	45
 f8617b7	deleted	7
