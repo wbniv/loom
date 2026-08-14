@@ -85,7 +85,7 @@ variable "boot_disk_type" {
 variable "image_family" {
   description = "Image family for the runner. Defaults to the Deep Learning VM common CUDA 12.4 image (NVIDIA driver staged, CUDA toolkit preinstalled)."
   type        = string
-  default     = "common-cu124-ubuntu-2204-py310"
+  default     = "common-cu129-ubuntu-2404-nvidia-580"
 }
 
 variable "image_project" {
