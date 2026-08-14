@@ -69,6 +69,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [gcp-experiment-infra] Built the GCP mirror: L4 spot module with
+  triple self-deletion, token-per-invocation auth, quota preflight; ~$0.61/run.
+  See [plan](docs/plans/2026-08-14-gcp-experiment-infra.md).
 - ✅ 2026-08-13 — [gpu-experiment-infra] Built loom-* Terraform: bootstrap, self-
   narrowing IAM, g6.xlarge spot experiment-runner module, one-command driver;
   ~$0.78/run. See [plan](docs/plans/2026-08-13-gpu-experiment-infra.md).
