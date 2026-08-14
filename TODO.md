@@ -33,17 +33,6 @@ Check conformance with `task todo:lint`.
   [plan](docs/plans/2026-08-13-experiment-phase-b.md). (T4: do not dispatch before
   Phase A reports.)
 
-- [wip T4] <!-- agent:a7121488ef690ea48 --> **Re-evaluate the production implementation language (promoted from Watch;
-  trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
-  changes and all seven validation contracts are now versioned (contracts.py 1.0).
-  Compare at least Rust and one credible alternative against deterministic
-  performance, memory safety, closed IR types, CBOR/WASM/SMT integration,
-  deployment, ecosystem risk, and implementation cost; record the decision before
-  any implementation. Keep Python as the differential reference oracle; the
-  replacement must match acceptance, canonical bytes, hashes, and pinned fixture
-  identities per CONTRACTS.md before it becomes authoritative. (T4: a language
-  decision this early shapes everything downstream; re-ranked fresh on promotion.)
-
 ## Watch
 
 - Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
@@ -69,6 +58,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [language-decision] Rust when migration fires (114/130 vs Zig 86,
+  Go 83, OCaml 79); migration deferred — masker is 25x under trigger (d) in every
+  single-stream config. See [plan](docs/plans/2026-08-14-production-language-decision.md).
 - ✅ 2026-08-14 — [gcp-experiment-infra] Built the GCP mirror: L4 spot module with
   triple self-deletion, token-per-invocation auth, quota preflight; ~$0.61/run.
   See [plan](docs/plans/2026-08-14-gcp-experiment-infra.md).
