@@ -771,6 +771,41 @@ fallbacks across 15 draws. That is the behaviour recorded above under
 goal layer a fallback can mean the prefix is provably dead, and a `none`-regime
 draw that opens `(def Text (match (app (ref …` is exactly that.
 
+#### Two further landmines, found while fixing the first
+
+Attempt 1 died 20 minutes in, in the `none` regime. Both of these sat past that
+point and would have cost a second run.
+
+1. **`n_ctx` was far too small.** Measured with the real tokenizer, the longest
+   prompt per regime is `none` 279, `few_shot` 1,843, **`full_corpus` 11,906**,
+   **`held_out` 11,959** tokens. `phase_b.config.json` shipped `n_ctx: 4096`.
+   `LlamaCppBackend` does refuse a prompt that will not fit — with a message
+   naming the config key, which is the right behaviour — but the run would have
+   stopped at the third regime. Raised to **16384**, matching what Phase A
+   served with, and `test_the_shipped_config_has_context_for_the_longest_prompt`
+   now computes the requirement from the prompts themselves so the config cannot
+   drift under it again.
+2. **The masked transport was pinned to CPU in committed code.**
+   `llama_ffi.LlamaModel` carried `params.n_gpu_layers = 0` with the comment
+   "this box is CPU-only, by the plan" — true when Phase B was developed on a
+   laptop, catastrophic on the run host. A relaunch from committed code would
+   have run the whole condition-4 matrix on four vCPUs with a 24 GB L4 idle.
+   Now a config knob, `n_gpu_layers`, defaulting to **-1** — llama.cpp's own
+   "all layers, falling back where there is no device", which is right on the
+   laptop and on the L4 alike.
+
+   **Provenance caveat:** attempt 1 reportedly ran at 99–100 % SM, which
+   committed code cannot do, so the box was carrying a local patch. Attempt 2
+   should run from committed code so the recorded results match a revision that
+   exists.
+
+Two smaller things went with them: `_recreate`, which runs once per draw, built
+fresh context params and so silently dropped `n_threads` and re-tied the batch
+to `n_ctx` after the first draw — it now reuses the params built at load; and
+batch sizes no longer track `n_ctx` at all (2048/512, llama.cpp's defaults),
+since sizing a compute buffer for a 16k micro-batch that never occurs is pure
+allocation.
+
 **Still open after this fix:** a text literal genuinely allows 147,201 of the
 151,936 tokens, so the *first* step inside each distinct literal context costs a
 full trie walk (0.62 s on this laptop's CPU; less on the run host). It is cached

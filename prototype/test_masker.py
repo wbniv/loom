@@ -23,7 +23,7 @@ from pathlib import Path
 
 import corpus_registry
 import transcode
-from experiment import runner
+from experiment import prompts, runner
 from experiment.backends import (
     DECOY_HASH,
     DECOY_INDEX,
@@ -1112,6 +1112,34 @@ class ConditionFourTest(unittest.TestCase):
         self.assertIn("error", summary["r5"])
         self.assertIn("## R5 —", runner.render_report(summary, records))
 
+    def test_the_shipped_config_has_context_for_the_longest_prompt(self):
+        """The landmine attempt 1 died too early to reach.
+
+        `full_corpus` and `held_out` prompts are ~11.9k tokens; the masked
+        transport refuses a prompt that will not fit and the run stops. Attempt 1
+        died in `none`, whose longest prompt is 279 tokens, so a 4096 context
+        looked fine right up until the fourth regime.
+
+        Measured in characters rather than tokens so the check needs no model:
+        the ratio is conservative for this tokenizer on this surface, and the
+        assertion is about the config having *room*, not about an exact count.
+        """
+        config = runner.Config.load(HERE / "experiment" / "phase_b.config.json")
+        resolver = self.resolver
+        longest = 0
+        for regime in config.regimes:
+            for task in prompts.tasks_for_regime(regime):
+                text = prompts.build_prompt(
+                    task, regime, resolver, leave_one_out=config.leave_one_out)
+                longest = max(longest, len(text))
+        # A conservative floor on tokens: no tokenizer emits fewer than one
+        # token per 4 characters of this surface.
+        needed = longest // 4 + config.max_tokens_per_draw
+        self.assertGreaterEqual(
+            config.n_ctx, needed,
+            f"n_ctx={config.n_ctx} cannot hold the longest prompt "
+            f"(~{longest // 4} tokens) plus a {config.max_tokens_per_draw}-token draw")
+
     def test_the_shipped_phase_b_config_is_ready_for_the_live_matrix(self):
         """The condition-4 config an operator launches, checked as a whole.
 
@@ -1131,6 +1159,9 @@ class ConditionFourTest(unittest.TestCase):
         self.assertEqual(config["temperature"], 0.8)
         for empty in ("backend", "model_path", "llama_lib", "model_identity", "hardware"):
             self.assertEqual(config[empty], "", empty)
+        # -1 is "all layers, falling back where there is no device". A committed
+        # 0 here ran the matrix on the instance's four vCPUs with the L4 idle.
+        self.assertEqual(config["n_gpu_layers"], -1)
         # And it loads: every key is one `Config` knows, so a live run does not
         # discover a typo after paying for an instance. `load` anchors the
         # baseline to the config's own directory, so the path it produces is

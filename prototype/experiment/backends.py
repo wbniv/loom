@@ -440,11 +440,15 @@ class LlamaCppBackend:
 
     name = "llama-cpp"
 
-    def __init__(self, model_path, *, lib_path="", n_ctx=4096, n_threads=0):
+    def __init__(self, model_path, *, lib_path="", n_ctx=4096, n_threads=0,
+                 n_gpu_layers=-1):
         self.model_path = model_path
         self.lib_path = lib_path
         self.n_ctx = n_ctx
         self.n_threads = n_threads
+        #: `-1` is llama.cpp's own "all layers, falling back where there is no
+        #: device", so the same value is right on a CPU laptop and on the L4.
+        self.n_gpu_layers = n_gpu_layers
         self._model = None
 
     def _ensure(self):
@@ -457,6 +461,7 @@ class LlamaCppBackend:
                     lib_path=self.lib_path or None,
                     n_ctx=self.n_ctx,
                     n_threads=self.n_threads,
+                    n_gpu_layers=self.n_gpu_layers,
                 )
             except FfiUnavailable as error:
                 raise BackendUnavailable(str(error)) from error
@@ -585,6 +590,7 @@ def make_backend(config):
             lib_path=getattr(config, "llama_lib", ""),
             n_ctx=getattr(config, "n_ctx", 4096),
             n_threads=getattr(config, "n_threads", 0),
+            n_gpu_layers=getattr(config, "n_gpu_layers", -1),
         )
     if kind == "llama-server":
         if not config.server_url:
