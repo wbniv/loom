@@ -81,6 +81,16 @@ from experiment.store_resolver import POLICY_ALL, StoreResolver
 #: four orders of magnitude of headroom and guarantees that every generated
 #: definition sorts after every curated one in `export-resolver`, in any store,
 #: whatever order the harvests ran in.
+#:
+#: Two runs harvested into one store therefore *share* the band and can land on
+#: the same `sequence`. That is deliberate rather than overlooked: `sequence`
+#: orders the curated corpus, where it carries the manifest's dependency order,
+#: and generated objects have no order to carry. `export_resolver` sorts by
+#: `(sequence, hash)`, so a tie is broken deterministically and the document
+#: stays reproducible; what it is not is meaningful across runs. Making it
+#: meaningful would mean allocating per-run bands from store state, which would
+#: put the harvest's output at the mercy of harvest order — the one thing the
+#: byte-identity criterion forbids.
 SEQUENCE_BASE_GENERATED = 1_000_000
 
 #: The §5.2 metadata-name prefix every generated object carries. It is a name,
