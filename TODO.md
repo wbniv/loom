@@ -69,6 +69,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [gpu-experiment-infra] Built loom-* Terraform: bootstrap, self-
+  narrowing IAM, g6.xlarge spot experiment-runner module, one-command driver;
+  ~$0.78/run. See [plan](docs/plans/2026-08-13-gpu-experiment-infra.md).
 - ✅ 2026-08-13 — [reference-evaluator] Built the CEK-machine interpreter: all 26
   fixtures execute, multi-shot handlers proven, abs(INT_MIN) negative on hardware
   semantics. See [plan](docs/plans/2026-08-13-reference-evaluator.md).
