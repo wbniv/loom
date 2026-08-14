@@ -24,6 +24,11 @@ store/target/
 .loom-store/
 .loom-store-generated/
 
+# The L0 differential export (docs/plans/2026-08-14-production-language-decision.md,
+# Track P). Derived data: `task differential:export` reproduces it byte for byte
+# from the tree, so the generator is the artifact and the JSONL is its output.
+prototype/differential/*.jsonl
+
 prototype/experiment/phase_a.local.json
 prototype/experiment/phase_a.smoke.json
 prototype/experiment/phase_a.remote.json
