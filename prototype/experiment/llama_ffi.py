@@ -251,8 +251,22 @@ def _check_abi(library, location) -> None:
 class LlamaModel:
     """One loaded GGUF plus one context: tokenize, decode, read logits."""
 
+    #: llama.cpp's own default for `n_gpu_layers`: every layer offloaded, falling
+    #: back to CPU where there is no device. Correct on a CPU-only laptop *and*
+    #: on the L4 the matrix runs on, which is the point — it was hardcoded to `0`
+    #: ("this box is CPU-only, by the plan") while Phase B was developed here,
+    #: and that would have silently run the whole condition-4 matrix on the
+    #: instance's four vCPUs while a 24 GB L4 sat idle.
+    ALL_LAYERS = -1
+
+    #: Batch sizes are *not* tied to `n_ctx`. Prompt eval happens in chunks, and
+    #: sizing the compute buffer for a 16k context allocates for a 16k-token
+    #: micro-batch that is never used. These are llama.cpp's own defaults.
+    DEFAULT_N_BATCH = 2048
+    DEFAULT_N_UBATCH = 512
+
     def __init__(self, model_path, *, lib_path=None, n_ctx=4096, n_threads=0,
-                 n_batch=0, n_gpu_layers=0) -> None:
+                 n_batch=0, n_ubatch=0, n_gpu_layers=ALL_LAYERS) -> None:
         path = Path(model_path)
         if not path.exists():
             raise FfiUnavailable(f"GGUF not found: {path}")
@@ -260,12 +274,8 @@ class LlamaModel:
         self.model_path = str(path)
 
         params = self.library.llama_model_default_params()
-        # 0 (CPU-only) is the right default for the laptop this shim was
-        # written on, but the remote L4 host must be able to offload: a GPU
-        # matrix that silently decodes on 4 vCPUs runs ~6x slower with the
-        # accelerator idle — found live on the first condition-4 launch,
-        # 2026-08-14, 68 records in.
         params.n_gpu_layers = int(n_gpu_layers)
+        self.n_gpu_layers = int(n_gpu_layers)
         self.model = self.library.llama_model_load_from_file(str(path).encode("utf-8"), params)
         if not self.model:
             raise FfiUnavailable(f"llama.cpp could not load {path}")
@@ -276,13 +286,19 @@ class LlamaModel:
 
         context_params = self.library.llama_context_default_params()
         context_params.n_ctx = int(n_ctx)
-        context_params.n_batch = int(n_batch or n_ctx)
-        context_params.n_ubatch = int(n_batch or n_ctx)
+        self.n_batch = int(n_batch or min(self.DEFAULT_N_BATCH, n_ctx))
+        self.n_ubatch = int(n_ubatch or min(self.DEFAULT_N_UBATCH, self.n_batch))
+        context_params.n_batch = self.n_batch
+        context_params.n_ubatch = self.n_ubatch
         # The parent plan's amendment record is explicit: KV-cache quantization
         # cut prompt eval to ~12 tok/s on this CPU, so the defaults stand.
         if n_threads:
             context_params.n_threads = int(n_threads)
             context_params.n_threads_batch = int(n_threads)
+        # Kept so `_recreate` rebuilds the *same* context once per draw. It used
+        # to construct fresh defaults, which quietly dropped `n_threads` and
+        # re-tied the batch to `n_ctx` after the very first draw.
+        self._context_params = context_params
         self.context = self.library.llama_init_from_model(self.model, context_params)
         if not self.context:
             self.close()
@@ -364,11 +380,8 @@ class LlamaModel:
         """
         if self.context:
             self.library.llama_free(self.context)
-        params = self.library.llama_context_default_params()
-        params.n_ctx = self.n_ctx
-        params.n_batch = self.n_ctx
-        params.n_ubatch = self.n_ctx
-        self.context = self.library.llama_init_from_model(self.model, params)
+        self.context = self.library.llama_init_from_model(
+            self.model, self._context_params)
         if not self.context:  # pragma: no cover - only on OOM
             raise FfiUnavailable("llama.cpp could not recreate the context")
         self._position = 0

@@ -153,7 +153,10 @@ class Config:
     baseline_summary: str = ""
     n_ctx: int = 4096
     n_threads: int = 0
-    n_gpu_layers: int = 0
+    #: Layers offloaded to the GPU by the in-process transport. `-1` is
+    #: llama.cpp's own "all layers, falling back where there is no device", so
+    #: it is right on a CPU laptop and on the run host alike. `0` forces CPU.
+    n_gpu_layers: int = -1
 
     source_path: str = ""
 

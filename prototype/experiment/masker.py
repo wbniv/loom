@@ -138,6 +138,27 @@ HEADED = frozenset({P_DEFINITION, P_TYPE, P_TERM, P_ROW_ELEM})
 #: Atom kinds a pruner can have an opinion about. Used only by the skip filter.
 PRUNABLE = frozenset({P_HASH, P_ROW_ELEM, P_VAR, P_TYVAR, P_HEAD})
 
+#: Atom kinds whose *content* some consumer actually reads — the pruners above,
+#: plus `_next_part`'s head keyword, literal kind word and match-arm binder
+#: count. Everywhere else the scanner keeps one byte (enough to answer "is this
+#: atom empty?", which is the only other question asked of it) and drops the
+#: rest.
+#:
+#: This is a correctness-neutral change that is the difference between the
+#: masker running and the masker exhausting a 16 GB box. A text literal's
+#: payload is `string`, which nothing reads; accumulating it made **every byte
+#: of every string a distinct type state**, so the memoized transition shared
+#: nothing, the mask cache never hit, and each token inside a literal cost a
+#: full walk of the 333k-node vocabulary trie *and* left ~82,000 permanent
+#: entries behind. Measured at 147,201 allowed tokens, 326,749 new transitions
+#: and +131 MB for a single step; +2.38 GB over 64 characters. With the payload
+#: dropped a whole literal collapses to two states (in-string, and in-string
+#: after a backslash), so it is walked once and cached.
+#:
+#: `f64`, `bytes` and `i64` payloads are the same shape — unbounded atoms no
+#: consumer reads — and are covered by the same rule.
+ATOM_READ = frozenset({P_HEAD, P_LIT_KIND, P_UINT, P_VAR, P_TYVAR, P_HASH, P_ROW_ELEM})
+
 #: Deltas that are not plain integers.
 D_PRENEX = "prenex"     # the definition term runs at the type's prenex forall depth
 D_ARM = "arm"           # a match arm's body binds the arm's own binder count
@@ -526,11 +547,25 @@ class TypeState:
         if not self.atom and byte == 0x22 and self.stack[-1].part_kind == "string":
             return TypeState(self.stack, b'"', self.prenex, True, False, forced, captured)
         return TypeState(
-            self.stack, self.atom + bytes((byte,)), self.prenex, False, False,
+            self.stack, self._extend(byte), self.prenex, False, False,
             forced, captured)
 
+    def _extend(self, byte: int) -> bytes:
+        """The atom after `byte`, keeping only what some consumer will read.
+
+        For an atom kind nobody reads, this keeps the first byte and discards
+        the rest: emptiness is the only property still asked of it, and holding
+        the content makes every position in a literal a distinct state. See
+        `ATOM_READ`.
+        """
+        if self.stack[-1].part_kind in ATOM_READ:
+            return self.atom + bytes((byte,))
+        return self.atom or bytes((byte,))
+
     def _advance_string(self, byte: int, forced: bytes) -> "TypeState":
-        atom = self.atom + bytes((byte,))
+        # A string payload is never read, so the atom stays at the opening quote
+        # and the whole literal is two states rather than one per character.
+        atom = self._extend(byte)
         captured = self.captured + bytes((byte,)) if self.capturing else self.captured
         if self.escaped:
             return TypeState(self.stack, atom, self.prenex, True, False, forced, captured)
@@ -1125,12 +1160,30 @@ class Masker:
     #: so an unbounded cache is a gigabyte; an entry cap alone would not bound it.
     MASK_CACHE_IDS = 4_000_000
 
+    #: Cap on the memoized byte transition, which is the other half of the
+    #: masker's memory and was the half with no bound at all until a live run
+    #: found out. Measured at 313-428 bytes per entry (key tuple, plus the
+    #: `TypeState` and grammar state each entry retains), so this is ~200 MB
+    #: worst case.
+    #:
+    #: Eviction is a wholesale clear rather than an LRU on purpose. `_transition`
+    #: is the hottest path in the masker — it runs once per live trie edge per
+    #: step — and per-hit recency bookkeeping there would cost more than the
+    #: cache saves. Clearing is O(1) amortized and gives a hard bound; with the
+    #: `ATOM_READ` fix above it is rare, and `mask_transition_clears` reports it
+    #: so a run that thrashes says so rather than quietly slowing down.
+    TRANSITION_CACHE_SIZE = 500_000
+
     def __init__(self, vocabulary: StaticVocabulary, pruners=(), grammar: Grammar | None = None,
-                 mask_cache_size: int = 32_768) -> None:
+                 mask_cache_size: int = 32_768, transition_cache_size: int | None = None) -> None:
         self.vocabulary = vocabulary
         self.grammar = grammar or loom_grammar()
         self.pruners = [p if isinstance(p, _Timed) else _Timed(p) for p in pruners]
         self._transitions: dict = {}
+        self._transition_cache_size = (
+            self.TRANSITION_CACHE_SIZE if transition_cache_size is None
+            else transition_cache_size)
+        self.transition_clears = 0
         self._mask_cache: dict = {}
         self._mask_cache_size = mask_cache_size
         self._cached_ids = 0
@@ -1222,6 +1275,11 @@ class Masker:
         else:
             layer = self._veto_layer(tstate, byte)
             result = (None, layer) if layer else ((advanced, tstate.advance(byte)), "")
+        if len(self._transitions) >= self._transition_cache_size:
+            # In-place, so the `memo` alias `_mask_for` holds stays valid; a walk
+            # in flight just recomputes rather than reading a stale entry.
+            self._transitions.clear()
+            self.transition_clears += 1
         self._transitions[key] = result
         return result
 
@@ -1362,6 +1420,12 @@ class Masker:
             "mask_fallbacks": self.fallbacks,
             "mask_pruners_enabled": list(self.enabled_pruners),
             "mask_vocab_size": len(self.vocabulary),
+            # The two bounded caches, reported so a run that is thrashing them
+            # says so on the page rather than only getting slower.
+            "mask_transition_entries": len(self._transitions),
+            "mask_transition_clears": self.transition_clears,
+            "mask_cache_entries": len(self._mask_cache),
+            "mask_cached_ids": self._cached_ids,
         }
 
     def reset_stats(self) -> None:

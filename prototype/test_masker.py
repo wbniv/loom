@@ -23,7 +23,7 @@ from pathlib import Path
 
 import corpus_registry
 import transcode
-from experiment import runner
+from experiment import prompts, runner
 from experiment.backends import (
     DECOY_HASH,
     DECOY_INDEX,
@@ -39,6 +39,7 @@ from experiment.backends import (
 from experiment.evaluate import ACCEPTED, run_funnel
 from experiment.gbnf import Grammar, GrammarError, loom_grammar
 from experiment.masker import (
+    ATOM_READ,
     LIT_KIND_NAMES,
     PRUNABLE,
     PRUNER_NAMES,
@@ -704,6 +705,159 @@ class MaskSoundnessTest(unittest.TestCase):
         self.assertGreater(step.pruned.get("goal-type", 0), 0)
 
 
+class MaskMemoryTest(unittest.TestCase):
+    """The masker's memory, which a live run found unbounded the hard way.
+
+    Condition 4's first live matrix was OOM-killed at 14.3 GB anon-rss on a
+    16 GB box after stalling for 39 minutes inside a single draw. Every one of
+    the five slowest draws contained a `(lit text "…")`, and the cause measured
+    out exactly: a string payload is an atom no consumer reads, but `TypeState`
+    accumulated it anyway, so **every byte of a literal was a distinct state**.
+    Nothing shared, the mask cache never hit, and each token inside a literal
+    cost a full walk of the 333k-node vocabulary trie and left ~82,000 permanent
+    entries in a memo that had no bound at all.
+
+    Measured on the real 151,936-token vocabulary: one step inside a text
+    literal took 3.28 s, added 326,749 transition entries and +131 MB; a
+    sustained walk reached +2.38 GB after 64 characters. With the payload
+    dropped the same step takes 0.62 s, adds 422 entries and +0.2 MB, and the
+    sustained walk is flat.
+
+    The corpus contains no text literal, which is why `MaskSoundnessTest` never
+    walked this path — so the coverage is here, and deliberately does not depend
+    on a model or on the corpus growing one.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.vocabulary = scripted_vocabulary(SURFACES, max_piece=4)
+
+    LITERAL = b'(def Text (lit text "'
+
+    def test_a_literal_payload_collapses_to_a_constant_number_of_states(self):
+        """The state-level cause. 54 characters used to mean 54 states."""
+        for label, prefix, body in (
+            ("text", self.LITERAL, b"the quick brown fox jumps over the lazy dog 0123456789"),
+            ("bytes", b"(def Bytes (lit bytes 0x", b"ab" * 40),
+            ("f64", b"(def F64 (lit f64 0x", b"0123456789abcdef"),
+            ("i64", b"(def I64 (lit i64 ", b"1234567890" * 5),
+        ):
+            with self.subTest(literal=label):
+                state = TypeState().feed(prefix)
+                distinct = set()
+                for byte in body:
+                    distinct.add(state)
+                    state = state.advance(byte)
+                self.assertLessEqual(
+                    len(distinct), 3,
+                    f"{label} payload retains per-character state: {len(distinct)} "
+                    f"distinct states over {len(body)} bytes")
+
+    def test_a_text_literal_does_not_grow_the_transition_memo(self):
+        """The regression guard proper: sustained steps inside one literal.
+
+        Entry count rather than RSS, because entries are what the measurement
+        showed growing and an entry-count assertion does not flake on a shared
+        machine.
+        """
+        masker = build_masker(self.vocabulary, self.resolver)
+        masker.accept_bytes(self.LITERAL)
+        masker.step()
+        masker.accept_bytes(b"ab")
+        masker.step()
+        settled = len(masker._transitions)
+        for _ in range(120):
+            masker.step()
+            masker.accept_bytes(b"ab")
+        self.assertEqual(
+            len(masker._transitions), settled,
+            "the transition memo grew while walking a text literal — the "
+            "literal's payload is being retained in the type state again")
+        self.assertEqual(masker.transition_clears, 0)
+
+    def test_a_long_literal_keeps_hitting_the_mask_cache(self):
+        """The other half of the same fault: hit rate collapsed to ~0.07 live."""
+        masker = build_masker(self.vocabulary, self.resolver)
+        masker.accept_bytes(self.LITERAL)
+        for _ in range(60):
+            masker.step()
+            masker.accept_bytes(b"x")
+        stats = masker.stats()
+        self.assertGreater(stats["mask_cache_hit_rate"], 0.9, stats)
+
+    def test_the_transition_memo_is_bounded_and_says_when_it_evicts(self):
+        """Memory is bounded by construction, not only by the fix above.
+
+        The `ATOM_READ` fix removes the pathology that was found; the cap is
+        what makes the bound hold against the one that has not been.
+        """
+        masker = build_masker(self.vocabulary, self.resolver)
+        masker._transition_cache_size = 64
+        for surface in SURFACES:
+            masker.reset()
+            for byte in surface.encode("utf-8"):
+                masker.step()
+                masker.accept_bytes(bytes((byte,)))
+                self.assertLessEqual(len(masker._transitions), 64)
+        self.assertGreater(masker.transition_clears, 0)
+        stats = masker.stats()
+        self.assertEqual(stats["mask_transition_clears"], masker.transition_clears)
+        self.assertLessEqual(stats["mask_transition_entries"], 64)
+
+    def test_eviction_does_not_change_the_mask(self):
+        """A cache is only ever a speedup. Same position, same answer."""
+        prefix = b"(def (fn Bool () Bool) (lam Bool (if (var 0) "
+        roomy = build_masker(self.vocabulary, self.resolver)
+        roomy.accept_bytes(prefix)
+        cramped = build_masker(self.vocabulary, self.resolver)
+        cramped._transition_cache_size = 1
+        cramped.accept_bytes(prefix)
+        self.assertEqual(roomy.step().allowed, cramped.step().allowed)
+
+    def test_the_atoms_that_are_kept_are_the_ones_that_are_read(self):
+        """`ATOM_READ` has to cover every consumer of an atom's content.
+
+        Two kinds of consumer: the pruners (`PRUNABLE`), and `_next_part`'s own
+        three reads — the head keyword, the literal kind word, and a match arm's
+        binder count. Dropping a kind that is read would be silent corruption
+        rather than a crash, so the set is asserted rather than commented.
+        """
+        self.assertLessEqual(PRUNABLE, ATOM_READ)
+        for kind in ("head", "lit-kind", "uint:free"):
+            self.assertIn(kind, ATOM_READ)
+        # And the reads still work end to end, on the paths that do them.
+        state = TypeState().feed(b"(def Bool (match (var 0) ((0 12 ")
+        self.assertEqual(state.top.binders, 12, "arm binder count was truncated")
+        state = TypeState().feed(b"(def Bool (lit bool ")
+        self.assertEqual(state.top.lit_kind, "bool", "literal kind word was truncated")
+        state = TypeState().feed(b"(def Bool (perform 0x" + b"ab" * 32 + b" 7 ")
+        self.assertEqual(state.top.kind, "perform", "head keyword was truncated")
+
+    def test_the_mask_admits_a_text_literal_byte_by_byte(self):
+        """R4 over the path the corpus does not cover.
+
+        The soundness rule is about definitions the funnel accepts, so the
+        definition is run through the funnel here rather than assumed: if
+        `run_funnel` accepts it, every one of its bytes must have been offered.
+        """
+        source = '(def Text (lit text "hello \\" world"))'
+        self.assertEqual(run_funnel(source, self.resolver).outcome, ACCEPTED)
+        masker = build_masker(self.vocabulary, self.resolver)
+        masker.reset()
+        for index, byte in enumerate(source.encode("utf-8")):
+            token = self.vocabulary.lookup(bytes((byte,)))
+            self.assertIsNotNone(token, f"vocabulary gap at byte {index}")
+            step = masker.step()
+            self.assertIn(
+                token, step.allowed,
+                f"MASK EXCLUDED A VALID CONTINUATION at byte {index} "
+                f"({chr(byte)!r}) after {masker.text[-40:]!r}")
+            masker.accept_token(token)
+        self.assertTrue(masker.can_end)
+        self.assertEqual(masker.fallbacks, 0)
+
+
 class MaskerApiTest(unittest.TestCase):
     """The R2/R3 surface: toggles, per-layer counters, timings, EOS."""
 
@@ -958,6 +1112,34 @@ class ConditionFourTest(unittest.TestCase):
         self.assertIn("error", summary["r5"])
         self.assertIn("## R5 —", runner.render_report(summary, records))
 
+    def test_the_shipped_config_has_context_for_the_longest_prompt(self):
+        """The landmine attempt 1 died too early to reach.
+
+        `full_corpus` and `held_out` prompts are ~11.9k tokens; the masked
+        transport refuses a prompt that will not fit and the run stops. Attempt 1
+        died in `none`, whose longest prompt is 279 tokens, so a 4096 context
+        looked fine right up until the fourth regime.
+
+        Measured in characters rather than tokens so the check needs no model:
+        the ratio is conservative for this tokenizer on this surface, and the
+        assertion is about the config having *room*, not about an exact count.
+        """
+        config = runner.Config.load(HERE / "experiment" / "phase_b.config.json")
+        resolver = self.resolver
+        longest = 0
+        for regime in config.regimes:
+            for task in prompts.tasks_for_regime(regime):
+                text = prompts.build_prompt(
+                    task, regime, resolver, leave_one_out=config.leave_one_out)
+                longest = max(longest, len(text))
+        # A conservative floor on tokens: no tokenizer emits fewer than one
+        # token per 4 characters of this surface.
+        needed = longest // 4 + config.max_tokens_per_draw
+        self.assertGreaterEqual(
+            config.n_ctx, needed,
+            f"n_ctx={config.n_ctx} cannot hold the longest prompt "
+            f"(~{longest // 4} tokens) plus a {config.max_tokens_per_draw}-token draw")
+
     def test_the_shipped_phase_b_config_is_ready_for_the_live_matrix(self):
         """The condition-4 config an operator launches, checked as a whole.
 
@@ -977,6 +1159,9 @@ class ConditionFourTest(unittest.TestCase):
         self.assertEqual(config["temperature"], 0.8)
         for empty in ("backend", "model_path", "llama_lib", "model_identity", "hardware"):
             self.assertEqual(config[empty], "", empty)
+        # -1 is "all layers, falling back where there is no device". A committed
+        # 0 here ran the matrix on the instance's four vCPUs with the L4 idle.
+        self.assertEqual(config["n_gpu_layers"], -1)
         # And it loads: every key is one `Config` knows, so a live run does not
         # discover a typo after paying for an instance. `load` anchors the
         # baseline to the config's own directory, so the path it produces is

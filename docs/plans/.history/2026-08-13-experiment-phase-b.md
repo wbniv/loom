@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/a0f7137) | Plumb n_gpu_layers through the in-process transport |
 | [2026-08-14](https://github.com/wbniv/loom/commit/23b6c2f) | Record the condition-4 launch and close out the build-cache plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/475999a) | Fix a brittle anchor and a split path in the Phase B plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/55a5e7c) | Add the type-goal pruner, Phase B2's profile-directed layer |
@@ -8,6 +9,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d9a5368) | Plan experiment Phase B with a B1/B2 split |
 
 <!--history-meta v1
+a0f7137	author	Will Norris
+a0f7137	added	13
+a0f7137	deleted	0
+a0f7137	files	1
+a0f7137	body	llama_ffi hardcoded n_gpu_layers=0 from its CPU-laptop origin, so the\nfirst condition-4 launch decoded the 7B on 4 vCPUs with the L4 idle\n(caught at 68 records: dmon flat-zero, 37s/record vs ~6s expected).\nConfig -> RunConfig -> make_backend -> LlamaCppBackend -> LlamaModel,\nand the GCP startup script injects the instance's NGL on the masked\npath. Run killed and relaunched; CPU records discarded as incomparable.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 23b6c2f	author	Will Norris
 23b6c2f	added	10
 23b6c2f	deleted	3

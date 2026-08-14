@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Complete Phase B2: profile-directed pruners and the condition-4 run
+- [wip T4] <!-- agent:a10ca53ae0ffa75ef --> **Complete Phase B2: profile-directed pruners and the condition-4 run
   (gated on Phase A's failure distribution).** Pruner priority from the Phase A
   report, the live condition-4 run, the R5 comparison, prediction scoring. See
   [plan](docs/plans/2026-08-13-experiment-phase-b.md). (T4: do not dispatch before
