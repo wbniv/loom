@@ -5,6 +5,14 @@
 **Implements:** the second substrate for the live‑run half of [Masked‑generation experiment, Phase A substrate and harness](2026-08-13-experiment-phase-a.md)
 **Sibling of:** [GPU infrastructure for the Phase A experiment run](2026-08-13-gpu-experiment-infra.md) — the AWS stack, whose artifact flow, driver structure and cost discipline this one mirrors deliberately
 
+## Compute-path directive (operator, 2026-08-14)
+
+**GCP is the compute path; do not use AWS.** The AWS G-quota was eventually
+approved on appeal, but GCP runs are covered by $300 in trial credits
+(≈ 490 Spot runs) while AWS bills real money. The AWS stack
+(infrastructure/aws/) stays as a built, tested emergency fallback only —
+launching there requires an explicit fresh operator instruction.
+
 ## Objective
 
 The AWS stack is built and waiting on an EC2 GPU allocation. Google's trial
