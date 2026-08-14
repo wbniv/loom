@@ -123,15 +123,31 @@ fi
 log "model: $MODEL_PATH"
 
 # --- 4. llama.cpp at the pinned revision ------------------------------------
-log "building llama.cpp at $LLAMA_REV with CUDA"
+# Revision-keyed build cache: hit -> ~30 s extract; miss -> build once and
+# seed the cache for every later run. The cache is an optimization, never a
+# dependency: any cache failure falls through to a source build, and a
+# failed upload never fails a successful run.
+BUILD_CACHE="gs://$BUCKET/builds/llama-$LLAMA_REV-cu129-g2.tar.gz"
 git clone "$LLAMA_REPO" "$WORK/llama.cpp"
 git -C "$WORK/llama.cpp" checkout --detach "$LLAMA_REV"
-cmake -S "$WORK/llama.cpp" -B "$WORK/llama.cpp/build" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DGGML_CUDA=ON \
-  -DLLAMA_CURL=OFF \
-  -DLLAMA_BUILD_TESTS=OFF
-cmake --build "$WORK/llama.cpp/build" --config Release --target llama-server -j "$(nproc)"
+if gsutil -q stat "$BUILD_CACHE" 2>/dev/null && \
+   gsutil -q cp "$BUILD_CACHE" /tmp/llama-build.tar.gz && \
+   tar -xzf /tmp/llama-build.tar.gz -C "$WORK/llama.cpp" && \
+   test -x "$WORK/llama.cpp/build/bin/llama-server"; then
+  log "build cache hit: $BUILD_CACHE"
+else
+  log "build cache miss — building llama.cpp at $LLAMA_REV with CUDA"
+  rm -rf "$WORK/llama.cpp/build"
+  cmake -S "$WORK/llama.cpp" -B "$WORK/llama.cpp/build" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_CUDA=ON \
+    -DLLAMA_CURL=OFF \
+    -DLLAMA_BUILD_TESTS=OFF
+  cmake --build "$WORK/llama.cpp/build" --config Release --target llama-server -j "$(nproc)"
+  (cd "$WORK/llama.cpp" && tar czf - build | gsutil -q cp - "$BUILD_CACHE") \
+    && log "build cache seeded: $BUILD_CACHE" \
+    || log "build cache upload failed (continuing — cache is best-effort)"
+fi
 
 SERVER_BIN="$WORK/llama.cpp/build/bin/llama-server"
 test -x "$SERVER_BIN"
