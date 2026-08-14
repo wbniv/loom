@@ -81,19 +81,15 @@ tasks:
       - |
         set -euo pipefail
 
+        # Portable masked read: go-task's interpreter lacks bash's `read -n1`,
+        # so hide echo with stty instead of star-masking per keystroke.
         read_masked() {
-          local prompt="$1" result="" char
-          printf "%s" "$prompt" >/dev/tty
-          while IFS= read -r -s -n1 char </dev/tty; do
-            if [[ -z "$char" ]]; then break
-            elif [[ "$char" == $'\x7f' || "$char" == $'\b' ]]; then
-              [[ -n "$result" ]] && { result="${result%?}"; printf "\b \b" >/dev/tty; }
-            else
-              result+="$char"; printf "*" >/dev/tty
-            fi
-          done
+          printf "%s" "$1" >/dev/tty
+          stty -echo </dev/tty
+          IFS= read -r REPLY </dev/tty
+          stty echo </dev/tty
           printf "\n" >/dev/tty
-          printf "%s" "$result"
+          printf "%s" "$REPLY"
         }
 
         PROFILE="loom-terraform"
@@ -124,9 +120,9 @@ tasks:
           read -r KEY_ID </dev/tty
           KEY_SECRET=$(read_masked "Paste Secret Access Key: ")
 
-          grep -q "^\[loom-terraform\]" "$CREDS" 2>/dev/null \
-            || printf "\n[loom-terraform]\naws_access_key_id = %s\naws_secret_access_key = %s\n" \
-                 "$KEY_ID" "$KEY_SECRET" >> "$CREDS"
+          # Rewrite-or-create the section: an earlier failed attempt may have
+          # left a broken entry, so append-if-absent is not enough.
+          python3 -c "import configparser,sys; p,k,sec=sys.argv[1:4]; cp=configparser.ConfigParser(); cp.read(p); cp.has_section('loom-terraform') or cp.add_section('loom-terraform'); cp.set('loom-terraform','aws_access_key_id',k); cp.set('loom-terraform','aws_secret_access_key',sec); f=open(p,'w'); cp.write(f); f.close()" "$CREDS" "$KEY_ID" "$KEY_SECRET"
           grep -q "^\[profile loom-terraform\]" "$CONFIG" 2>/dev/null \
             || printf "\n[profile loom-terraform]\nregion = us-east-2\noutput = json\n" >> "$CONFIG"
           echo "✓ Profile written."
