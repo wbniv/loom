@@ -9,7 +9,9 @@ Regimes (R4)
 
 ``none``         No examples at all.
 ``few_shot``     A small fixed example set (`FEW_SHOT_NAMES`).
-``full_corpus``  Every corpus definition, in manifest (dependency) order.
+``full_corpus``  Every definition the resolver holds, in its own order —
+                 manifest (dependency) order for the curated corpus, then any
+                 harvested generations after it (see `_example_names`).
 ``held_out``     Full-corpus context, but the tasks are new spec texts that
                  require *composing* corpus definitions rather than recalling
                  one.
@@ -88,6 +90,38 @@ Answer with the single `(def ...)` form and nothing else.\
 """
 
 EXAMPLE_HEADER = "Here are definitions in this surface, each with what it does."
+
+#: Characters per token for *this* surface — a floor, and a measured one.
+#:
+#: The phase-b run log records the longest curated prompts at `full_corpus`
+#: 11,906 and `held_out` 11,959 real tokens (Qwen2.5-Coder-7B), and those same
+#: prompts are 17,979 and 18,183 characters: **1.51 chars/token**. The reason is
+#: hash literals — 64 hex digits tokenize far denser than prose — so the
+#: 4-chars-per-token rule of thumb that reads as "conservative" for English is
+#: *optimistic by 2.6x* here, which is the wrong direction for a check whose job
+#: is to stop a run dying at the fourth regime. Anything sizing `n_ctx` divides
+#: by this, not by 4.
+CHARS_PER_TOKEN = 1.5
+
+
+def estimated_tokens(text: str) -> int:
+    """A conservative token count for a prompt, without loading a tokenizer."""
+    return int(len(text) / CHARS_PER_TOKEN) + 1
+
+
+def context_required(regimes, resolver, *, leave_one_out=True, draw_tokens=0) -> int:
+    """Tokens the longest prompt over `regimes` needs, plus a draw's budget.
+
+    The `n_ctx` a config must carry. Computed from the prompts themselves, so a
+    config cannot drift under its own corpus — which is exactly how phase-b
+    shipped `n_ctx: 4096` for an 11.9k-token prompt.
+    """
+    longest = 0
+    for regime in regimes:
+        for task in tasks_for_regime(regime):
+            text = build_prompt(task, regime, resolver, leave_one_out=leave_one_out)
+            longest = max(longest, estimated_tokens(text))
+    return longest + draw_tokens
 
 
 @dataclass(frozen=True)
@@ -276,35 +310,86 @@ def all_tasks() -> tuple[Task, ...]:
     return corpus_tasks() + held_out_tasks()
 
 
-def _example_names(regime: str) -> tuple[str, ...]:
+def _example_names(regime: str, resolver: ExperimentResolver) -> tuple[str, ...]:
+    """The regime's example set, drawn from whatever corpus the resolver holds.
+
+    The full-corpus regimes read `resolver.definitions()` rather than
+    `corpus_registry.MANIFEST`, which is what makes the corpus-loop A/B an
+    experiment about *what the model sees* rather than only about what resolves.
+    Widening the hash universe alone would test the references layer, and
+    Phase A already measured references as a minor layer (75 of 664 rejections);
+    the corpus in context was the largest lever it found.
+
+    The curated arm is unchanged, and structurally so rather than by care:
+
+    * `ExperimentResolver.definitions()` *is* `corpus_registry.MANIFEST` in
+      manifest order, so a run with no store is byte-for-byte what it was;
+    * `StoreResolver.definitions()` follows the export's `(sequence, hash)`
+      order, and `harvest.py` numbers generated objects from a reserved band
+      four orders of magnitude above the corpus — so curated definitions come
+      first, in manifest order, and generated ones follow in harvest order.
+
+    `few_shot` keeps its pinned four names: the regime's whole point is a small
+    *fixed* set, and letting a store change it would make it a different regime.
+    """
     if regime == REGIME_NONE:
         return ()
     if regime == REGIME_FEW_SHOT:
         return FEW_SHOT_NAMES
-    return tuple(entry.name_path for entry in corpus_registry.MANIFEST)
+    # A store can hold a definition admitted without a `--name`. It has no §5.2
+    # metadata name to look up and no entry to read a spec from, so it cannot be
+    # shown as an example; skipping it here is the only place that decision has
+    # to be made, and it keeps `build_prompt`'s name→digest→entry chain total.
+    return tuple(found.name for found in resolver.definitions() if found.name)
 
 
-def example_names(regime: str, task: Task, *, leave_one_out: bool = True) -> tuple[str, ...]:
-    """The corpus definitions a regime shows for this task, in prompt order.
+def example_names(
+    regime: str,
+    task: Task,
+    resolver: ExperimentResolver | None = None,
+    *,
+    leave_one_out: bool = True,
+) -> tuple[str, ...]:
+    """The definitions a regime shows for this task, in prompt order.
 
-    With `leave_one_out`, a corpus-drawn task never sees its own fixture. When
-    that empties a slot in the small few-shot set, the next unused manifest
-    entry backfills it, so the regime keeps its size instead of silently
+    `resolver` defaults to a corpus-built one. That default is the pinned corpus
+    and nothing else, so it is exactly the curated arm; it exists for callers
+    that want the regime's shape without building a store, and `build_prompt`
+    never uses it.
+
+    With `leave_one_out`, a corpus-drawn task never sees its own answer. The
+    exclusion is by **identity, not by name**: a harvested store can hold a
+    generated definition whose bytes are the task's fixture (four of phase-b's
+    38 accepted identities were exactly that), and excluding it by name would
+    leave the answer in the prompt under a `generated/…` label — the precise
+    leak leave-one-out exists to prevent. Content addressing makes the identity
+    check the complete one, and for a curated-only resolver it removes the same
+    single name the old by-name rule did.
+
+    When that empties a slot in the small few-shot set, the next unused
+    definition backfills it, so the regime keeps its size instead of silently
     shrinking for exactly the tasks it was meant to help.
     """
     if regime not in REGIMES:
         raise ValueError(f"unknown regime {regime!r}; known regimes: {', '.join(REGIMES)}")
-    names = list(_example_names(regime))
-    if not (leave_one_out and task.kind == KIND_CORPUS and task.task_id in names):
+    resolver = resolver if resolver is not None else ExperimentResolver()
+    names = list(_example_names(regime, resolver))
+    if not leave_one_out or task.kind != KIND_CORPUS or not task.expected_identity:
+        return tuple(names)
+    answers = {
+        name for name in names
+        if resolver.digest_for(name).hex() == task.expected_identity
+    }
+    if not answers:
         return tuple(names)
     wanted = len(names)
-    names.remove(task.task_id)
+    names = [name for name in names if name not in answers]
     if regime == REGIME_FEW_SHOT:
-        for entry in corpus_registry.MANIFEST:
+        for name in _example_names(REGIME_FULL_CORPUS, resolver):
             if len(names) >= wanted:
                 break
-            if entry.name_path not in names and entry.name_path != task.task_id:
-                names.append(entry.name_path)
+            if name not in names and name not in answers:
+                names.append(name)
     return tuple(names)
 
 
@@ -324,13 +409,19 @@ def build_prompt(
     actually happened — which is what makes the conditions comparable on tokens.
     """
     blocks = [PREAMBLE]
-    names = example_names(regime, task, leave_one_out=leave_one_out)
+    names = example_names(regime, task, resolver, leave_one_out=leave_one_out)
     if names:
         lines = [EXAMPLE_HEADER]
         for name in names:
             found = resolver.resolve(resolver.digest_for(name))
             entry = resolver.entry(found.digest)
-            lines.append(f"\n{entry.spec}\n{found.surface}")
+            # Every curated definition has a §5.2 spec, so this branch never
+            # fires for the curated arm and the prompt bytes are untouched. A
+            # harvested definition has none — nobody wrote one — and it shows
+            # bare rather than under a borrowed spec, which would describe what
+            # was *asked for* rather than what the definition does.
+            lines.append(f"\n{entry.spec}\n{found.surface}" if entry.spec
+                         else f"\n{found.surface}")
         blocks.append("\n".join(lines))
     if narrowing:
         blocks.append(narrowing)

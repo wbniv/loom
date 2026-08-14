@@ -484,6 +484,85 @@ class OriginFilterTest(HarvestFixture):
         with self.assertRaises((LookupError, DeclarationError)):
             self.curated.reference_type(digest)
 
+    def test_the_generated_arm_shows_the_model_more_than_the_curated_arm(self):
+        """The A/B has to change what the model *sees*, not only what resolves.
+
+        Phase A measured references as a minor layer (75 of 664 rejections) and
+        the corpus in context as the largest lever it found, so an arm that only
+        widened the hash universe would be testing the small thing.
+        """
+        task = prompts.corpus_tasks()[0]
+        for regime in (prompts.REGIME_FULL_CORPUS, prompts.REGIME_HELD_OUT):
+            examples = prompts.tasks_for_regime(regime)[0] if regime == prompts.REGIME_HELD_OUT else task
+            curated = prompts.build_prompt(examples, regime, self.curated)
+            everything = prompts.build_prompt(examples, regime, self.everything)
+            self.assertNotEqual(curated, everything, regime)
+            self.assertGreater(len(everything), len(curated), regime)
+            self.assertIn(CONST_I64, everything)
+            self.assertNotIn(CONST_I64, curated)
+
+    def test_curated_examples_come_first_and_generated_follow(self):
+        names = prompts.example_names(
+            prompts.REGIME_FULL_CORPUS, prompts.held_out_tasks()[0], self.everything
+        )
+        curated_names = [entry.name_path for entry in corpus_registry.MANIFEST]
+        self.assertEqual(list(names[: len(curated_names)]), curated_names)
+        self.assertTrue(all(n.startswith("generated/") for n in names[len(curated_names):]))
+        self.assertEqual(len(names), len(curated_names) + len(self.sidecars))
+
+    def test_the_few_shot_set_stays_pinned_in_both_arms(self):
+        task = prompts.held_out_tasks()[0]
+        for resolver in (self.curated, self.everything, self.corpus_resolver):
+            self.assertEqual(
+                prompts.example_names(prompts.REGIME_FEW_SHOT, task, resolver),
+                prompts.FEW_SHOT_NAMES,
+            )
+
+    def test_leave_one_out_excludes_the_answer_by_identity_not_by_name(self):
+        """A generated definition whose bytes *are* the fixture is still the answer.
+
+        Content addressing means such a draw dedupes into the curated object and
+        keeps the curated name, so the by-name rule happens to catch it — but a
+        store assembled in the other order would not, and the leak would be the
+        task's own answer sitting in its prompt under a `generated/…` label.
+        """
+        task = next(t for t in prompts.corpus_tasks() if t.task_id == "corpus/bool/not")
+        for resolver in (self.corpus_resolver, self.curated, self.everything):
+            names = prompts.example_names(prompts.REGIME_FULL_CORPUS, task, resolver)
+            for name in names:
+                self.assertNotEqual(
+                    resolver.digest_for(name).hex(), task.expected_identity, name
+                )
+            self.assertNotIn(task.task_id, names)
+        # …and the exclusion costs exactly one example, in both arms.
+        self.assertEqual(
+            len(prompts.example_names(prompts.REGIME_FULL_CORPUS, task, self.curated)),
+            len(corpus_registry.MANIFEST) - 1,
+        )
+        self.assertEqual(
+            len(prompts.example_names(prompts.REGIME_FULL_CORPUS, task, self.everything)),
+            len(corpus_registry.MANIFEST) - 1 + len(self.sidecars),
+        )
+
+    def test_every_curated_definition_has_a_spec_so_the_bare_branch_never_fires(self):
+        """`build_prompt` omits the spec line only when there is no spec.
+
+        That branch is why a harvested definition shows bare instead of under a
+        borrowed spec; it must be unreachable for curated entries, or the
+        curated arm's bytes would move.
+        """
+        for entry in corpus_registry.MANIFEST:
+            self.assertTrue(entry.spec, entry.name_path)
+        for digest in self.everything.digests():
+            found = self.everything.resolve(digest)
+            if found.kind != store_admit.KIND_DEFINITION or found.name is None:
+                continue
+            entry = self.everything.entry(digest)
+            if found.name.startswith("generated/"):
+                self.assertEqual(entry.spec, "")
+            else:
+                self.assertTrue(entry.spec, found.name)
+
     def test_the_masker_universe_follows_the_same_filter(self):
         # `digests()` is what seeds the reference-hash pruner. An arm that was
         # curated in the prompt and generated in the mask would be neither.
@@ -571,18 +650,61 @@ class FollowUpConfigTest(HarvestFixture):
 
     def test_both_arms_run_end_to_end_on_the_stub_backend(self):
         seen = {}
+        drawn = {}
         for name, config in self.arms().items():
             records, summary = runner.run(self._stubbed(config))
             self.assertTrue(records, f"{name} arm produced no records")
             self.assertEqual(summary["resolver_objects"]["definition"],
                              26 + (len(self.sidecars) if name == "generated" else 0))
             seen[name] = summary
+            drawn[name] = [row["tokens_prompt"] for row in records]
         # The arm is legible in the summary without reading the config back.
         self.assertEqual(
             seen["curated"]["resolver_origins"][store_admit.ORIGIN_GENERATED], 0)
         self.assertEqual(
             seen["generated"]["resolver_origins"][store_admit.ORIGIN_GENERATED],
             len(self.sidecars))
+        # The arms must differ in what the model was *shown*. Equal prompt
+        # token counts would mean the A/B had quietly become a test of the
+        # references layer alone.
+        self.assertEqual(len(drawn["curated"]), len(drawn["generated"]))
+        for curated, generated in zip(drawn["curated"], drawn["generated"]):
+            self.assertGreater(generated, curated)
+
+    def test_both_arms_have_context_for_their_own_longest_prompt(self):
+        """The `n_ctx` trap, which has already cost one launch.
+
+        Phase B shipped `n_ctx: 4096` against an 11.9k-token prompt and died at
+        the third regime. The generated arm's corpus is 26 → 60 definitions, so
+        its prompts grow again; this computes the requirement from the arm's own
+        prompts, against its own resolver, so neither config can drift under it.
+        """
+        for name, config in self.arms().items():
+            resolver = StoreResolver(
+                harvested_document(self.document, self.sidecars),
+                origins=POLICY_ALL if config.include_generated else POLICY_CURATED,
+            )
+            needed = prompts.context_required(
+                config.regimes, resolver,
+                leave_one_out=config.leave_one_out,
+                draw_tokens=config.max_tokens_per_draw,
+            )
+            self.assertGreaterEqual(
+                config.n_ctx, needed,
+                f"{name}: n_ctx={config.n_ctx} cannot hold its longest prompt "
+                f"plus a {config.max_tokens_per_draw}-token draw ({needed})")
+            # Headroom, not a squeak past: a later harvest adds definitions to
+            # the same prompt, at roughly 90 tokens each.
+            self.assertGreaterEqual(config.n_ctx, 2 * needed, f"{name}: no headroom")
+
+    def test_the_generated_arm_needs_more_context_than_the_curated_one(self):
+        document = harvested_document(self.document, self.sidecars)
+        regimes = ["full_corpus", "held_out"]
+        curated = prompts.context_required(
+            regimes, StoreResolver(document, origins=POLICY_CURATED), draw_tokens=512)
+        everything = prompts.context_required(
+            regimes, StoreResolver(document, origins=POLICY_ALL), draw_tokens=512)
+        self.assertGreater(everything, curated)
 
     def test_a_config_with_no_store_export_still_builds_the_corpus_resolver(self):
         config = runner.Config(backend="stub", stub_outputs=["x"], source_path="<test>")

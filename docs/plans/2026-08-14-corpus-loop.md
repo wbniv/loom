@@ -2,8 +2,9 @@
 
 **Date:** 2026-08-14
 **Status:** Built and verified — see [Run log](#run-log) and
-[Recorded verification](#recorded-verification). One deviation is recorded and
-open: [the generated arm does not change prompt text](#open-the-generated-arm-changes-what-resolves-not-what-the-prompt-shows).
+[Recorded verification](#recorded-verification). One escalation was raised and
+resolved during implementation:
+[the arms must differ in what the model sees](#escalation-and-resolution-the-arms-must-differ-in-what-the-model-sees).
 **Parent:** SPEC §13's endgame ("accepted generations join the corpus, the
 loop closes on itself"), built on
 [store v0](2026-08-14-store-v0.md) and the
@@ -88,7 +89,8 @@ prices like every prior matrix: ~$1–3 of trial credit.)
   identities, not the ~31 estimated here).
 - [x] Origin filter through export/StoreResolver + curated-only default
   equivalence preserved (R3).
-- [x] Two-arm follow-up config, stub-verified (R4).
+- [x] Two-arm follow-up config, stub-verified (R4), with `n_ctx` sized from the
+  arms' own measured prompts.
 - [x] Run log + verification recorded here.
 
 ## Run log
@@ -102,6 +104,7 @@ prices like every prior matrix: ~$1–3 of trial credit.)
 | [`prototype/store_admit.py`](../../prototype/store_admit.py) | the origin vocabulary and `provenance_extra` (the rest is unchanged) |
 | [`prototype/experiment/store_resolver.py`](../../prototype/experiment/store_resolver.py) | the origin filter, and the name-rebind refusal |
 | [`prototype/experiment/runner.py`](../../prototype/experiment/runner.py) | `store_export` / `include_generated`, and `make_resolver` |
+| [`prototype/experiment/prompts.py`](../../prototype/experiment/prompts.py) | resolver-driven example selection, identity-based leave-one-out, and the measured `CHARS_PER_TOKEN` |
 | [`prototype/experiment/followup_curated.config.json`](../../prototype/experiment/followup_curated.config.json) | arm A |
 | [`prototype/experiment/followup_generated.config.json`](../../prototype/experiment/followup_generated.config.json) | arm B — identical but for one flag |
 | [`store/src/index.rs`](../../store/src/index.rs) | the `origin` index column |
@@ -265,26 +268,116 @@ per object, which is an evidence-object shape, and R5 defers those. Recorded as
 a watch, not built. Tested
 (`DeterminismTest.test_a_generation_identical_to_a_curated_object_dedupes_into_it`).
 
-### Open: the generated arm changes what *resolves*, not what the prompt *shows*
+### Escalation and resolution: the arms must differ in what the model *sees*
 
-`prompts._example_names` takes the full-corpus example list from
-`corpus_registry.MANIFEST` directly, not from the resolver. `prompts.py` is a
-hard boundary for this dispatch, so the two arms build **byte-identical
-prompts** — confirmed below: 4494/4542 prompt tokens in both arms.
+**Raised.** The first implementation left `prompts.py` untouched, so
+`_example_names` still took the full-corpus example list from
+`corpus_registry.MANIFEST`. The two arms therefore built **byte-identical
+prompts** and differed only in what *resolved*: 81 hashes instead of 47, 60
+definitions instead of 26, so a draw naming a generated hash typed instead of
+being refused and the masker's reference-hash universe grew.
 
-What the generated arm actually changes is everything downstream of the
-resolver: 81 hashes instead of 47, 60 definitions instead of 26, so a draw
-naming a generated hash *types* instead of being refused, and the masker's
-reference-hash universe includes those prefixes. That is a genuine and
-measurable A/B — composition over generated corpus — but it is **not** the A/B
-the Objective's "make prompt assembly able to draw on them" describes.
+**Resolved: take the two-line direction.** An arm that only widens the hash
+universe tests the references layer, which Phase A measured as a *minor* one —
+75 of 664 rejections — while the corpus in context was the largest lever it
+found (95.8 % → 71.5 % rejection). Measuring the small thing was not worth
+preserving a file freeze.
 
-The resolver *is* able: `digest_for`, `entry` and `surface` all serve generated
-names. The selection function is what is corpus-bound. Making the full-corpus
-regime draw its example list from `resolver.definitions()` is a two-line change
-to `prompts.py` — and it is a change to the thing every prior run's prompts were
-built from, so it is a call for the plan's owner, not for this dispatch.
-**ESCALATED**; everything not depending on it has landed.
+**`prompts.py` may change for exactly this, because the freeze's purpose was
+never the file — it was the invariant**, which is unchanged and is now stated
+where it belongs:
+
+> Every existing run path — no store, or a store under the curated policy —
+> produces **byte-identical prompts**, proven by the equivalence tests passing
+> unmodified.
+
+What changed, and why the invariant survives:
+
+1. **`_example_names(regime, resolver)`** reads `resolver.definitions()` instead
+   of `corpus_registry.MANIFEST` for the two full-corpus regimes. It holds
+   because `ExperimentResolver.definitions()` *is* the manifest in manifest
+   order, and `StoreResolver.definitions()` follows the export's
+   `(sequence, hash)` order — where the reserved generated band puts curated
+   definitions first, in manifest order, and generated ones after. The ordering
+   fell out of the band exactly as predicted; no selection ordering had to be
+   fixed.
+2. **`few_shot` keeps its four pinned names.** The regime's whole point is a
+   small *fixed* set, so letting a store change it would make it a different
+   regime. Only the leave-one-out backfill source moved to the resolver, which
+   is the manifest under the curated policy.
+3. **Leave-one-out excludes by identity, not by name.** The old rule removed
+   `task.task_id` from the name list; the new one removes every example whose
+   digest is `task.expected_identity`. For a curated-only resolver those are the
+   same single name — names and digests are 1:1 — so the bytes do not move. For
+   a harvested store the identity rule is the *complete* one: four of phase-b's
+   38 accepted identities are byte-identical to curated fixtures, and a store
+   assembled in an order where such a draw kept a `generated/…` name would
+   otherwise have left the task's own answer sitting in its prompt under a
+   different label. Content addressing makes the digest check total.
+4. **A definition with no `spec` shows bare.** Harvested definitions have
+   `spec: null` (nobody wrote one), and `build_prompt` omits the spec line
+   rather than printing a blank one. Every curated definition has a spec —
+   asserted — so the branch is unreachable for the curated arm and its bytes are
+   untouched.
+5. **A definition admitted with no `--name`** is skipped as an example: it has
+   no name to look up and no entry to read a spec from. This keeps
+   `build_prompt`'s name → digest → entry chain total.
+
+Measured effect, longest prompt per regime, characters:
+
+| regime | corpus resolver | curated arm | generated arm | growth |
+|---|---:|---:|---:|---:|
+| `none` | 1,098 | 1,098 | 1,098 | 1.00× |
+| `few_shot` | 3,346 | 3,346 | 3,346 | 1.00× |
+| `full_corpus` | 17,979 | 17,979 | 22,613 | 1.26× |
+| `held_out` | 18,183 | 18,183 | 22,817 | 1.25× |
+
+The curated column is identical to the corpus column in every regime, which is
+the invariant as a number rather than as a claim.
+
+### Sizing the generated arm's context — the trap that has already cost a launch
+
+Phase B shipped `n_ctx: 4096` against an 11.9k‑token prompt and died at the
+third regime. The generated arm's corpus is 26 → 60 definitions, so this was
+computed before calling anything done.
+
+**The repo's existing floor was the wrong direction.**
+`test_the_shipped_config_has_context_for_the_longest_prompt` divided characters
+by 4 — "conservative for English". It is not conservative for this surface. The
+phase-b run log's own real-tokenizer numbers say so: `full_corpus` is
+17,979 characters and **11,906 tokens**, i.e. **1.51 chars/token**, because
+64‑hex hash literals tokenize far denser than prose. The old floor
+under-estimated by **2.6×**, in the direction that lets a too-small `n_ctx`
+through. `prompts.CHARS_PER_TOKEN = 1.5` now carries the measured figure,
+`prompts.context_required()` applies it, and both that test and the two new
+follow-up guards use it. `phase_b.config.json` still passes under the honest
+divisor (12,635 needed vs 16,384 shipped), so nothing already launched moves.
+
+| | curated arm | generated arm |
+|---|---:|---:|
+| longest prompt, characters | 18,183 | 22,817 |
+| longest prompt, tokens (measured 1.51 chars/token) | 11,959 | **15,110** |
+| plus a 512‑token draw | 12,471 | **15,622** |
+| `n_ctx` chosen | **32,768** | **32,768** |
+| headroom | 20,297 (2.6×) | 17,146 (2.1×) |
+
+**`n_ctx` 16,384 was rejected**: it clears 15,622 by 762 tokens — 4.6 % — which
+is not headroom, it is a coin flip. And the margin shrinks with every harvest:
+34 generated definitions cost 4,634 characters ≈ 3,069 tokens, about **90 tokens
+per generated definition**, so eight more would have pushed it over. At 32,768
+the arm absorbs roughly 190 further generated definitions before it is tight.
+
+**Both arms get 32,768, not just the generated one.** A controlled A/B must
+differ in exactly one thing, and a differing transport parameter is a confound
+for no gain. The cost is KV cache: Qwen2.5‑7B is 28 layers × 4 KV heads × 128
+dim, so ~56 KB/token, i.e. 1.75 GiB at 32,768 against ~4.7 GB of Q4_K_M weights
+— comfortable on the 24 GB L4. This is only safe because the phase-b fix
+decoupled `n_batch` from `n_ctx` (2048/512); without it, a 32k micro-batch
+compute buffer would be the next landmine.
+
+`test_both_arms_have_context_for_their_own_longest_prompt` recomputes the
+requirement from each arm's own prompts against its own resolver and demands
+2× headroom, so neither config can drift under its corpus again.
 
 ## Verification
 
@@ -321,12 +414,12 @@ against the real Rust-produced document.
 
 ```
 ----------------------------------------------------------------------
-Ran 628 tests in 80.831s
+Ran 635 tests in 68.356s
 
 OK (skipped=1)
 ```
 
-628 tests: 587 before this increment, +41 from `test_harvest`. The whole of
+635 tests: 587 before this increment, +48 from `test_harvest`. The whole of
 `StoreResolverEquivalenceTest`, from the same run:
 
 ```
@@ -346,12 +439,14 @@ test_every_task_and_regime_builds_a_byte_identical_prompt (test_store.PromptEqui
 test_narrowing_feedback_also_lands_identically (test_store.PromptEquivalenceTest.test_narrowing_feedback_also_lands_identically) ... ok
 ```
 
-**Unmodified**, and provably so:
+**Unmodified**, and provably so — and this is the load-bearing line, because
+`prompts.py` *did* change (see the escalation above): the equivalence tests are
+what prove the change did not move a byte on any existing path.
 
 ```
-$ git diff --stat -- prototype/test_store.py prototype/experiment/prompts.py
-$ echo "(no output: neither file is touched by this increment)"
-(no output: neither file is touched by this increment)
+$ git diff --stat -- prototype/test_store.py
+$ echo "(no output: the file is untouched by this increment)"
+(no output: the file is untouched by this increment)
 ```
 
 `test_store.py` runs against the *curated* seed, so on its own it only shows
@@ -360,7 +455,14 @@ stronger claim — byte-identical prompts from a store that **does** hold
 generated objects — is
 `test_harvest.OriginFilterTest.test_every_task_and_regime_builds_a_byte_identical_prompt`,
 which builds `34 tasks × 4 regimes × 2 leave-one-out = 272` prompt pairs through
-a harvested export and asserts byte equality on every one.
+a harvested export and asserts byte equality on every one. All three levels pass
+after the `prompts.py` change: no store, curated store, harvested store under
+the curated policy.
+
+`test_masker.py` has one line changed — the `n_ctx` guard's chars-per-token
+divisor, 4 → the measured `prompts.CHARS_PER_TOKEN`. It is a *tightening* of an
+existing safety check, not an accommodation: the assertion's subject
+(`phase_b.config.json`) still passes, with 16,384 against 12,635 required.
 
 **PASS.**
 
@@ -502,32 +604,84 @@ Full runs, both exit 0, both writing `records.jsonl` / `summary.json` /
 `report.md`:
 
 ```
-curated   records: 4 | resolver_objects: {"ability":8,"data":4,"definition":26,"extern":9} | resolver_origins: {"declared":21,"generated":0,"transpiled":26}  | include_generated: False
-   cells: {'gbnf+typemask|full_corpus': {'accepted': 2, …}, 'gbnf+typemask|held_out': {'accepted': 2, …}}
-generated records: 4 | resolver_objects: {"ability":8,"data":4,"definition":60,"extern":9} | resolver_origins: {"declared":21,"generated":34,"transpiled":26} | include_generated: True
-   cells: {'gbnf+typemask|full_corpus': {'accepted': 2, …}, 'gbnf+typemask|held_out': {'accepted': 2, …}}
-
-curated   tokens_prompt per record: [4494, 4494, 4542, 4542]
-generated tokens_prompt per record: [4494, 4494, 4542, 4542]
+curated    records 4 | resolver_objects {"ability": 8, "data": 4, "definition": 26, "extern": 9}
+           resolver_origins {"declared": 21, "generated": 0, "transpiled": 26} | include_generated False | n_ctx 32768
+           tokens_prompt [4494, 4494, 4542, 4542]
+generated  records 4 | resolver_objects {"ability": 8, "data": 4, "definition": 60, "extern": 9}
+           resolver_origins {"declared": 21, "generated": 34, "transpiled": 26} | include_generated True | n_ctx 32768
+           tokens_prompt [5653, 5653, 5700, 5700]
 ```
 
-**PASS on the step as written**, with the deviation
-[recorded above](#open-the-generated-arm-changes-what-resolves-not-what-the-prompt-shows)
-visible in the last two lines: the arms' prompts are byte-identical because
-`prompts._example_names` reads `corpus_registry.MANIFEST`, not the resolver.
-What the arms do differ in is what resolves:
+**PASS**, and the last line is the point of the escalation: the arms now differ
+in **what the model is shown** — 4,494 → 5,653 prompt tokens on the stub
+tokenizer, +25.8 %, matching the 1.26× character growth measured above — not
+only in what resolves. That inequality is asserted, not merely observed:
+`FollowUpConfigTest.test_both_arms_run_end_to_end_on_the_stub_backend` requires
+every generated-arm prompt to be strictly longer than its curated counterpart,
+so the arms can never silently collapse back into a references-only test.
+
+They also still differ in what resolves, which is the second half of the effect:
 
 ```
 curated digests: 47 definitions: 26
 all     digests: 81 definitions: 60
 ```
 
-`digests()` is what seeds the masker's reference-hash pruner, so the generated
-arm both types and *permits* references the curated arm refuses. The two arms
-are also asserted to be identical configs but for `include_generated` and
-`output_dir`
-(`FollowUpConfigTest.test_the_two_arms_differ_only_in_the_origin_flag`), and
-both are run end-to-end in the suite so this does not depend on a manual step.
+`digests()` seeds the masker's reference-hash pruner, so the generated arm both
+types and *permits* references the curated arm refuses.
+
+The two arms are asserted to be identical configs but for `include_generated`
+and `output_dir` (`test_the_two_arms_differ_only_in_the_origin_flag`) — `n_ctx`
+is 32,768 in **both**, so the transport is not a confound — and both are run
+end-to-end in the suite, so none of this depends on a manual step.
+
+### 4b. Context sizing for the follow-up arms (added; the trap is not optional)
+
+Not one of the six numbered steps. Recorded because the plan's owner asked for
+the number before this could be called done, and because `n_ctx` has already
+killed one launch.
+
+```
+longest prompt, characters
+regime            corpus   curated arm   generated arm   growth
+none                1098          1098            1098    1.00x
+few_shot            3346          3346            3346    1.00x
+full_corpus        17979         17979           22613    1.26x
+held_out           18183         18183           22817    1.25x
+
+chars per token, calibrated against the phase-b real-tokenizer numbers
+  none              1098 chars /    279 tokens = 3.935 chars/token
+  few_shot          3346 chars /   1843 tokens = 1.816 chars/token
+  full_corpus      17979 chars /  11906 tokens = 1.510 chars/token
+  held_out         18183 chars /  11959 tokens = 1.520 chars/token
+  most token-dense regime: 1.510 chars/token — used as the divisor
+
+generated-arm prompt tokens
+  full_corpus    calibrated   14975  |  repo's old chars//4 floor    5653
+  held_out       calibrated   15007  |  repo's old chars//4 floor    5704
+
+{"peak_prompt_chars": 22817, "peak_tokens_calibrated": 15110,
+ "peak_tokens_repo_floor": 5704, "draw_budget": 512,
+ "required_calibrated": 15622, "required_repo_floor": 6216}
+```
+
+And through the shipped helper, which is what the guard test uses:
+
+```
+$ python3 -c "…prompts.context_required(['full_corpus','held_out'], r, draw_tokens=512)"
+corpus     12635
+curated    12635
+generated  15724
+```
+
+**Measured requirement: 15,622–15,724 tokens. Chosen `n_ctx`: 32,768 for both
+arms** (2.1× headroom on the generated arm, ~190 further generated definitions
+of room). 16,384 was rejected at 4.6 % margin. The old `chars // 4` floor would
+have reported 6,216 — it would have waved through an `n_ctx` of 8,192 against a
+real 15,622-token prompt, which is the same failure mode as phase-b's original
+4,096, so the floor was corrected rather than worked around.
+
+**PASS.**
 
 ### 5. `task store:test` green (no Rust changes expected; if the export schema grows the origin field, its tests grow with it)
 
