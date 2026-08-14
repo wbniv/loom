@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/23b6c2f) | Record the condition-4 launch and close out the build-cache plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/475999a) | Fix a brittle anchor and a split path in the Phase B plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/55a5e7c) | Add the type-goal pruner, Phase B2's profile-directed layer |
 | [2026-08-13](https://github.com/wbniv/loom/commit/a416e60) | Build Phase B B1: the profile-independent masker core |
@@ -7,6 +8,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d9a5368) | Plan experiment Phase B with a B1/B2 split |
 
 <!--history-meta v1
+23b6c2f	author	Will Norris
+23b6c2f	added	10
+23b6c2f	deleted	3
+23b6c2f	files	1
+23b6c2f	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 475999a	author	Will Norris
 475999a	added	8
 475999a	deleted	5

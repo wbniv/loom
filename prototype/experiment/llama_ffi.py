@@ -252,7 +252,7 @@ class LlamaModel:
     """One loaded GGUF plus one context: tokenize, decode, read logits."""
 
     def __init__(self, model_path, *, lib_path=None, n_ctx=4096, n_threads=0,
-                 n_batch=0) -> None:
+                 n_batch=0, n_gpu_layers=0) -> None:
         path = Path(model_path)
         if not path.exists():
             raise FfiUnavailable(f"GGUF not found: {path}")
@@ -260,7 +260,12 @@ class LlamaModel:
         self.model_path = str(path)
 
         params = self.library.llama_model_default_params()
-        params.n_gpu_layers = 0            # this box is CPU-only, by the plan
+        # 0 (CPU-only) is the right default for the laptop this shim was
+        # written on, but the remote L4 host must be able to offload: a GPU
+        # matrix that silently decodes on 4 vCPUs runs ~6x slower with the
+        # accelerator idle — found live on the first condition-4 launch,
+        # 2026-08-14, 68 records in.
+        params.n_gpu_layers = int(n_gpu_layers)
         self.model = self.library.llama_model_load_from_file(str(path).encode("utf-8"), params)
         if not self.model:
             raise FfiUnavailable(f"llama.cpp could not load {path}")

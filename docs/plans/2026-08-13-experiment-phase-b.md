@@ -276,6 +276,19 @@ B2 (gated on Phase A's report):
   One config fix on review before launch: `n_ctx` 4096 → 16384 — Phase A's
   records put the fattest `full_corpus` prompt at 11,952 tokens (mean
   11,619), so 4096 would have overflowed on the regime R5 rests on.
+  **First launch killed at 68 records (~42 min in): the L4 sat idle while
+  the 7B decoded on 4 vCPUs.** `llama_ffi.LlamaModel` hardcoded
+  `n_gpu_layers = 0` ("this box is CPU-only, by the plan" — true of the
+  laptop it was written on, wrong on the GPU host), and the instance's `NGL`
+  only ever reached `llama-server`, which a masked run skips. Telemetry that
+  caught it: `nvidia-smi dmon` flat-zero over 5 s, ~37 s/record against a
+  ~6 s expectation, mask accounting for only ~2 s of it. Beyond the pace,
+  CPU decode would have poisoned prediction 5 (mask overhead *relative to
+  GPU decode*). Fixed end-to-end — config field `n_gpu_layers` →
+  `runner.RunConfig` → `make_backend` → `LlamaCppBackend` → `LlamaModel`,
+  startup script injects the instance's `NGL` into the masked-path config —
+  and relaunched. The 68 CPU-decoded records died with the instance,
+  which is correct: they were incomparable.
 
 ## The B2 decisions
 

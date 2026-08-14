@@ -231,7 +231,7 @@ fi
 # regimes, budgets and pruner set included.
 log "patching the run config"
 
-MASKED="$MASKED" MODEL_PATH="$MODEL_PATH" LLAMA_LIB="$LLAMA_LIB" \
+MASKED="$MASKED" MODEL_PATH="$MODEL_PATH" LLAMA_LIB="$LLAMA_LIB" NGL="$NGL" \
 MODEL_IDENTITY="$MODEL_IDENTITY" HARDWARE="$HARDWARE" OUTPUT_DIR="$OUTPUT_DIR" \
   python3 - "$WORK/run.config.json" "$WORK/repo/prototype/experiment/remote.config.json" <<'PY'
 import json
@@ -249,6 +249,10 @@ if os.environ["MASKED"] == "1":
     config["backend"] = "llama-cpp"
     config["model_path"] = os.environ["MODEL_PATH"]
     config["llama_lib"] = os.environ["LLAMA_LIB"]
+    # The GPU offload the served path gets from llama-server's -ngl flag; the
+    # in-process transport defaults to CPU-only (its laptop origin), and an L4
+    # matrix decoding on 4 vCPUs is ~6x slower with the accelerator idle.
+    config["n_gpu_layers"] = int(os.environ["NGL"])
     config.pop("server_url", None)
 else:
     config["backend"] = "llama-server"

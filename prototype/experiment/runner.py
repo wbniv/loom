@@ -153,6 +153,7 @@ class Config:
     baseline_summary: str = ""
     n_ctx: int = 4096
     n_threads: int = 0
+    n_gpu_layers: int = 0
 
     source_path: str = ""
 
