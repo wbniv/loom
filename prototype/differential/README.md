@@ -54,13 +54,20 @@ processes; `LOOM_DIFFERENTIAL_FULL=1` extends the check to the full scope.
 Records are ordered by **migration order** — `parser` first, `policies` last,
 matching R7's gate table — then by entry point, then by case id.
 
+One caveat, stated rather than hidden: three of the prototype's tests are
+conditional on the local machine — an SMT solver on `PATH`, a seeded
+`.loom-store`. If one of those runs it drives calls the others do not, so the
+full export can differ *between machines* on the same tree. The header's
+`suite.skipped` names exactly which were skipped, so the difference shows up as
+a one-line diff instead of as an unexplained change in case counts.
+
 ## File layout
 
 One JSON object per line.
 
 | # | `record` | What |
 |---|---|---|
-| 1 | `header` | Schema version, the seven contract versions this export was cut against, fixture counts, per-layer verdict counts |
+| 1 | `header` | Schema version, the seven contract versions this export was cut against, fixture counts, per-layer verdict counts, and — in the full scope — a `suite` block naming the modules harvested, the test count, and any test that was **skipped** |
 | 2… | `environment` | The declaration registries cases refer to, sorted by id — lifted out of cases because thousands share each one |
 | … | `case` | One differential case |
 

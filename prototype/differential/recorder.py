@@ -113,6 +113,9 @@ class Recorder:
         #: by an outer one is attributed to the same test.
         self.provenance: tuple[str, str, str] | None = None
         self.enabled = False
+        #: What the test-suite harvest saw, when there was one — recorded in
+        #: the header so a machine-dependent skip is visible rather than silent.
+        self.suite: dict | None = None
 
     # ── environments ────────────────────────────────────────────────────
     def environment(self, kind: str, payload) -> str:

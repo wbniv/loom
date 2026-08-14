@@ -39,6 +39,17 @@ def collect(include_tests: bool = True) -> Recorder:
         fixtures.run(recorder)
         if include_tests:
             result = suite.run(recorder)
+            # Recorded in the header, because a skipped test is the one way the
+            # export can differ between two machines on the same tree: three of
+            # the prototype's tests are conditional on a local SMT solver or a
+            # seeded store, and if one of those runs it drives calls the others
+            # do not. Stating which were skipped makes that visible in a diff
+            # instead of showing up as an unexplained change in case counts.
+            recorder.suite = {
+                "modules": suite.modules(),
+                "tests_run": result.testsRun,
+                "skipped": sorted(test.id() for test, _ in result.skipped),
+            }
             if not result.wasSuccessful():
                 raise SystemExit(
                     "differential: the prototype test suite failed under instrumentation; "
@@ -57,7 +68,7 @@ def header(recorder: Recorder, scope: str) -> dict:
 
     fixture_names = [name for name, _ in sources()]
     counts = recorder.counts()
-    return {
+    document = {
         "record": "header",
         "schema_version": SCHEMA_VERSION,
         "generator": "prototype/differential",
@@ -82,6 +93,9 @@ def header(recorder: Recorder, scope: str) -> dict:
             ),
         },
     }
+    if recorder.suite is not None:
+        document["suite"] = recorder.suite
+    return document
 
 
 def render(recorder: Recorder, scope: str) -> str:
