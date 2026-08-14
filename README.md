@@ -8,11 +8,16 @@ ergonomics get zero design weight.
 The canonical generation surface uses S-expressions, but Loom is not a Lisp
 dialect; see [Is Loom a Lisp?](docs/loom-vs-lisp.md).
 
-**Status: design specification with a working validation prototype.** The
-prototype implements canonical parsing/rendering, deterministic CBOR identity,
-scope and nominal-reference validation, a builtin ability registry, and a
-partial bidirectional type checker. Loom still has no runtime, content-addressed
-store, complete type system, refinement solver, or evidence oracle.
+**Status: design specification with a working validation prototype and a
+persistent object store.** The prototype (`prototype/`, Python) implements
+canonical parsing/rendering, deterministic CBOR identity, scope and
+nominal-reference validation, a builtin ability registry, and a partial
+bidirectional type checker; it remains the validation oracle of record.
+`store/` (Rust, binary `loom-store`) is SPEC §5's content-addressed store at
+v0 — objects on disk named by the SHA-256 of their bytes, crash-safe writes,
+admission gated by the Python oracle, and `fsck`. Loom still has no runtime,
+namespaces or leases, complete type system, refinement solver, or evidence
+oracle.
 
 ## The shape of it
 

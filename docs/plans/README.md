@@ -2,7 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
-| 2026-08-14 | [Store v0: persistent content-addressed objects in Rust](2026-08-14-store-v0.md) | Designed; open as `[T4]` |
+| 2026-08-14 | [Store v0: persistent content-addressed objects in Rust](2026-08-14-store-v0.md) | Built and verified; 47 objects seeded, `fsck` clean, prompt equivalence proven |
 | 2026-08-14 | [The production implementation language](2026-08-14-production-language-decision.md) | Decided — Rust; migration deferred behind triggers M1–M4 |
 | 2026-08-14 | [GPU build cache](2026-08-14-gpu-build-cache.md) | Complete; hit proven on two consecutive runs |
 | 2026-08-14 | [GCP infrastructure for the Phase A experiment run](2026-08-14-gcp-experiment-infra.md) | Implemented; `fmt` + `validate` + `shellcheck` PASS, apply gated on the operator |
