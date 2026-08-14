@@ -10,16 +10,22 @@ silent: true
 
 tasks:
   prototype:test:
-    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, and experiment-harness tests
+    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, experiment-harness, and mask tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_experiment -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_experiment test_masker -v
 
   experiment:phase-a:
     desc: Run masked-generation experiment Phase A (conditions 1-3) from a config file
     dir: prototype
     cmds:
       - python3 -m experiment.runner --config "${LOOM_EXPERIMENT_CONFIG:-experiment/phase_a.config.json}" {{.CLI_ARGS}}
+
+  experiment:mask-sanity:
+    desc: Live sanity for Phase B's transport — loads a GGUF in process and walks the mask
+    dir: prototype
+    cmds:
+      - python3 -m experiment.live_mask_sanity {{.CLI_ARGS}}
 
   grammar:test:
     desc: Validate the canonical Loom surface with llama.cpp's GBNF validator

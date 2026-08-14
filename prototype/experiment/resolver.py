@@ -191,6 +191,16 @@ class ExperimentResolver:
             for entry in corpus_registry.MANIFEST
         )
 
+    def digests(self) -> tuple[bytes, ...]:
+        """Every hash this resolver can resolve, in no particular order.
+
+        Phase B's reference-hash pruner is built from exactly this set: a hash
+        outside it cannot appear in a definition this run would accept, so the
+        set *is* the prefix universe the mask prunes against. R6 asks what API
+        the store must expose to the masker; this method is one of the answers.
+        """
+        return tuple(self._objects)
+
     def counts(self) -> dict[str, int]:
         """How many objects of each kind the resolver holds — a report line."""
         return {kind: sum(1 for o in self._objects.values() if o.kind == kind) for kind in KINDS}
