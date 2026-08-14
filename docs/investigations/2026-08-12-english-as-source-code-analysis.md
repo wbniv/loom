@@ -1,7 +1,10 @@
 # Analysis — "Programming languages will soon be unnecessary"
 
 **Date:** 2026‑08‑12
-**Source:** Essay pasted into session (unattributed). Thesis: high-level
+**Source:** Nick Hodges,
+["When code no longer matters"](https://www.infoworld.com/article/4208036/when-code-no-longer-matters.html),
+InfoWorld opinion, 2026‑08‑12 (attribution identified 2026‑08‑13; originally
+pasted into the session without it). Thesis: high-level
 languages are becoming the invisible intermediate layer between English and
 the machine, and will disappear the way bytecode disappeared from human view.
 **Type:** Argument analysis, not an incident. No repo surface; no mockups.
