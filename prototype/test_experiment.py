@@ -160,6 +160,29 @@ class ResolverTest(unittest.TestCase):
         self.assertNotIn("mutated", self.resolver.resolve(digest).type_ir)
 
 
+class ResolverRefusalFunnelTest(unittest.TestCase):
+    """A generation naming a hallucinated hash is classified, never a crash.
+
+    Regression for the first GPU run: the model invented ability 0x00..01,
+    scope's arity resolver raised DeclarationError, and the funnel crashed the
+    runner 552 records in. Per SPEC.md §2.3.1 an unresolvable dependency is
+    reported at the consulting layer.
+    """
+
+    def test_hallucinated_ability_in_handle_is_a_scope_rejection(self):
+        fake = "0x" + "00" * 31 + "01"
+        src = f"(def I64 (handle {fake} (lit i64 1) ((0 (var 0))) (var 0)))"
+        result = run_funnel(src, ExperimentResolver())
+        self.assertEqual(result.outcome, "scope")
+        self.assertEqual(result.error_class, "DeclarationError")
+
+    def test_hallucinated_ability_without_clauses_is_a_references_rejection(self):
+        fake = "0x" + "00" * 31 + "01"
+        src = f"(def I64 (handle {fake} (lit i64 1) () (var 0)))"
+        result = run_funnel(src, ExperimentResolver())
+        self.assertEqual(result.outcome, "references")
+
+
 class PromptTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

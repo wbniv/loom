@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+import declarations
 import references
 import scope
 import typecheck
@@ -135,6 +136,13 @@ def run_funnel(source: str, resolver: ExperimentResolver) -> FunnelResult:
         layers_passed = 4
     except Exception as error:  # noqa: BLE001 - the layer classes are the taxonomy
         layer = _classify(error)
+        if not layer and isinstance(error, (declarations.DeclarationError, LookupError)):
+            # A resolver refusal (e.g. a generated definition naming a
+            # hallucinated ability/data hash) is that stage's rejection per
+            # §2.3.1's report-don't-guess rule — never a harness crash. Found
+            # live: the first GPU run died on ability 0x00…01 invented by the
+            # model, 552 records in.
+            layer = {1: "scope", 2: "references", 3: "typecheck"}.get(layers_passed, "")
         if not layer:
             raise
         message = str(error)
