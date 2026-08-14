@@ -27,15 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:a9ba2c41e8b0d65e3 --> **Build the reference evaluator.** A definitional interpreter for the term
-  language against §2's semantics — the first thing that can *run* a Loom program.
-  Unlocks three recorded residues: real semantic judging for held-out tasks,
-  operational meaning for handlers and multi-shot continuations, and the obligation
-  pipeline's reserved countermodel-validation rule. Key decision to settle: runtime
-  I64 semantics (§3.2.1's "Int does not wrap where I64 does" implies two's-complement
-  wrap — which makes math/abs's proved-but-false-at-INT_MIN case executable). (T4:
-  handler/continuation machinery design; semantics must follow spec, not invent.)
-
 - [T4] **Complete Phase B2: profile-directed pruners and the condition-4 run
   (gated on Phase A's failure distribution).** Pruner priority from the Phase A
   report, the live condition-4 run, the R5 comparison, prediction scoring. See
@@ -78,6 +69,12 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-13 — [reference-evaluator] Built the CEK-machine interpreter: all 26
+  fixtures execute, multi-shot handlers proven, abs(INT_MIN) negative on hardware
+  semantics. See [plan](docs/plans/2026-08-13-reference-evaluator.md).
+- ✅ 2026-08-13 — [runner-hardening] Made the experiment runner crash-safe: per-draw
+  persistence, partial-run artifacts, resume, one retry. See
+  [plan](docs/plans/2026-08-13-experiment-phase-a.md) hardening amendment.
 - ✅ 2026-08-13 — [phase-b1] Built the masker core: ctypes transport over the pinned
   libllama, byte-oracle mask with proof-or-abstain soundness (0 violations, 26
   fixtures x 151k vocab), 0.03% warm overhead. See
