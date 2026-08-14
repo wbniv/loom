@@ -24,7 +24,7 @@ TUI_LIB="${TUI_LIB:-$HOME/python-tui-lib}"
 
 GCP_PROJECT_ID="${LOOM_GCP_PROJECT_ID:-project-19b81040-83b3-4483-a0d}"
 GCP_REGION="us-central1"
-GCP_ZONE="us-central1-a"
+GCP_ZONE="${LOOM_GCP_ZONE:-us-central1-a}"
 TF_DIR="$REPO_ROOT/infrastructure/gcp/experiment"
 BUCKET="loom-experiment-artifacts-19b81040"
 STATE_BUCKET="loom-tfstate-19b81040"
