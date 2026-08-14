@@ -58,6 +58,28 @@ Prior art the spec leans on:
 [SMT-LIB](https://smt-lib.org/) decidable fragments,
 [WASM](https://webassembly.org/) as the boundary/compile target.
 
+## Results
+
+The design's central bet — [SPEC §8.4](SPEC.md): does constraining decoding
+to Loom's grammar and type discipline actually help an LLM write it — has a
+first empirical answer. A masked-generation experiment ran 3,108 draws
+across four generation conditions (unconstrained, GBNF syntax, GBNF plus
+definition-level rejection sampling, GBNF plus per-token type-directed
+masking) and four corpus regimes, on one Qwen2.5‑Coder‑7B‑Instruct Q4_K_M
+model on one L4 GPU. Verdict: per-token masking weakly dominates rejection
+sampling — it never loses, and wins large without examples in context —
+but does not beat plain grammar sampling once the full corpus is
+available. The corpus, not the sampling strategy, is the largest lever
+measured; held-out compositional tasks scored ≈0 acceptance under every
+condition. One model, one size — the write-up states what that does and
+doesn't settle.
+
+Write-up: [Constrained generation, results](docs/articles/2026-08-14-constrained-generation-results.md).
+Raw reports: [Phase A](docs/results/2026-08-14-phase-a-report.md)
+(conditions 1–3, 2,335 draws) and
+[condition 4](docs/results/2026-08-14-phase-b-condition4-report.md)
+(773 draws, the masker).
+
 ## Verdict carried over
 
 Designing for agents does not produce the illegible language the essay
