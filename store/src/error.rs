@@ -40,6 +40,11 @@ pub mod exit {
     pub const REFUSED: i32 = 5;
     /// The object is here, but this query does not apply to its kind.
     pub const NOT_APPLICABLE: i32 = 6;
+    /// A lease verb was refused: the namespace is held, the principal is not a
+    /// writer, the TTL is over-bound, or the fence is stale. Contention is
+    /// poll-based (§5.3.3), so this is a routine answer and not a fault — it
+    /// simply has to be distinguishable from success by a shell.
+    pub const LEASE: i32 = 7;
 }
 
 #[derive(Debug)]
@@ -53,6 +58,11 @@ pub enum StoreError {
     Layout { detail: String },
     /// A well-formed hash with nothing behind it. The typed miss.
     NotFound { hash: String },
+    /// A well-formed name-path with no binding behind it. The same typed miss
+    /// in the same class and with the same exit code — conclusion 2 does not
+    /// change because the key is a name instead of a hash — carrying `name`
+    /// rather than `hash` so a caller can tell which lookup missed.
+    NameNotFound { name: String, detail: String },
     /// Bytes on disk disagree with the name they are filed under, an index row
     /// disagrees with the sidecars it is derived from, or a sidecar disagrees
     /// with its own hash field.
@@ -74,6 +84,17 @@ pub enum StoreError {
     },
     /// A hash that is not 64 lowercase hex digits.
     BadHash { text: String, detail: String },
+    /// A name-path or namespace that is not one (§5.3, `names.rs`).
+    BadName { text: String, detail: String },
+    /// A lease verb was refused. `reason` is the §5.3.3 vocabulary — `held`,
+    /// `writer`, `bound`, `fence` — and `context` carries whatever the caller
+    /// needs to retry: the holder and its expiry, the bound that was exceeded,
+    /// the fence actually in force.
+    Lease {
+        reason: String,
+        detail: String,
+        context: Value,
+    },
     /// The oracle could not be run at all (as opposed to running and refusing).
     Oracle { detail: String },
 }
@@ -98,12 +119,14 @@ impl StoreError {
         match self {
             StoreError::Io { .. } => "io",
             StoreError::Layout { .. } => "layout",
-            StoreError::NotFound { .. } => "not_found",
+            StoreError::NotFound { .. } | StoreError::NameNotFound { .. } => "not_found",
             StoreError::Integrity { .. } => "integrity",
             StoreError::Malformed { .. } => "malformed",
             StoreError::Refused { .. } => "refused",
             StoreError::NotApplicable { .. } => "not_applicable",
             StoreError::BadHash { .. } => "bad_hash",
+            StoreError::BadName { .. } => "bad_name",
+            StoreError::Lease { .. } => "lease_refused",
             StoreError::Oracle { .. } => "oracle",
         }
     }
@@ -113,11 +136,12 @@ impl StoreError {
             StoreError::Io { .. } | StoreError::Layout { .. } | StoreError::Oracle { .. } => {
                 exit::STORE
             }
-            StoreError::NotFound { .. } => exit::NOT_FOUND,
+            StoreError::NotFound { .. } | StoreError::NameNotFound { .. } => exit::NOT_FOUND,
             StoreError::Integrity { .. } | StoreError::Malformed { .. } => exit::INTEGRITY,
             StoreError::Refused { .. } => exit::REFUSED,
             StoreError::NotApplicable { .. } => exit::NOT_APPLICABLE,
-            StoreError::BadHash { .. } => exit::USAGE,
+            StoreError::BadHash { .. } | StoreError::BadName { .. } => exit::USAGE,
+            StoreError::Lease { .. } => exit::LEASE,
         }
     }
 
@@ -131,6 +155,9 @@ impl StoreError {
             StoreError::Layout { detail } => json!({ "message": detail }),
             StoreError::NotFound { hash } => {
                 json!({ "hash": hash, "message": "no object with that hash" })
+            }
+            StoreError::NameNotFound { name, detail } => {
+                json!({ "name": name, "message": detail })
             }
             StoreError::Integrity { hash, detail } => json!({ "hash": hash, "message": detail }),
             StoreError::Malformed { path, detail } => {
@@ -147,6 +174,20 @@ impl StoreError {
                 json!({ "hash": hash, "kind": kind, "message": detail })
             }
             StoreError::BadHash { text, detail } => json!({ "hash": text, "message": detail }),
+            StoreError::BadName { text, detail } => json!({ "name": text, "message": detail }),
+            StoreError::Lease {
+                reason,
+                detail,
+                context,
+            } => {
+                let mut body = json!({ "reason": reason, "message": detail });
+                if let Some(fields) = context.as_object() {
+                    for (key, entry) in fields {
+                        body[key] = entry.clone();
+                    }
+                }
+                body
+            }
             StoreError::Oracle { detail } => json!({ "message": detail }),
         };
         value["error"] = json!(self.class());
@@ -196,6 +237,32 @@ mod tests {
             }
             .exit_code()
         );
+    }
+
+    #[test]
+    fn a_lease_refusal_is_its_own_code_and_keeps_the_fields_a_retry_needs() {
+        let error = StoreError::Lease {
+            reason: "held".into(),
+            detail: "stats is held".into(),
+            context: json!({"holder": "aa", "expires_millis": 42u64, "fence": 3}),
+        };
+        assert_eq!(error.exit_code(), exit::LEASE);
+        assert_ne!(error.exit_code(), exit::REFUSED);
+        let body = error.to_json();
+        assert_eq!(body["error"], "lease_refused");
+        assert_eq!(body["reason"], "held");
+        assert_eq!(body["expires_millis"], 42);
+        assert_eq!(body["fence"], 3);
+    }
+
+    #[test]
+    fn a_malformed_name_is_a_usage_error_about_a_value_like_a_malformed_hash() {
+        let error = StoreError::BadName {
+            text: "a//b".into(),
+            detail: "empty segment".into(),
+        };
+        assert_eq!(error.exit_code(), exit::USAGE);
+        assert_eq!(error.to_json()["name"], "a//b");
     }
 
     #[test]

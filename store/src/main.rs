@@ -68,6 +68,11 @@ enum Command {
         /// Record contract versions by asking the Python oracle.
         #[arg(long)]
         from_oracle: bool,
+        /// Skip preloading §5.3.2's default policy. Only for a store that will
+        /// never bind a name: without it, resolution has no base case and every
+        /// `bind` refuses.
+        #[arg(long)]
+        bare: bool,
     },
     /// Land an object whose sidecar has already been produced by the oracle.
     Put {
@@ -89,6 +94,49 @@ enum Command {
         spec: Option<String>,
         #[arg(long, default_value_t = 0)]
         sequence: u64,
+    },
+    /// Validate a §5.3.1 policy object through the oracle, then put it.
+    AdmitPolicy {
+        /// A JSON-mirrored policy object, `[6, {"m": [[key, value]…]}]`.
+        source: PathBuf,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value_t = 0)]
+        sequence: u64,
+    },
+    /// The namespace write lease (§5.3.3).
+    #[command(subcommand)]
+    Lease(LeaseCommand),
+    /// Append a binding, if the fence holds and §5.3.2 admits it.
+    Bind {
+        name_path: String,
+        /// The definition (or, for a `POLICY` leaf, the policy) being bound.
+        #[arg(long = "def")]
+        def_hash: String,
+        /// The governing policy this proposal was cleared against.
+        #[arg(long = "policy-ref")]
+        policy_ref: String,
+        /// The fence issued by `lease acquire`.
+        #[arg(long)]
+        fence: u64,
+        /// A JSON file holding `[[obligation-id, lattice-point]…]`, sorted by
+        /// id. Absent means the empty evidence set.
+        #[arg(long)]
+        evidence: Option<PathBuf>,
+    },
+    /// The current binding of a name, or the one in force at `--at-seq`.
+    Resolve {
+        name_path: String,
+        #[arg(long = "at-seq")]
+        at_seq: Option<u64>,
+    },
+    /// Every binding of a name, oldest first.
+    History { name_path: String },
+    /// The current binding of every name.
+    Names {
+        /// Restrict to one namespace. The root namespace is `""`.
+        #[arg(long)]
+        ns: Option<String>,
     },
     /// The object's canonical bytes, identity re-verified on the way out.
     Get {
@@ -121,6 +169,39 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+}
+
+/// §5.3.3's verbs, minus the one deliberately not built: `revoke` is named as
+/// future work by the approved lease design, not omitted by oversight.
+#[derive(Subcommand)]
+enum LeaseCommand {
+    /// Take the namespace's write lease, or be told who has it.
+    Acquire {
+        namespace: String,
+        /// The claimed 32-byte principal-id. Claimed, not proved — possession
+        /// proof is the A0 payload's open question (§5.3.3, §13).
+        #[arg(long)]
+        principal: String,
+        #[arg(long = "ttl-millis")]
+        ttl_millis: u64,
+    },
+    /// Extend the expiry under the same fence, re-checked against the policy
+    /// now in force.
+    Renew {
+        namespace: String,
+        #[arg(long)]
+        fence: u64,
+        #[arg(long = "ttl-millis")]
+        ttl_millis: u64,
+    },
+    /// End the lease immediately.
+    Release {
+        namespace: String,
+        #[arg(long)]
+        fence: u64,
+    },
+    /// The fold of the lease log, and whether it is held right now.
+    Status { namespace: String },
 }
 
 /// What a subcommand produced: a JSON line, and the code to exit with.
@@ -177,6 +258,7 @@ fn run(cli: &Cli) -> Result<Option<Outcome>> {
         Command::Init {
             contracts,
             from_oracle,
+            bare,
         } => {
             let map = if let Some(path) = contracts {
                 let bytes = std::fs::read(path).map_err(|error| StoreError::io(path, error))?;
@@ -196,10 +278,165 @@ fn run(cli: &Cli) -> Result<Option<Outcome>> {
                     "already a store"
                 },
             );
+            // §5.3.2's resolution terminates at the default policy, so a store
+            // without it cannot bind anything at all. It is preloaded "like the
+            // §2.4 prelude" — but through the oracle, because a sidecar minted
+            // in Rust would be the store inventing contract versions for an
+            // object it did not validate.
+            let default_policy = if *bare {
+                None
+            } else {
+                let workspace = Workspace::new(&store)?;
+                let emitted = oracle(cli).default_policy(workspace.path())?;
+                let mut landed = None;
+                for item in &emitted {
+                    let outcome = put_files(
+                        &store,
+                        &workspace.path().join(&item.object),
+                        &workspace.path().join(&item.sidecar),
+                    )?;
+                    landed = Some(outcome.0.to_string());
+                }
+                landed
+            };
             Ok(Some(Outcome::ok(json!({
                 "status": if created { "created" } else { "exists" },
                 "store": cli.store.display().to_string(),
                 "layout_version": store.meta()?.layout_version,
+                "default_policy": default_policy,
+            }))))
+        }
+
+        Command::AdmitPolicy {
+            source,
+            name,
+            sequence,
+        } => {
+            let store = Store::open(&cli.store)?;
+            let workspace = Workspace::new(&store)?;
+            let source = absolute(source)?;
+            let emitted =
+                oracle(cli).policy(&source, workspace.path(), name.as_deref(), *sequence)?;
+            let mut landed = Vec::new();
+            for item in &emitted {
+                let outcome = put_files(
+                    &store,
+                    &workspace.path().join(&item.object),
+                    &workspace.path().join(&item.sidecar),
+                )?;
+                landed.push(json!({ "hash": outcome.0.to_string(), "status": outcome.1.as_str() }));
+            }
+            Ok(Some(Outcome::ok(
+                json!({ "status": "admitted", "objects": landed }),
+            )))
+        }
+
+        Command::Lease(verb) => {
+            let store = Store::open(&cli.store)?;
+            let lease = match verb {
+                LeaseCommand::Acquire {
+                    namespace,
+                    principal,
+                    ttl_millis,
+                } => store.lease_acquire(&oracle(cli), namespace, principal, *ttl_millis)?,
+                LeaseCommand::Renew {
+                    namespace,
+                    fence,
+                    ttl_millis,
+                } => store.lease_renew(&oracle(cli), namespace, *fence, *ttl_millis)?,
+                LeaseCommand::Release { namespace, fence } => {
+                    store.lease_release(namespace, *fence)?
+                }
+                LeaseCommand::Status { namespace } => match store.lease_status(namespace)? {
+                    Some(lease) => lease,
+                    // Never leased is data, not a miss: it is the state every
+                    // namespace starts in.
+                    None => {
+                        return Ok(Some(Outcome::ok(json!({
+                            "namespace": namespace,
+                            "held": false,
+                            "lease": Value::Null,
+                        }))))
+                    }
+                },
+            };
+            let now = loom_store::store::now_millis();
+            Ok(Some(Outcome::ok(json!({
+                "namespace": lease.namespace,
+                "held": lease.held_at(now),
+                "fence": lease.fence,
+                "principal": lease.principal,
+                "policy_ref": lease.policy_ref,
+                "expires_millis": lease.expires_millis,
+                "now_millis": now,
+                "released": lease.released,
+            }))))
+        }
+
+        Command::Bind {
+            name_path,
+            def_hash,
+            policy_ref,
+            fence,
+            evidence,
+        } => {
+            let store = Store::open(&cli.store)?;
+            let entries = match evidence {
+                None => Vec::new(),
+                Some(path) => {
+                    let bytes = std::fs::read(path).map_err(|error| StoreError::io(path, error))?;
+                    let value: Value = serde_json::from_slice(&bytes)
+                        .map_err(|error| StoreError::malformed(path, error.to_string()))?;
+                    value.as_array().cloned().ok_or_else(|| {
+                        StoreError::malformed(path, "expected an array of [obligation-id, point]")
+                    })?
+                }
+            };
+            let (record, admission) = store.bind(
+                &oracle(cli),
+                name_path,
+                def_hash,
+                entries,
+                policy_ref,
+                *fence,
+            )?;
+            note(
+                cli.verbose,
+                format!("bound {name_path} at seq {}", record.seq),
+            );
+            Ok(Some(Outcome::ok(json!({
+                "status": "bound",
+                "name_path": record.name_path,
+                "seq": record.seq,
+                "def_hash": record.def_hash,
+                "policy_ref": record.policy_ref,
+                "fence": record.fence,
+                "admission": admission,
+            }))))
+        }
+
+        Command::Resolve { name_path, at_seq } => {
+            let store = Store::open(&cli.store)?;
+            let record = store.resolve(name_path, *at_seq)?;
+            Ok(Some(Outcome::ok(binding_json(&record))))
+        }
+
+        Command::History { name_path } => {
+            let store = Store::open(&cli.store)?;
+            let records = store.history(name_path)?;
+            Ok(Some(Outcome::ok(json!({
+                "name_path": name_path,
+                "count": records.len(),
+                "bindings": records.iter().map(binding_json).collect::<Vec<_>>(),
+            }))))
+        }
+
+        Command::Names { ns } => {
+            let store = Store::open(&cli.store)?;
+            let records = store.names(ns.as_deref())?;
+            Ok(Some(Outcome::ok(json!({
+                "count": records.len(),
+                "names": records.iter().map(binding_json).collect::<Vec<_>>(),
             }))))
         }
 
@@ -388,10 +625,12 @@ fn run(cli: &Cli) -> Result<Option<Outcome>> {
 
         Command::Reindex => {
             let store = Store::open(&cli.store)?;
-            let rows = store.reindex()?;
-            Ok(Some(Outcome::ok(
-                json!({ "status": "reindexed", "rows": rows }),
-            )))
+            let (rows, namespaces) = store.reindex()?;
+            Ok(Some(Outcome::ok(json!({
+                "status": "reindexed",
+                "rows": rows,
+                "namespaces": namespaces,
+            }))))
         }
 
         Command::ExportResolver { out } => {
@@ -410,6 +649,20 @@ fn run(cli: &Cli) -> Result<Option<Outcome>> {
             }
         }
     }
+}
+
+/// One binding record on the wire. The named form of SPEC §5.3's
+/// `[2, name-path, def-hash, evidence-set, policy-ref, seq]`, plus the fence
+/// that appended it.
+fn binding_json(record: &loom_store::state::BindingRecord) -> Value {
+    json!({
+        "name_path": record.name_path,
+        "seq": record.seq,
+        "def_hash": record.def_hash,
+        "evidence": record.evidence,
+        "policy_ref": record.policy_ref,
+        "fence": record.fence,
+    })
 }
 
 fn summary(row: &IndexRow) -> Value {

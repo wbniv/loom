@@ -6,8 +6,13 @@
 //!   objects/<2-hex>/<62-hex>      canonical object bytes, named by SHA-256
 //!   meta/<2-hex>/<62-hex>.json    the oracle's sidecar, byte for byte as emitted
 //!   index/types.jsonl             derived: one sorted row per object
+//!   state/                        leases and bindings — see `state.rs`
 //!   tmp/                          same-filesystem scratch for atomic writes
 //! ```
+//!
+//! `state/` is the one part of the tree that is neither immutable nor
+//! content-addressed, which is exactly why SPEC §5.3.3 gives it its own
+//! stratum rather than pretending a lease can be an object.
 //!
 //! `store.json` is written once, at `init`, and never mutated. A file the store
 //! rewrites is a file that can be torn or can disagree with itself; the only
@@ -119,6 +124,14 @@ impl Layout {
             self.meta_dir(),
             self.root.join(INDEX_DIR),
             self.tmp_dir(),
+            // The state stratum (§5.3.3). Created unconditionally, including on
+            // a re-`init` of a v0 store, because it is purely additive: a store
+            // that has never held a lease simply has empty directories, and an
+            // old store gains them without its objects moving.
+            self.root.join(crate::state::LEASES_DIR),
+            self.root.join(crate::state::FENCES_DIR),
+            self.root.join(crate::state::CURRENT_DIR),
+            self.root.join(crate::state::BINDINGS_DIR),
         ] {
             fs::create_dir_all(&directory).map_err(|error| StoreError::io(&directory, error))?;
         }

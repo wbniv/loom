@@ -25,8 +25,17 @@ pub const KIND_DEFINITION: &str = "definition";
 pub const KIND_DATA: &str = "data";
 pub const KIND_ABILITY: &str = "ability";
 pub const KIND_EXTERN: &str = "extern";
+/// §5.3.1's policy object, `[6, policy-map]`. It arrives with the namespaces
+/// increment because §5.3.2's resolution needs somewhere to resolve *to*.
+pub const KIND_POLICY: &str = "policy";
 
-pub const KINDS: [&str; 4] = [KIND_DEFINITION, KIND_DATA, KIND_ABILITY, KIND_EXTERN];
+pub const KINDS: [&str; 5] = [
+    KIND_DEFINITION,
+    KIND_DATA,
+    KIND_ABILITY,
+    KIND_EXTERN,
+    KIND_POLICY,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sidecar {
