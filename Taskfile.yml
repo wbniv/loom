@@ -29,7 +29,7 @@ tasks:
 
 
   setup:
-    desc: "Install pinned project tool dependencies (terraform 1.9.8) into ~/.local/bin; verify the rest. Idempotent."
+    desc: "Install pinned project tool dependencies (terraform, gcloud) into ~/.local/bin; verify the rest. Idempotent."
     cmds:
       - |
         set -euo pipefail
@@ -45,6 +45,18 @@ tasks:
           unzip -o -q "$TMP/tf.zip" -d "$BIN" terraform
           rm -rf "$TMP"
           echo "✓ installed: $("$BIN/terraform" version | head -1)"
+        fi
+        if command -v gcloud >/dev/null 2>&1 || [ -x "$HOME/.local/google-cloud-sdk/bin/gcloud" ]; then
+          echo "✓ gcloud already installed"
+        else
+          echo "Installing Google Cloud CLI → $HOME/.local/google-cloud-sdk"
+          TMP=$(mktemp -d)
+          curl -fsSL -o "$TMP/gcloud.tar.gz" "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz"
+          tar -xzf "$TMP/gcloud.tar.gz" -C "$HOME/.local"
+          rm -rf "$TMP"
+          ln -sf "$HOME/.local/google-cloud-sdk/bin/gcloud" "$BIN/gcloud"
+          ln -sf "$HOME/.local/google-cloud-sdk/bin/gsutil" "$BIN/gsutil"
+          echo "✓ installed: $("$BIN/gcloud" version 2>/dev/null | head -1)"
         fi
         for tool in aws python3 tar unzip curl git; do
           command -v "$tool" >/dev/null && echo "✓ $tool" || { echo "✗ missing: $tool — install it via your package manager"; exit 1; }
