@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Store namespaces v1: bindings, leases, policy-gated admission** —
+- [wip T4] <!-- agent:acbe878b42a5a3607 --> **Store namespaces v1: bindings, leases, policy-gated admission** —
   implements the approved §5.3.3 protocol plus §5.3.2 admission through the
   policy oracle. Cross-cutting Rust state stratum + Python oracle seam,
   hence T4. See [plan](docs/plans/2026-08-14-store-namespaces.md).
@@ -194,5 +194,4 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
-- [verify] **2026-08-14-store-namespaces** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-14-store-namespaces.md](docs/plans/2026-08-14-store-namespaces.md)_  <!-- fp:ce48cb9bd57286a5 -->
 <!-- END auto-captured-deferrals -->
