@@ -10,10 +10,10 @@ silent: true
 
 tasks:
   prototype:test:
-    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, experiment-harness, and mask tests
+    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, evaluator, experiment-harness, and mask tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_experiment test_masker -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker -v
 
   experiment:phase-a:
     desc: Run masked-generation experiment Phase A (conditions 1-3) from a config file

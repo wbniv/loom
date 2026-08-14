@@ -4,9 +4,9 @@ This directory implements the canonical, prior-rich emission surface proposed
 by `SPEC.md` §8.4 and the deterministic conversion between that surface and the
 IR encoded as canonical CBOR.
 
-**Status: working syntax/identity/scope and partial type-directed prototype, not
-a store.** There is no complete typechecker, evidence lattice, or full oracle
-here.
+**Status: working syntax/identity/scope, a partial type-directed prototype, and
+a reference evaluator that runs the corpus — not a store.** There is no complete
+typechecker, evidence lattice, or full oracle here.
 
 ## Run it
 
@@ -68,6 +68,7 @@ applying them.
 | `prelude.py` | Canonical v0.1 builtin ability declarations, operation names, pinned hashes, and a preloaded registry. |
 | `typecheck.py` | Partial bidirectional checker: nominal matches, effects/handlers, `if`, `fix`/`ref`, first-order instantiation, and opt-in §3.3 refinement subsumption. |
 | `matches.py` | Compatibility import shim for the checker's former name. |
+| `interp.py` | The reference evaluator: a definitional interpreter for all thirteen §2.1 term tags as a CEK-style machine, with deep handlers whose continuations are multi-shot values, two's-complement `I64` wrapping, the nine assumed-base extern implementations, a caller-set fuel guard, and no ambient authority of any kind. Assumes a checked term. See [Running Loom](#running-loom) below. |
 | `definition_types.py` | Immutable, scope-validated definition-type snapshots used as a store-facing `ref` resolver in tests and the corpus. |
 | `refinements.py` | Translates one verification condition into one canonical SMT-LIB script, rejects everything outside the decidable fragment, and records which abstractions the translation used. |
 | `obligations.py` | The typing/oracle seam: verification conditions with their producer, obligation emission to `(id, script, script-hash)` triples, §3.2.1's exactness rule, and the three-way verdict outcome. Never calls a solver. |
@@ -93,6 +94,7 @@ applying them.
 | `test_policies.py` | Pinned default-policy hash, structural rejection cases, obligation decomposition, conjunctive selector matching, `E ⊒ R` satisfaction, and domination (including the deliberately incomplete rules test) and the §12 worked example's arithmetic. |
 | `test_externs.py` | Pinned identities for the nine assumed-base externs, kind/arity/artifact/ABI rejection cases, polymorphism and capability-honesty refusals, registry resolution, the `extern` obligation kind, the §3.2.1 interpretation table over extern hashes, and a demonstration that a hypothesis conjoining two comparisons with `and` now translates deterministically. |
 | `test_contracts.py` | Pins every contract version, and checks the record against the code: entry points resolve and are callable, resolver conventions and pinned artifacts exist, the four Watch-named layers are versioned, and `CONTRACTS.md` states each current version. |
+| `test_interp.py` | The evaluator against the corpus: every fixture run to a value, the list eliminators over concrete lists with hand-computed results, `mapPoly` proven behaviourally identical to `map`, the clock/rand fixtures under deterministic stubs including the pinned evaluation order, the multi-shot `rand/resample` acceptance test, deep-vs-shallow and innermost-handler probes, the `abs`-at-`INT_MIN` wrap, extern-table completeness in both directions, and the refusals (hole, unhandled `perform`, fuel exhaustion, unresolved `ref`, reference cycle). |
 | `test_corpus.py` | Corpus declaration keys, fixture canonicity and pinned identity, declared validation tier, declared effect-freedom (enforced in both directions) with closed builtin-only rows, dependency order, the §3.2.1 obligations with their pinned script hashes and expected verdicts (also both directions, plus an optional solver run), and the recorded expressiveness limits (two of them re-pinned as lifted). |
 | `experiment/` | The §8.4 masked-generation experiment's Phase A harness, which only ever *consumes* the layers above. See [the experiment section](#the-masked-generation-experiment-phase-a) below. |
 | `experiment/resolver.py` | The plan's R1 "disposable store-shaped resolver": one hash-keyed lookup surface over the declaration registry, the definition-type snapshot, and the corpus fixture bytes. No namespaces, leases, policy admission, persistence, or garbage collection, by rule. |
@@ -249,6 +251,102 @@ quantified reference used as, say, an application's function still synthesizes
 its quantified type verbatim, so a generic definition still needs a
 monomorphic wrapper or a typed `let` at each use site; only the *elimination*
 rule for checking position was missing.
+
+## Running Loom
+
+Every layer above decides whether a term is *well formed*. `interp.py` says what
+it *means* — it is the first thing here that can run a Loom program. The design
+of record is
+[`docs/plans/2026-08-13-reference-evaluator.md`](../docs/plans/2026-08-13-reference-evaluator.md).
+
+```python
+import corpus_registry, prelude
+from interp import (corpus_digest, corpus_interpreter, i64, i64_list,
+                    scripted_clock, seeded_rand)
+
+SUB = corpus_registry.EXTERN_HASHES["I64.sub"]
+I64 = [0, 2]
+
+machine = corpus_interpreter()
+fold = machine.value_of(corpus_digest("corpus/list/foldRight"))
+minus = machine.evaluate([3, I64, [3, I64, [4, [4, [1, SUB], [0, 1]], [0, 0]]]])
+
+machine.apply(fold, minus, i64(0), i64_list([1, 2, 3]))   # Literal(kind=2, value=2)
+```
+
+`foldRight (-) 0 [1,2,3]` is `1-(2-(3-0))`, which is `2`; the same arguments to
+`corpus/list/foldLeft` give `-6`. Nothing but running them tells the two apart.
+
+Four things about that snippet are load-bearing.
+
+**The evaluator assumes a checked term.** Its precondition is that the input
+passed `typecheck.validate_source`. It never re-derives a type and never
+re-checks an arity — but where a checked term could not have reached a state it
+still refuses with a path, so an upstream bug surfaces as a diagnosis rather than
+a wrong answer.
+
+**It has no ambient authority.** `corpus_interpreter()` supplies no clock and no
+entropy. A `perform` with no dynamic handler and no caller-supplied behaviour is
+an error naming the ability, the operation and the path. §2.4's capabilities are
+minted only by `Interpreter.mint_capability` — no term evaluates to one — and
+deterministic `scripted_clock` / `seeded_rand` stubs are *offered*, never
+installed:
+
+```python
+machine = corpus_interpreter(builtins={**scripted_clock([1000, 2000]), **seeded_rand(7)})
+clock = machine.mint_capability(prelude.HASHES["clock"])
+machine.apply(machine.value_of(corpus_digest("corpus/clock/nowPair")), clock)
+# Pair 1000 2000
+```
+
+**Handlers are deep and their continuations are multi-shot.** A `perform` splits
+the frame stack at the innermost matching handler; the operation clause runs
+*outside* the handler (which is what discharges the ability from the row) and the
+continuation captures the frames in between **with the handler frame put back**,
+so the resumption is handled again. The continuation is an immutable tuple, so
+invoking it twice is pushing the same tuple twice. `corpus/rand/resample` invokes
+one continuation with `0x00` and then with `0xff` and pairs the first result's
+first field with the second result's second field:
+
+```python
+machine.apply(machine.value_of(corpus_digest("corpus/rand/resample")),
+              machine.mint_capability(prelude.HASHES["rand"]))
+# Pair 0x00 0xff
+```
+
+That mixed pair is unreachable for a one-shot continuation and unreachable for an
+implementation that re-executes from the start. §13's residue recorded this
+fixture as operationally meaningless in the prototype; it is not, any more.
+
+**`I64` wraps, and the corpus proves it hurts.** §3.2.1 states the fidelity limit
+from the solver's side — "`Int` does not wrap, so a proof that depends on 64-bit
+overflow is unsound", with `-` among the symbols "whose `Int` meaning departs
+from `I64`'s wrapping meaning". The runtime is the other side of that sentence:
+
+```python
+machine.apply(machine.value_of(corpus_digest("corpus/math/abs")), i64(-2**63))
+# Literal(kind=2, value=-9223372036854775808)   ← negative
+```
+
+`corpus/math/abs` declares `I64 -> {v : I64 | -1 < v}`, and at `INT_MIN` it
+returns a negative number: a definition that is provable over SMT-LIB `Int` and
+false on hardware. That is exactly the case the obligation pipeline's **reserved**
+countermodel-validation rule exists to catch — "substitute the model into the
+original Loom terms and evaluate under the real semantics" (§3.2.1), which needed
+an evaluator. This is the evaluator. Enabling the rule is a separate change;
+`obligations.py` is untouched.
+
+Divergence never hangs the suite: `fix` runs directly (§2.5 makes totality an
+oracle obligation, not an evaluation-time one, and neither `k` nor `measure` is
+consulted at run time), and a caller-set **fuel** budget ends any run that
+outlives it with an explicit `FuelExhausted` carrying a path. Because the machine
+is a loop rather than a recursive function, Loom's control depth never touches
+CPython's stack, so the fuel guard is the *only* thing that stops a long run.
+
+`interp.py` is deliberately **not** in `contracts.py`: a validation contract
+versions an accept/reject decision and pinned canonical bytes, and the evaluator
+has neither — its acceptance set is whatever `typecheck` accepted, and it emits
+values.
 
 ## The masked-generation experiment (Phase A)
 
