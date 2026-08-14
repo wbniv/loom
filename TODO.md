@@ -27,6 +27,12 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T4] **Language evaluation, batch 2: SML, Haskell, Clojure, Perl, Ruby vs
+  Rust** — same criteria, same weights, same rigor as
+  [batch 1](docs/plans/2026-08-14-production-language-decision.md); scores
+  need fresh per-language research and justification, hence T4. Outcome is a
+  study unless something beats 114/130.
+
 - [wip T3] <!-- agent:aa3205050b31ac26f --> **Track P L0: the differential harness** — JSON-lines export of every
   validator verdict (input, verdict, error class, canonical bytes, identity)
   over corpus, examples, and every test rejection case; the one prerequisite
