@@ -30,9 +30,13 @@ Check conformance with `task todo:lint`.
 
 ## Watch
 
-- Type-directed masking overhead (SPEC.md §8.2, §13 open problem 3) — how much
-  pruning is affordable per emitted token is an empirical systems question; revisit
-  once the S-expression grammar prototype (above) exists and can be benchmarked.
+- Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
+  the single-stream question is **measured and closed** (3.15 ms/token warm,
+  10.4 % of masked-draw latency; see
+  [condition-4 results](docs/results/2026-08-14-phase-b-condition4-report.md)).
+  What remains watched: the cost at served batch B ≫ 1, where the language
+  plan's M1 trigger (≥ 25 % of decode) could still fire. Revisit when any
+  serving-shaped workload exists.
 
 - Lease acquisition/renewal/expiry protocol for namespaces (SPEC.md §5.3, §13 open
   problem 4) — "a lease held by one agent or principal" has no protocol defined yet;

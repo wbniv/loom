@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/de317f2) | Bring plans and the source-code investigation current with Phase B events |
 | [2026-08-14](https://github.com/wbniv/loom/commit/1c4b585) | Decide the production implementation language: Rust, migration deferred |
 
 <!--history-meta v1
+de317f2	author	Will Norris
+de317f2	added	7
+de317f2	deleted	0
+de317f2	files	1
+de317f2	body	Launch log through the us-east1 stockouts and zone hunt; M1 evidence\ncaveat (salvaged partial's mask numbers are defect symptoms, not the\nmeasurement); Phase A postscript on the english-as-source analysis.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 1c4b585	author	Will Norris
 1c4b585	added	587
 1c4b585	deleted	0

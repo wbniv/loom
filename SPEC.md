@@ -1364,7 +1364,14 @@ and is atomic.
 
 Could an agent write valid Loom under constrained decoding *today*?
 Mostly yes — each mechanism maps to a demonstrated technique — with one
-honest amendment to §8.1.
+honest amendment to §8.1. *As of 2026‑08‑14 this is no longer speculative:
+the full stack below — GBNF syntax masking plus a stateful scope/arity/goal
+mask — has run live over a 7B model
+([Phase A](docs/results/2026-08-14-phase-a-report.md),
+[condition 4](docs/results/2026-08-14-phase-b-condition4-report.md)):
+3,108 draws, 302 checker-accepted definitions, 19 byte-identical semantic
+successes, zero mask-soundness violations. §13's problem 3 carries the
+measured cost.*
 
 - **Grammar masking is commodity.** The term/type grammar (§2) is a small
   pushdown grammar, the same class as the JSON-schema and CFG constraints
@@ -1554,8 +1561,19 @@ IDE affordances.
    a wrong contract verifies a wrong program at level A3. Loom shrinks the
    trusted surface to contracts + policy and makes it enumerable
    (`assumption` counting, §11) — smaller and visible, never zero.
-3. **Type-directed masking depth** (§8.2) — how much pruning is
-   affordable per token is an empirical systems question.
+3. **Type-directed masking depth (§8.2) — now measured.** The empirical
+   systems question has a first answer
+   ([condition-4 results](docs/results/2026-08-14-phase-b-condition4-report.md),
+   2026‑08‑14, Qwen2.5‑Coder‑7B on one L4): a three-pruner mask (goal-type,
+   de Bruijn, reference-hash) over a 152k vocabulary costs 3.15 ms/token
+   warm — 10.4 % of masked-draw latency, decode-dominated. Affordability is
+   settled for single-stream decoding; what it buys is regime-dependent:
+   scope failures fall 268 → 17, and per budget token the mask never loses
+   to definition-level rejection sampling (+70 % with no examples in
+   context) but does not beat plain grammar sampling when the full corpus
+   is in context. What stays open: batched-serving cost (the §8.2 question
+   at B ≫ 1), and pruning the layer that now dominates — typecheck
+   positions the per-token proof discipline must abstain on.
 4. **Lease granularity** (§5.3) under high agent counts.
 5. **Intensional identity** (§4.1) means semantically identical
    definitions duplicate evidence effort; an extensional-equality memo

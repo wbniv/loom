@@ -216,10 +216,13 @@ time. A 7B model over 2,335 draws:
   retrieval under constraint.
 - **The machine-checkable substrate is what makes constraint possible at
   all**: grammar constraints tripled per-token acceptance over free
-  generation, and per-token type-directed masking (Phase B, running) has
-  already shown scope errors — a quarter of unconstrained failures — driven
-  to ~3 %. None of that is available to prose-as-source: the essay's
-  proposal removes exactly the layers the measurement shows doing the work.
+  generation, and per-token type-directed masking (Phase B, complete —
+  [condition-4 results](../results/2026-08-14-phase-b-condition4-report.md))
+  cut scope failures from 268 to 17 across comparable draw volumes and
+  never lost to definition-level rejection sampling, winning +70 % exactly
+  where the model had no examples to imitate. None of that is available to
+  prose-as-source: the essay's proposal removes exactly the layers the
+  measurement shows doing the work.
 
 One data point, one small model — but it lands on this document's side:
 the value concentrated in the *inspectable, checkable* representation, and

@@ -474,13 +474,14 @@ Migration starts when **any** fires. Each is measurable; none is a date.
   B ≈ 333). **First response is free-threaded CPython, not a port**; escalate to
   porting `masker.py` only if that fails to clear the threshold. Restates trigger
   (d) with the denominator specified.
-  *Evidence caveat (2026‑08‑14): do not score M1 from the salvaged partial of
-  condition‑4 launch 2* (`prototype/runs/phase-b-partial-oom/`). Its
-  12–17 ms/token mask readings — nominally ~30–40 % of L4 decode, i.e.
-  M1‑firing — were a symptom of the since‑fixed type‑state memo defect
-  (string‑literal bytes forced a full trie walk per token) plus the memory
-  pressure it caused. Post‑fix laptop measurement is 0.105 ms/token.
-  Launch 3's clean run is the M1 measurement.
+  *Measured (2026‑08‑14, the complete 773-draw condition-4 run): mask share
+  of masked-draw latency is **10.4 %** (3.15 ms/token warm, 6.69 cold, on an
+  L4 at single-stream decode) — **M1 does not fire.** The deferral holds
+  with a 2.4× margin in the deployed single-stream configuration; the
+  B ≫ 1 served-batch case remains the only path to M1, tracked as a
+  narrowed TODO Watch item.* (Historical caveat kept for provenance: the
+  12–17 ms/token readings in launch 2's salvaged partial were symptoms of
+  the since-fixed type-state memo defect, not a measurement.)
 - **M2 — the §5 store leaves memory.** The first persistence or network work starts
   Track G, in Rust, immediately. Restates trigger (c). This is the most likely
   trigger to fire first, and it is the cheapest, because it is greenfield.
