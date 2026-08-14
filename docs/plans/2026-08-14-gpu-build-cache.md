@@ -1,7 +1,8 @@
 # Plan — GPU build cache for the experiment runner
 
 **Date:** 2026-08-14
-**Status:** In progress (live capture armed; template patch landing)
+**Status:** Complete — hit proven on two consecutive runs (2026‑08‑14); only
+the deliberate-miss criterion awaits a real revision bump
 **Parent:** [GCP experiment infra](2026-08-14-gcp-experiment-infra.md)
 
 ## Objective
@@ -74,6 +75,16 @@ The cache object exists under both keys (short-hash from the manual capture,
 full-revision from the corrective copy); attempt 4 is the first run whose
 startup check should hit. Its serial log is the completion-criterion evidence.
 
+## Proof (2026‑08‑14)
+
+- **Phase A attempt 6** (us-east1-b): serial log `build cache hit`; boot to
+  serving in minutes instead of ~28 min of cmake.
+- **Condition-4 run** (`20260814T133847Z`): hit again — under the *stricter*
+  post-B2 test requiring both `llama-server` and `libllama.so`. The original
+  tarball already carried `libllama.so` (llama-server links it as a shared
+  library), so the feared one-time re-seed rebuild never happened. Boot to
+  matrix: ~2 minutes (13:43:51 → 13:45:51 UTC).
+
 ## Verification
 
 ```sh
@@ -89,6 +100,10 @@ after that run.
 
 ## Completion criteria
 
-- The cache object exists (from capture or first post-patch run).
-- A subsequent run boots to a serving llama-server without invoking cmake.
-- A deliberate cache miss (revision bump) still builds and re-seeds.
+- ~~The cache object exists (from capture or first post-patch run).~~ Seeded
+  by the live capture 2026‑08‑14 06:36 UTC; full-rev key corrected same day.
+- ~~A subsequent run boots to a serving llama-server without invoking
+  cmake.~~ Proven twice on 2026‑08‑14 — see **Proof** above.
+- A deliberate cache miss (revision bump) still builds and re-seeds. *Open —
+  the miss path is exercised in review only; the proof falls out of the next
+  real `llama_cpp_revision` bump, no dedicated run needed.*

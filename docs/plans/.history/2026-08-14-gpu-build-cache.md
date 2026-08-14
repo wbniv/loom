@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/ff5f6ba) | Update plans: GPU attempt log, spot-vs-on-demand lesson, cache status |
 | [2026-08-14](https://github.com/wbniv/loom/commit/383aa18) | Record cache-key mismatch lesson; copy object to full-rev key |
 | [2026-08-14](https://github.com/wbniv/loom/commit/7fcc65c) | Record build-cache capture win: cache seeded from live instance |
 | [2026-08-14](https://github.com/wbniv/loom/commit/362348c) | Add revision-keyed GCS build cache to GCP startup script |
 
 <!--history-meta v1
+ff5f6ba	author	Will Norris
+ff5f6ba	added	6
+ff5f6ba	deleted	0
+ff5f6ba	files	1
+ff5f6ba	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 383aa18	author	Will Norris
 383aa18	added	5
 383aa18	deleted	1

@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/f8617b7) | Close out the Phase A run log; grace-poll the driver deadline |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4fe8157) | Land Phase A results: predictions scored, report preserved |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ff5f6ba) | Update plans: GPU attempt log, spot-vs-on-demand lesson, cache status |
 | [2026-08-13](https://github.com/wbniv/loom/commit/1e3d765) | Record GPU-run restoration: 7B model, full seeds |
@@ -12,6 +13,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+f8617b7	author	Will Norris
+f8617b7	added	45
+f8617b7	deleted	7
+f8617b7	files	1
+f8617b7	body	Attempt 6 (us-east1-b, on-demand, cache hit) succeeded; the driver's\nexit-1 was the laptop suspending through the run's completion — the\npoll loop woke past its wall-clock deadline. One post-deadline grace\npoll fixes it. Store-shaping conclusions from Phase A recorded.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 4fe8157	author	Will Norris
 4fe8157	added	20
 4fe8157	deleted	0

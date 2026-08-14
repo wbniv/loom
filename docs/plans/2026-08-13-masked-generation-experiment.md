@@ -234,6 +234,15 @@ Phase A:
     while the run finished mid-suspend; on wake it downloaded everything and
     then declared timeout. Fixed with a post-deadline grace poll in
     `scripts/run-remote-experiment-gcp.sh`.
+  - *Condition-4 run* (launched 2026‑08‑14 13:38 UTC, run id
+    `20260814T133847Z`): B2's `gbnf+typemask` matrix — pruners
+    `goal-type`/`de-bruijn`/`ref-hash`, seeds [1, 2, 3], all four regimes,
+    in-process `llama-cpp` transport — on the same on-demand
+    us-east1-b L4. Cache hit, matrix generating at 13:45:51 UTC, two
+    minutes after boot. `n_ctx` raised 4096 → 16384 pre-launch
+    (`full_corpus` prompts reach 11,952 tokens in Phase A's records).
+    Prediction 4's bar: 1.452 acc/1k tok; the report lands with the R5
+    table and verdicts pre-wired against the committed Phase A summary.
 
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified

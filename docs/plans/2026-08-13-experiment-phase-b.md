@@ -266,9 +266,16 @@ B2 (gated on Phase A's report):
 - [x] A remote condition-4 configuration, ready for an operator to launch.
   `experiment/phase_b.config.json`, plus the transport seam the GCP runner
   needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
-- [ ] **Run condition 4.** Operator step; not run here by rule (no cloud
-  instance is launched from this dispatch). The exact invocation is recorded
-  below.
+- [wip] **Run condition 4.** Launched by the operator 2026‑08‑14 13:38 UTC
+  (run id `20260814T133847Z`): on-demand g2-standard-4 + L4, us-east1-b,
+  6-hour driver budget. Boot to matrix in ~2 minutes — the stricter
+  two-artifact cache test **hit** against the existing tarball
+  (`llama-server` had linked and packed `libllama.so` all along, so the
+  predicted one-time rebuild never happened); transport announced as
+  in-process `llama-cpp`; matrix generating since 13:45:51 UTC.
+  One config fix on review before launch: `n_ctx` 4096 → 16384 — Phase A's
+  records put the fattest `full_corpus` prompt at 11,952 tokens (mean
+  11,619), so 4096 would have overflowed on the regime R5 rests on.
 
 ## The B2 decisions
 
