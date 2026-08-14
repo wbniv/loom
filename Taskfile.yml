@@ -89,20 +89,25 @@ tasks:
 
         echo ""
         echo "━━━ Phase D: detach AdministratorAccess and ReadOnlyAccess ━━━"
-        cd "$TFDIR"
-        terraform state show aws_iam_user_policy_attachment.admin >/dev/null 2>&1 || \
-          terraform import aws_iam_user_policy_attachment.admin \
-            'loom-terraform/arn:aws:iam::aws:policy/AdministratorAccess' || true
-        terraform state show aws_iam_user_policy_attachment.readonly >/dev/null 2>&1 || \
-          terraform import aws_iam_user_policy_attachment.readonly \
-            'loom-terraform/arn:aws:iam::aws:policy/ReadOnlyAccess' || true
-        cd - >/dev/null
-        "$SAFE" "$TFDIR" apply -auto-approve
+        # Direct CLI detach: `terraform import` refuses addresses absent from
+        # configuration (TF >= 1.5), so the old import-then-apply dance can
+        # never detach. The scoped policy's IAMSelfManagement grants
+        # iam:DetachUserPolicy on this user, so this works after Admin is gone.
+        AWS_PROFILE=$PROFILE aws iam detach-user-policy --user-name loom-terraform \
+          --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess 2>/dev/null || true
+        AWS_PROFILE=$PROFILE aws iam detach-user-policy --user-name loom-terraform \
+          --policy-arn arn:aws:iam::aws:policy/AdministratorAccess 2>/dev/null || true
 
         echo ""
         echo "━━━ End state ━━━"
-        AWS_PROFILE=$PROFILE aws iam list-attached-user-policies --user-name loom-terraform --output table
-        echo "Must show ONLY loom-terraform-scoped. Next: task experiment:remote"
+        ATTACHED=$(AWS_PROFILE=$PROFILE aws iam list-attached-user-policies \
+          --user-name loom-terraform --query 'AttachedPolicies[].PolicyName' --output text)
+        echo "Attached: $ATTACHED"
+        if [ "$ATTACHED" != "loom-terraform-scoped" ]; then
+          echo "✗ Expected only loom-terraform-scoped to remain attached."
+          exit 1
+        fi
+        echo "✓ Narrowed: only loom-terraform-scoped remains. Next: task experiment:remote"
 
   aws-bootstrap:
     desc: "One-time: create the loom-terraform IAM profile locally and bootstrap the S3/DynamoDB state backend."
