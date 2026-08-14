@@ -27,6 +27,15 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T4] **Build the reference evaluator.** A definitional interpreter for the term
+  language against §2's semantics — the first thing that can *run* a Loom program.
+  Unlocks three recorded residues: real semantic judging for held-out tasks,
+  operational meaning for handlers and multi-shot continuations, and the obligation
+  pipeline's reserved countermodel-validation rule. Key decision to settle: runtime
+  I64 semantics (§3.2.1's "Int does not wrap where I64 does" implies two's-complement
+  wrap — which makes math/abs's proved-but-false-at-INT_MIN case executable). (T4:
+  handler/continuation machinery design; semantics must follow spec, not invent.)
+
 - [T4] **Complete Phase B2: profile-directed pruners and the condition-4 run
   (gated on Phase A's failure distribution).** Pruner priority from the Phase A
   report, the live condition-4 run, the R5 comparison, prediction scoring. See
