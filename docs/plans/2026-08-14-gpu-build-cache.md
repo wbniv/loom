@@ -62,7 +62,11 @@ successful run.
   best-effort upload.
 - [x] Render-check the template (`bash -n` on rendered output) and
   `terraform fmt`/`validate` the module.
-- [ ] Record the capture outcome (won or lost the race) here.
+- [x] Cache-key lesson: the manual capture used the short revision hash while
+  the template keys on the full 40-char revision — attempt 3 missed the cache
+  and rebuilt. Object copied to the full-rev key as insurance; the run's own
+  best-effort upload seeds the same key. First true cache-hit proof moves to
+  the next run.
 
 ## Verification
 
