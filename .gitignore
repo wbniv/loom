@@ -15,3 +15,4 @@ crash.log
 
 prototype/experiment/phase_a.local.json
 prototype/experiment/phase_a.smoke.json
+prototype/experiment/phase_a.remote.json

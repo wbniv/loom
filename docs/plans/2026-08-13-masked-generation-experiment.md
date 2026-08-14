@@ -166,6 +166,13 @@ Phase A:
   per-token decode overhead and is unaffected. KV-cache quantization
   (`-ctk/-ctv q8_0`) is NOT used: it cut prompt eval to ~12 tok/s on this CPU.
 
+  **GPU-run restoration (2026‑08‑13):** with the run moved to a rented
+  g6.xlarge (L4 24 GB) per the GPU-experiment-infra plan, the CPU concessions
+  are reversed: the run uses the *originally approved*
+  `Qwen2.5-Coder-7B-Instruct Q4_K_M` (the 1.5B fallback was hardware-driven
+  and is so recorded) and the full seed set {1, 2, 3}; the smoke's
+  512-token draw cap stands. Recorded before launch.
+
   **Smoke-run amendment (2026‑08‑13):** the 21-cell smoke produced 57 draws,
   0 acceptances, and a decisive artifact diagnosis: all 25 grammar-constrained
   "parse" failures are truncations (2–8 unclosed parens each; zero

@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/23bea9d) | Record smoke findings: truncation artifact, amended full-run config |
 | [2026-08-13](https://github.com/wbniv/loom/commit/66edc80) | Record prompt-cache measurement deviation and KV-quant finding |
 | [2026-08-13](https://github.com/wbniv/loom/commit/489f74c) | Amend model selection: 3B local after 7B OOM and K3 evaluation |
 | [2026-08-13](https://github.com/wbniv/loom/commit/eac350c) | Record experiment model/hardware selection; promote the T5 |
@@ -8,6 +9,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+23bea9d	author	Will Norris
+23bea9d	added	15
+23bea9d	deleted	0
+23bea9d	files	1
+23bea9d	body	All 25 grammar-constrained parse failures are truncations (the GBNF is\nsound in-sample); real checker signal is typecheck then scope; hashes\nhurt as token-budget damage. Full run: draw cap 512, seeds {1}.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 66edc80	author	Will Norris
 66edc80	added	7
 66edc80	deleted	0
