@@ -55,9 +55,12 @@ successful run.
 ## Work
 
 - [x] Arm the live capture against the in-flight instance.
-- [ ] Patch `startup-script.sh.tftpl`: cache check → extract, else build →
+- [x] Capture WON the race: 77.8 MiB tarball at
+  `builds/llama-1f368f3-cu129-g2.tar.gz`, uploaded by the instance at
+  06:36Z, before the run's self-deletion. The cache is seeded.
+- [x] Patch `startup-script.sh.tftpl`: cache check → extract, else build →
   best-effort upload.
-- [ ] Render-check the template (`bash -n` on rendered output) and
+- [x] Render-check the template (`bash -n` on rendered output) and
   `terraform fmt`/`validate` the module.
 - [ ] Record the capture outcome (won or lost the race) here.
 
