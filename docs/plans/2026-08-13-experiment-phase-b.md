@@ -1,8 +1,10 @@
 # Plan — Experiment Phase B: the incremental type-state masker
 
 **Date:** 2026-08-13
-**Status:** B1 implemented and verified. B2 implemented and verified locally;
-the live condition-4 matrix is prepared and awaits an operator launch.
+**Status:** B1 implemented and verified. B2 implemented and verified locally.
+The live condition-4 matrix was attempted on 2026‑08‑14 and OOM-killed by a
+masker defect that is now found, fixed and guarded; it awaits an operator
+relaunch.
 **Parent:** [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) (R2 condition 4, R2.1 Phase B)
 
 ## Objective
@@ -266,9 +268,10 @@ B2 (gated on Phase A's report):
 - [x] A remote condition-4 configuration, ready for an operator to launch.
   `experiment/phase_b.config.json`, plus the transport seam the GCP runner
   needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
-- [ ] **Run condition 4.** Operator step; not run here by rule (no cloud
-  instance is launched from this dispatch). The exact invocation is recorded
-  below.
+- [ ] **Run condition 4.** Attempt 1 (2026‑08‑14) was OOM-killed by a masker
+  defect that is now found, fixed and guarded — see
+  [the run log](#condition-4-run-log). Awaiting an operator relaunch; not run
+  from this dispatch by rule.
 
 ## The B2 decisions
 
@@ -672,6 +675,109 @@ PASS.
 
 **Not run: the condition-4 matrix itself.** No cloud instance was launched from
 this dispatch, by rule. The operator's invocation is recorded below.
+
+### Condition-4 run log
+
+#### Attempt 1, 2026‑08‑14 — OOM-killed at 14.3 GB. Cause found and fixed.
+
+The run reached 259 records in ~20 min, wrote its last record at 14:58:11,
+then spent **39 minutes inside a single draw** without completing it, and was
+OOM-killed at 15:37:24 with anon-rss 14.3 GB and total-vm 70 GB on a 16 GB
+box. systemd failed the whole `google-startup-scripts` unit, which killed the
+`finish` trap — so no status marker, no upload and no self-delete. Partial
+records were salvaged by hand to `prototype/runs/phase-b-partial-oom/`.
+
+**What the salvaged records said.** Only the `none` regime ran (66 cell-runs,
+33,420 mask steps). Mask cost was **not** rising monotonically with cumulative
+steps — bucketed by cumulative steps the mean s/token went 0.0023, 0.031,
+0.0086, 0.0031, 0.019, **0.00099**, 0.0036 — so it was not a global leak
+degrading everything. It was per-draw, and it concentrated:
+
+| draw | s/token | cache hit rate | what the model wrote |
+|---|---|---|---|
+| `clock/nowPair` s1 d3 | 0.6611 | 0.067 | `(def Text (match (app (ref 0x…) (lit text "a")) …))` |
+| `clock/now` s1 d4 | 0.5655 | 0.092 | `(def I64 (app (ref 0x…) (lit text "get_current_time_ms")))` |
+| `clock/nowPair` s2 d1 | 0.3777 | 0.168 | `(def Text (match (lit text "hh:mm:ss") …))` |
+| `clock/nowPair` s2 d0 | 0.3532 | 0.116 | `… (lit text "42")))` |
+| `clock/nowPair` s2 d4 | 0.3408 | 0.189 | `… (lit text "PM")))` |
+
+Every one of the five slowest draws contains a **text literal**. In the `none`
+regime the model has no examples, so asked for a clock definition it reaches for
+strings.
+
+**Root cause, measured.** A string payload is an atom **no consumer reads** —
+no pruner looks at it, and `_next_part`'s three reads are the head keyword, the
+literal kind word and a match arm's binder count. But `TypeState` accumulated it
+anyway, so *every byte of a literal was a distinct type state*. The memoized
+byte transition therefore shared nothing, the mask cache never hit, and each
+token inside a literal cost a full walk of the 333k-node vocabulary trie **and**
+left ~82,000 permanent entries in a memo that had **no bound at all**.
+
+One step inside a text literal, on the real 151,936-token vocabulary:
+
+| | allowed tokens | new transitions | seconds | RSS |
+|---|---|---|---|---|
+| before | 147,201 | 326,749 | 3.28 | +131 MB |
+| after | 147,201 | **422** | **0.62** | **+0.2 MB** |
+
+Sustained inside one literal, the memo grew ~82,000 entries per character:
+**+2.38 GB after 64 characters**, against flat afterwards. 14.3 GB corresponds
+to ~440 characters of literal ≈ 110–220 tokens of a 512-token draw, so **the
+same defect accounts for the 39-minute stall as well as the kill** — there is no
+second bug to find, and no unexplained residue.
+
+**This is not a B2 regression.** The transition count at a text-literal position
+is identical — 326,749 — with the syntax layer alone, with B1's pruner set, and
+with B2's; per-entry cost is in fact *lower* with B2's pruners (313 B against
+408 B), because the goal layer prunes subtrees the others retain. The defect is
+in the B1 substrate. It went unseen because B1 never ran a live matrix and
+**the corpus contains no text literal**, so `MaskSoundnessTest` never walked
+that path.
+
+**The fix**, in two parts, because the second must hold where the first has not
+yet been found:
+
+- **`ATOM_READ`** names the atom kinds a consumer reads. Everywhere else the
+  scanner keeps one byte — enough to answer "is this atom empty?", the only
+  other question asked of it — and drops the rest. A whole literal collapses to
+  two states. `f64`, `bytes` and `i64` payloads have the same shape and are
+  covered by the same rule.
+- **`Masker.TRANSITION_CACHE_SIZE`** bounds the memo at 500,000 entries
+  (~200 MB at the measured 313–428 B/entry). Eviction is a wholesale clear, not
+  an LRU: `_transition` runs once per live trie edge per step, and per-hit
+  recency bookkeeping in that loop would cost more than the cache saves.
+  `mask_transition_entries` and `mask_transition_clears` are now reported, so a
+  run that thrashes the bound says so instead of quietly slowing down.
+
+Steady-state ceiling is **~250 MB**, with the already-capped mask cache.
+
+**Regression guard:** `test_masker.MaskMemoryTest` — sustained steps inside a
+literal with the memo asserted flat, the bound asserted to hold and to fire,
+eviction asserted not to change the mask, `ATOM_READ` asserted to cover every
+consumer, and a text-literal definition walked byte by byte through the mask
+after `run_funnel` is checked to accept it. That last one is the coverage the
+corpus cannot supply.
+
+**Verified.** 548 tests pass (541 before, +7). All 26 fixtures still walk under
+four tokenizations with zero violations and zero liveness fallbacks. Replaying
+the five worst draws from the salvaged records costs 30–55× less mask time with
+66 MB total growth — though that comparison spans two machines and the salvaged
+figures were taken under memory pressure, so the controlled before/after in the
+table above is the number to trust.
+
+One thing the incident did **not** turn up as a defect: the run's 81 liveness
+fallbacks across 15 draws. That is the behaviour recorded above under
+[`mask_fallbacks` means something new](#mask_fallbacks-means-something-new) — with a
+goal layer a fallback can mean the prefix is provably dead, and a `none`-regime
+draw that opens `(def Text (match (app (ref …` is exactly that.
+
+**Still open after this fix:** a text literal genuinely allows 147,201 of the
+151,936 tokens, so the *first* step inside each distinct literal context costs a
+full trie walk (0.62 s on this laptop's CPU; less on the run host). It is cached
+from the second token on, and cached across draws, but a matrix with many
+distinct literal contexts pays it repeatedly. Worth watching in attempt 2's
+`mask_seconds_per_token_uncached`, and the reason that field is reported
+separately.
 
 ### What the operator runs
 
