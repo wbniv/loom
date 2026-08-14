@@ -119,10 +119,13 @@ resource "aws_iam_policy" "scoped" {
         Sid      = "SpotServiceLinkedRole"
         Effect   = "Allow"
         Action   = ["iam:CreateServiceLinkedRole"]
-        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot"
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/servicequotas.amazonaws.com/AWSServiceRoleForServiceQuotas"
+        ]
         Condition = {
           StringEquals = {
-            "iam:AWSServiceName" = "spot.amazonaws.com"
+            "iam:AWSServiceName" = ["spot.amazonaws.com", "servicequotas.amazonaws.com"]
           }
         }
       },
