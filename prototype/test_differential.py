@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import contracts
@@ -53,10 +54,22 @@ UNCAPTURED = {
 
 
 def export(scope: str) -> str:
-    """Run the exporter in a clean process and return its JSONL text."""
+    """Run the exporter in a clean process and return its JSONL text.
+
+    `LOOM_DIFFERENTIAL_FULL` is stripped from the child's environment, and that
+    is load-bearing rather than tidy. A full-scope export runs the prototype's
+    test suite, which includes *this module*. Left set, the opt-in full-scope
+    reproducibility test below would fire inside the export it is checking and
+    launch two more full exports, each of which would launch two more — an
+    unbounded fork bomb that presents as a very slow test. Stripping the
+    variable makes the nested run skip it, so the recursion stops at depth one.
+    """
+    environment = dict(os.environ)
+    environment.pop("LOOM_DIFFERENTIAL_FULL", None)
     completed = subprocess.run(
         [sys.executable, "-m", "differential", "export", "--only", scope, "--stdout"],
         cwd=PROTOTYPE_DIR,
+        env=environment,
         capture_output=True,
         text=True,
         check=True,
@@ -183,6 +196,33 @@ class ExportShapeTest(unittest.TestCase):
 class ReproducibilityTest(unittest.TestCase):
     def test_two_processes_produce_byte_identical_fixture_exports(self):
         self.assertEqual(export("fixtures"), export("fixtures"))
+
+    def test_the_full_scope_opt_in_does_not_reach_a_nested_export(self):
+        # Regression guard. A full-scope export runs this module, so if the
+        # child inherited LOOM_DIFFERENTIAL_FULL the opt-in test would fire
+        # inside the export it is checking and fork two more full exports per
+        # level, without bound. Observed as three concurrent `--only all`
+        # processes before `export` began scrubbing the variable.
+        import test_differential
+
+        seen = {}
+
+        class _Completed:
+            stdout = ""
+
+        def _record(command, **keywords):
+            seen.update(keywords)
+            return _Completed()
+
+        with unittest.mock.patch.dict(os.environ, {"LOOM_DIFFERENTIAL_FULL": "1"}), \
+                unittest.mock.patch.object(test_differential.subprocess, "run", _record):
+            export("fixtures")
+            self.assertEqual(
+                os.environ["LOOM_DIFFERENTIAL_FULL"], "1", "the parent's environment is untouched"
+            )
+
+        self.assertIn("env", seen)
+        self.assertNotIn("LOOM_DIFFERENTIAL_FULL", seen["env"])
 
     @unittest.skipUnless(
         os.environ.get("LOOM_DIFFERENTIAL_FULL") == "1",
