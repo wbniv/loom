@@ -33,7 +33,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        TF_VERSION=1.10.5
+        TF_VERSION=1.15.8
         BIN="$HOME/.local/bin"
         mkdir -p "$BIN"
         if "$BIN/terraform" version 2>/dev/null | grep -q "v${TF_VERSION}"; then
