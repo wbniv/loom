@@ -27,7 +27,8 @@ Sidecar schema, version 1
 ``schema``           ``1``.
 ``hash``             64 lowercase hex — SHA-256 of the object bytes. The
                      store re-derives this and refuses a mismatch.
-``kind``             ``definition`` | ``data`` | ``ability`` | ``extern``.
+``kind``             ``definition`` | ``data`` | ``ability`` | ``extern``
+                     | ``policy``.
 ``name``             §5.2 metadata name (``corpus/list/append``, ``List``,
                      ``clock``, ``I64.add``), or ``null`` when the admitter
                      has no name for the object.
@@ -48,7 +49,9 @@ Sidecar schema, version 1
                      below, because §5.1 declarations have no surface
                      syntax. Round-tripped and hash-checked identically.
 ``spec``             Definitions only — the §5.2 spec text, ``null`` when
-                     the admitter has none.
+                     the admitter has none. A policy object carries its
+                     §5.3.1 key 9 ``statement`` here, which is the only
+                     prose a policy has.
 ``sequence``         The admitter's presentation order. Not part of
                      identity; it exists so a store can reproduce the
                      dependency order the corpus manifest is written in.
@@ -76,11 +79,14 @@ Sidecar schema, version 1
 JSON mirror of an object IR
 ---------------------------
 
-The IR is JSON-shaped already except for byte strings, which become
-``{"b16": "<hex>"}``. Encoding and decoding are inverse, and both directions
-are checked against the canonical hash rather than trusted — a mirror that
-silently disagreed with the CBOR encoder would be the one defect this format
-could introduce, so it is never possible to land one.
+The IR is JSON-shaped already except for two forms JSON has no spelling for:
+byte strings become ``{"b16": "<hex>"}``, and CBOR maps — which only §5.3.1
+policy objects use — become ``{"m": [[key, value]…]}`` in canonical key order,
+because a JSON object cannot have integer keys. Encoding and decoding are
+inverse, and both directions are checked against the canonical hash rather
+than trusted — a mirror that silently disagreed with the CBOR encoder would be
+the one defect this format could introduce, so it is never possible to land
+one.
 
 Commands
 --------
@@ -91,6 +97,11 @@ Commands
 ``emit``        emit one definition source file, validated against a
                 resolver export (``--resolver``) or, absent one, the pinned
                 corpus registry.
+``policy``      emit one §5.3.1 policy object, either ``--default`` (the
+                empty policy, three bytes, the base case of §5.3.2's
+                resolution) or from a JSON-mirrored policy map.
+``bind``        run §5.3.2 admission over a binding request document (see
+                `bindings.py`) and print the admission record, or refuse.
 
 Every command prints exactly one line of JSON on stdout. A refusal prints
 ``{"error": ...}`` and exits 5, so the store can pass the layer's own error
@@ -106,10 +117,12 @@ import json
 import sys
 from pathlib import Path
 
+import bindings
 import cbor_canonical
 import contracts
 import corpus_registry
 import declarations
+import policies
 import prelude
 import references
 import scope
@@ -122,6 +135,7 @@ KIND_DEFINITION = "definition"
 KIND_DATA = "data"
 KIND_ABILITY = "ability"
 KIND_EXTERN = "extern"
+KIND_POLICY = "policy"
 
 #: The provenance origins this schema knows. Deliberately a closed set: the
 #: corpus-loop plan's R3 turns `origin` into a *filter*, and a filter over an
@@ -142,13 +156,20 @@ ORIGINS = frozenset({*CURATED_ORIGINS, ORIGIN_GENERATED})
 #: store's kind string. The store never reads the tag — it reads this string
 #: out of the sidecar — but keeping the mapping in one place is what makes the
 #: two agree.
-KIND_BY_TAG = {0: KIND_DEFINITION, 4: KIND_DATA, 5: KIND_ABILITY, 7: KIND_EXTERN}
+KIND_BY_TAG = {
+    0: KIND_DEFINITION,
+    4: KIND_DATA,
+    5: KIND_ABILITY,
+    6: KIND_POLICY,
+    7: KIND_EXTERN,
+}
 
 #: Which layers a definition passes through, in the order `run_funnel` runs
 #: them. Recorded per object because a later store will admit objects that
 #: reached different depths.
 DEFINITION_LAYERS = ("parser", "scope", "references", "typecheck")
 DECLARATION_LAYERS = ("declarations",)
+POLICY_LAYERS = ("policies",)
 
 ADMITTER = "prototype.store_admit/1"
 
@@ -173,22 +194,42 @@ class AdmissionRefused(Exception):
 
 
 def ir_to_json(node):
-    """Mirror an object IR into JSON. Byte strings become ``{"b16": hex}``."""
+    """Mirror an object IR into JSON.
+
+    Byte strings become ``{"b16": hex}``; CBOR maps — which only §5.3.1 policy
+    objects use — become ``{"m": [[key, value]…]}``, sorted by key, because a
+    JSON object cannot carry the unsigned-integer keys §5.3.1 specifies.
+    """
     if isinstance(node, bytes):
         return {"b16": node.hex()}
     if isinstance(node, bool) or isinstance(node, int) or isinstance(node, str):
         return node
     if isinstance(node, list):
         return [ir_to_json(item) for item in node]
+    if isinstance(node, dict):
+        return {"m": [[ir_to_json(key), ir_to_json(node[key])] for key in sorted(node)]}
     raise TypeError(f"cannot mirror {type(node).__name__} into the sidecar")
 
 
 def json_to_ir(node):
-    """The inverse of `ir_to_json`, strict about the one dict shape it knows."""
+    """The inverse of `ir_to_json`, strict about the two dict shapes it knows."""
     if isinstance(node, dict):
-        if set(node) != {"b16"}:
-            raise ValueError(f"sidecar object: unknown mirrored form {sorted(node)}")
-        return bytes.fromhex(node["b16"])
+        if set(node) == {"b16"}:
+            return bytes.fromhex(node["b16"])
+        if set(node) == {"m"}:
+            entries = node["m"]
+            if not isinstance(entries, list):
+                raise ValueError("sidecar object: a mirrored map must be an array of pairs")
+            decoded = {}
+            for entry in entries:
+                if not isinstance(entry, list) or len(entry) != 2:
+                    raise ValueError("sidecar object: a mirrored map entry must be [key, value]")
+                key = json_to_ir(entry[0])
+                if key in decoded:
+                    raise ValueError(f"sidecar object: duplicate map key {key!r}")
+                decoded[key] = json_to_ir(entry[1])
+            return decoded
+        raise ValueError(f"sidecar object: unknown mirrored form {sorted(node)}")
     if isinstance(node, list):
         return [json_to_ir(item) for item in node]
     if isinstance(node, bool) or isinstance(node, int) or isinstance(node, str):
@@ -214,6 +255,14 @@ def dependency_edges(obj) -> list:
     nominal key (§5.1.1) and an extern's pinned artifact (§5.1.3) are 32-byte
     values that name something *other* than a store object, and reporting them
     as dependencies would invent edges to hashes the store can never hold.
+
+    A **policy object has no dependency edges at all**, and that is the same
+    rule rather than an exception. Its 32-byte values are A1 generators (key
+    0), ability hashes (key 3) and principal-ids (keys 4 and 5); the last two
+    are not store objects, and a generator is not *referenced* by the policy in
+    a type or term position — the policy states a constraint on evidence *about*
+    it, and a policy that names a generator no object in this store was ever
+    measured against is a perfectly well-formed policy.
     """
     tag = obj[0]
     if tag == 0:  # definition: [0, type, term]
@@ -222,6 +271,8 @@ def dependency_edges(obj) -> list:
         roots = [obj[3]]
     elif tag == 5:  # ability: [5, nominal_key, operation signatures]
         roots = [obj[2]]
+    elif tag == 6:  # policy: [6, policy-map] — see the docstring
+        return []
     elif tag == 7:  # extern: [7, type, artifact, abi]
         roots = [obj[1]]
     else:
@@ -398,6 +449,176 @@ def declaration_sidecar(
     return obj, sidecar
 
 
+def policy_sidecar(policy_ir, *, sequence: int = 0, name: str | None = None) -> tuple[bytes, dict]:
+    """Validate one §5.3.1 policy object and build its object bytes + sidecar.
+
+    `policies.policy_bytes` *is* the validation — it refuses before it
+    encodes — so, exactly as for declarations, there is no separate check to
+    run and no way to store an object the `policies` contract would reject.
+
+    A policy has no nominal key and no name of its own: two policies stating
+    the same constraints are the same policy and share one hash (§5.3.1). The
+    sidecar's `name` is therefore the *admitter's* label for it, and nothing
+    resolves by it.
+    """
+    try:
+        obj = policies.policy_bytes(policy_ir)
+    except Exception as error:  # noqa: BLE001 - the layer class is the taxonomy
+        raise AdmissionRefused("policies", error) from None
+    digest = hashlib.sha256(obj).hexdigest()
+    policy_map = policy_ir[1]
+
+    sidecar = {
+        "schema": SCHEMA,
+        "hash": digest,
+        "kind": KIND_POLICY,
+        "name": name,
+        "type_surface": None,
+        "deps": dependency_edges(policy_ir),
+        "surface": None,
+        "object": ir_to_json(policy_ir),
+        "spec": policy_map.get(9),
+        "sequence": sequence,
+        "provenance": {
+            "origin": "declared",
+            "source": "SPEC.md §5.3.1 namespace policy object",
+            "admitter": ADMITTER,
+        },
+        "validation": {
+            "layers": list(POLICY_LAYERS),
+            "contracts": _contract_versions(POLICY_LAYERS),
+            "obligations": 0,
+        },
+    }
+    mirrored = policies.policy_hash(json_to_ir(sidecar["object"])).hex()
+    if mirrored != digest:
+        raise ValueError(f"sidecar mirror round trip changed {digest} into {mirrored}")
+    return obj, sidecar
+
+
+def default_policy_pair() -> tuple[bytes, dict]:
+    """The base case of §5.3.2's resolution — the empty policy, three bytes,
+    preloaded in every store like the §2.4 prelude."""
+    obj, sidecar = policy_sidecar(policies.DEFAULT_POLICY, sequence=0, name="POLICY/default")
+    if sidecar["hash"] != policies.DEFAULT_POLICY_HASH.hex():
+        raise ValueError(f"the default policy hashed to {sidecar['hash']}, not the SPEC's value")
+    return obj, sidecar
+
+
+# ---------------------------------------------------------------------------
+# The binding request wire format (`bind`)
+# ---------------------------------------------------------------------------
+
+#: Wire-format version of the request document `bind` reads. Bumped when the
+#: Rust store and this oracle must change together.
+BIND_SCHEMA = 1
+
+
+def _hash_field(value, path: str) -> bytes:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"{path}: expected 64 lowercase hex digits")
+    return bytes.fromhex(value)
+
+
+def point_from_json(value, path: str) -> list:
+    """A lattice point off the wire: A1's generator arrives as hex text and
+    becomes the 32 bytes `policies.validate_point` requires."""
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{path}: expected a lattice point")
+    if value[0] == 1 and len(value) == 4:
+        return [1, value[1], value[2], _hash_field(value[3], f"{path}.generator")]
+    return list(value)
+
+
+def point_to_json(point) -> list:
+    if point[0] == 1 and len(point) == 4:
+        return [1, point[1], point[2], point[3].hex()]
+    return list(point)
+
+
+def _evidence_from_json(value, path: str) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{path}: expected an array of [obligation-id, point]")
+    out = []
+    for index, entry in enumerate(value):
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise ValueError(f"{path}[{index}]: expected [obligation-id, point]")
+        out.append([entry[0], point_from_json(entry[1], f"{path}[{index}].point")])
+    return out
+
+
+def bind_request(document: dict):
+    """Decode a binding request into the plain values `bindings.admit` takes.
+
+    This function is the whole wire format. `bindings.py` never sees JSON, and
+    the store never sees IR — which is what keeps the semantics testable
+    without a filesystem and the store free of object interpretation.
+    """
+    schema = document.get("schema")
+    if schema != BIND_SCHEMA:
+        raise ValueError(f"bind request schema {schema!r} is not {BIND_SCHEMA}")
+    body = document["binding"]
+    candidate = bindings.Candidate(
+        name_path=body["name_path"],
+        def_hash=_hash_field(body["def_hash"], "binding.def_hash"),
+        evidence=_evidence_from_json(body.get("evidence"), "binding.evidence"),
+        policy_ref=_hash_field(body["policy_ref"], "binding.policy_ref"),
+        seq=int(body.get("seq", 0)),
+        object=json_to_ir(body["object"]) if body.get("object") is not None else None,
+    )
+    chain = [
+        bindings.PolicyBinding(
+            namespace=entry["namespace"],
+            hash=_hash_field(entry["hash"], "policy_bindings[].hash"),
+            object=json_to_ir(entry["object"]),
+        )
+        for entry in document.get("policy_bindings") or []
+    ]
+    return candidate, chain, _previous_from_json(document.get("previous"))
+
+
+def lease_request(document: dict):
+    """Decode a lease-check request: the namespace, the claimed principal-id,
+    the requested TTL, and the enclosing namespaces' current `POLICY` bindings.
+
+    The principal-id is **claimed, not proved** (§5.3.3, L6). The store records
+    it unverified — the same stance §5.3.1 already takes for A0 signers — and
+    this decoder is the seam a proof argument slots into when the A0 payload
+    format lands.
+    """
+    schema = document.get("schema")
+    if schema != BIND_SCHEMA:
+        raise ValueError(f"lease request schema {schema!r} is not {BIND_SCHEMA}")
+    chain = [
+        bindings.PolicyBinding(
+            namespace=entry["namespace"],
+            hash=_hash_field(entry["hash"], "policy_bindings[].hash"),
+            object=json_to_ir(entry["object"]),
+        )
+        for entry in document.get("policy_bindings") or []
+    ]
+    return (
+        document["namespace"],
+        _hash_field(document["principal"], "principal"),
+        int(document["ttl_millis"]),
+        chain,
+    )
+
+
+def _previous_from_json(previous):
+    if previous is not None:
+        previous = bindings.Previous(
+            def_hash=_hash_field(previous["def_hash"], "previous.def_hash"),
+            evidence=_evidence_from_json(previous.get("evidence"), "previous.evidence"),
+            policy_ref=_hash_field(previous["policy_ref"], "previous.policy_ref"),
+            seq=int(previous.get("seq", 0)),
+            object=json_to_ir(previous["object"]) if previous.get("object") is not None else None,
+        )
+    return previous
+
+
 # ---------------------------------------------------------------------------
 # The pinned corpus, in seeding order
 # ---------------------------------------------------------------------------
@@ -519,15 +740,78 @@ def main(argv=None) -> int:
     emit.add_argument("--origin", default="generated")
     emit.add_argument("source", type=Path)
 
+    policy = sub.add_parser("policy", help="emit one §5.3.1 policy object")
+    policy.add_argument("--out", required=True, type=Path)
+    policy.add_argument(
+        "--default",
+        action="store_true",
+        dest="use_default",
+        help="the empty policy — §5.3.2's base case, preloaded in every store",
+    )
+    policy.add_argument("--name", default=None)
+    policy.add_argument("--sequence", type=int, default=0)
+    policy.add_argument("source", nargs="?", type=Path, help="a JSON-mirrored policy object")
+
+    bind = sub.add_parser("bind", help="run §5.3.2 admission over a binding request")
+    bind.add_argument("request", type=Path)
+
+    lease = sub.add_parser("lease", help="apply §5.3.1 keys 5 and 6 to a lease request")
+    lease.add_argument("request", type=Path)
+
     args = parser.parse_args(argv)
 
     if args.command == "contracts":
         _emit_line(dict(contracts.VERSIONS))
         return 0
 
+    if args.command in ("bind", "lease"):
+        document = json.loads(args.request.read_text(encoding="utf-8"))
+        try:
+            if args.command == "bind":
+                candidate, chain, previous = bind_request(document)
+                _emit_line(bindings.admit(candidate, chain, previous))
+            else:
+                _emit_line(bindings.check_lease(*lease_request(document)))
+            return 0
+        except (
+            bindings.BindingRefused,
+            bindings.LeaseRefused,
+            policies.PolicyError,
+            ValueError,
+            KeyError,
+        ) as error:
+            _emit_line(
+                {
+                    "error": "refused",
+                    "layer": "bindings" if args.command == "bind" else "leases",
+                    "error_class": type(error).__name__,
+                    "message": str(error),
+                    "rule": getattr(error, "rule", None),
+                    "reason": getattr(error, "reason", None),
+                }
+            )
+            return EXIT_REFUSED
+
     args.out.mkdir(parents=True, exist_ok=True)
 
     try:
+        if args.command == "policy":
+            if args.use_default == (args.source is not None):
+                raise AdmissionRefused(
+                    "policies",
+                    ValueError("policy needs exactly one of --default or a source file"),
+                )
+            if args.use_default:
+                obj, sidecar = default_policy_pair()
+            else:
+                mirrored = json.loads(args.source.read_text(encoding="utf-8"))
+                obj, sidecar = policy_sidecar(
+                    json_to_ir(mirrored), sequence=args.sequence, name=args.name
+                )
+            entry = _write_pair(args.out, "policy", obj, sidecar)
+            _emit_line({"count": 1, "objects": [entry]})
+            return 0
+
         if args.command == "corpus":
             entries = [
                 _write_pair(args.out, f"{index:04d}", obj, sidecar)

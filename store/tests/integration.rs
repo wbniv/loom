@@ -231,7 +231,7 @@ fn a_deleted_index_is_rebuilt_losslessly() {
     fs::remove_file(store.layout().index_file()).unwrap();
     assert!(!store.fsck().unwrap().healthy());
 
-    assert_eq!(store.reindex().unwrap(), 3);
+    assert_eq!(store.reindex().unwrap().0, 3);
     assert_eq!(fs::read(store.layout().index_file()).unwrap(), before);
     assert!(store.fsck().unwrap().healthy());
 }
@@ -389,16 +389,19 @@ fn the_seeded_corpus_admits_completely_and_fscks_clean() {
     assert_eq!(body["written"], 47);
     assert_eq!(body["exists"], 0);
 
+    // 48, not 47: `init` preloads §5.3.2's default policy, without which policy
+    // resolution has no base case and nothing can be bound.
     let (code, body) = cli(root.path(), &["fsck"]);
     assert_eq!(code, exit::OK, "fsck failed: {body}");
-    assert_eq!(body["objects"], 47);
-    assert_eq!(body["rows"], 47);
+    assert_eq!(body["objects"], 48);
+    assert_eq!(body["rows"], 48);
 
     for (kind, count) in [
         ("definition", 26),
         ("ability", 8),
         ("data", 4),
         ("extern", 9),
+        ("policy", 1),
     ] {
         let (_, body) = cli(root.path(), &["list", "--kind", kind]);
         assert_eq!(body["count"], count, "wrong count for {kind}");
@@ -520,7 +523,7 @@ fn a_generated_definition_admits_against_the_stores_own_contents() {
     assert_eq!(body["written"], 1);
 
     let (_, body) = cli(root.path(), &["list"]);
-    assert_eq!(body["count"], 48);
+    assert_eq!(body["count"], 49); // 47 corpus + the default policy + this one
     assert_eq!(cli(root.path(), &["fsck"]).0, exit::OK);
 
     // The corpus loop's guardrail, from the read API alone: `list --kind
