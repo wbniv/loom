@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/4fe8157) | Land Phase A results: predictions scored, report preserved |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ff5f6ba) | Update plans: GPU attempt log, spot-vs-on-demand lesson, cache status |
 | [2026-08-13](https://github.com/wbniv/loom/commit/1e3d765) | Record GPU-run restoration: 7B model, full seeds |
 | [2026-08-13](https://github.com/wbniv/loom/commit/23bea9d) | Record smoke findings: truncation artifact, amended full-run config |
@@ -11,6 +12,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+4fe8157	author	Will Norris
+4fe8157	added	20
+4fe8157	deleted	0
+4fe8157	files	1
+4fe8157	body	2,335 draws on the L4. Corpus regime is the dominant lever (28.5%\nacceptance, 13 byte-identical semantic successes); typecheck is the\nPhase B gate layer; truncation persists under grammar; de Bruijn\nconfirmed at 0.978; rejection sampling adds nothing over grammar.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 ff5f6ba	author	Will Norris
 ff5f6ba	added	15
 ff5f6ba	deleted	0

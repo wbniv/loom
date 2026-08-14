@@ -340,6 +340,15 @@ log "downloading logs into $DEST_DIR/logs"
 gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}logs/" "$DEST_DIR/logs" || true
 
 if [ -z "$RUN_STATUS" ]; then
+    # One post-loop grace poll: a laptop suspend freezes this process while the
+    # wall clock runs on, so the deadline can pass without a single live poll
+    # in hours. Seen 2026-08-14: suspend 08:34–12:47 UTC swallowed a run that
+    # had SUCCEEDED at 11:14; the loop woke already past deadline and died
+    # without looking. The marker check is cheap; look once more before dying.
+    RUN_STATUS=$(gsutil -q cat "gs://$BUCKET/$STATUS_KEY" 2>/dev/null | tr -d '[:space:]' || true)
+    [ -n "$RUN_STATUS" ] && log "runner reported (post-deadline grace poll): $RUN_STATUS"
+fi
+if [ -z "$RUN_STATUS" ]; then
     die "timed out after ${TIMEOUT_SECONDS}s with no status marker; see $DEST_DIR/logs"
 fi
 if [ "$RUN_STATUS" != "SUCCEEDED" ]; then

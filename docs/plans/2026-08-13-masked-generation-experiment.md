@@ -219,9 +219,21 @@ Phase A:
     (`compute.instances.preempted`, 07:34 UTC); the exit trap never ran, so
     no artifacts. Also surfaced a build-cache key mismatch (short vs full
     revision hash), corrected.
-  - *Attempt 4* (running): **on-demand** — with trial credits the 2.4× price
-    is still $0 out of pocket and preemption is eliminated; launched with
-    the seeded build cache and hardened funnel.
+  - *Attempts 4–5* (on-demand, us-central1): with trial credits the 2.4×
+    on-demand price is still $0 out of pocket and preemption is eliminated —
+    but L4 capacity was **stocked out** across us-central1-a/b/c
+    (`ZONE_RESOURCE_POOL_EXHAUSTED`). `LOOM_GCP_ZONE` override added; a zone
+    hunt found capacity in us-east1-b.
+  - *Attempt 6* (final; on-demand, **us-east1-b**): build-cache **HIT**
+    (~30 s vs ~28 min), 97 % GPU, the full 2,335-draw matrix in 3.29 h.
+    `SUCCEEDED` marker at 11:14 UTC, clean self-delete, results home intact
+    under `prototype/runs/phase-a-full/` (preserved at
+    `docs/results/2026-08-14-phase-a-report.md`). ≈ $3 of trial credits.
+    The driver still exited 1: the operator's laptop suspended
+    08:34–12:47 UTC, freezing the poll loop past its wall-clock deadline
+    while the run finished mid-suspend; on wake it downloaded everything and
+    then declared timeout. Fixed with a post-deadline grace poll in
+    `scripts/run-remote-experiment-gcp.sh`.
 
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified
@@ -240,10 +252,36 @@ Phase A:
     frontier-scale arm (vLLM+XGrammar, which could even host Phase B's masker
     via custom logits processors) is noted as an option the store/language
     decisions do not depend on.
-- [ ] Run Phase A; report R3 metrics per condition × regime; produce the
-  failure distribution by checker layer.
+- [x] Run Phase A; report R3 metrics per condition × regime; produce the
+  failure distribution by checker layer. Done 2026-08-14; see the prediction
+  scoring above and `docs/results/2026-08-14-phase-a-report.md`.
 
-Phase B (gated on Phase A's failure profile):
+**Store-shaping conclusions from Phase A** (the full record follows B2; these
+are what the data already settles):
+
+1. **The store's primary read path is whole-definition retrieval for
+   prompting.** Corpus regime is the largest lever measured (71.5 % → 95.8 %
+   rejection without it); the store must serve full canonical surfaces
+   cheaply, not just hash→type lookups.
+2. **Lookup misses are data, not errors.** Models hallucinate hashes
+   (attempt 2 died on one); a store-backed resolver must return a first-class
+   refusal that the consulting layer reports as its own rejection — exactly
+   the shape `evaluate.run_funnel` now has.
+3. **`reference_type` must be decode-time cheap.** Typecheck dominates the
+   failure profile, so Phase B's per-token type-state masker will query
+   declaration types constantly inside a 0.19 ms/token budget; the store's
+   type lookup sits on that hot path.
+4. **Content-addressed identity works as generation equality.** All 13
+   semantic successes were caught by byte-identity match — dedup and caching
+   of generated definitions can key on the store's identity directly.
+5. **The store will not buy composition.** Held-out semantic success was 0;
+   corpus growth improves recall of what exists, and the evidence lattice
+   must keep that provenance honest rather than letting memorized artifacts
+   masquerade as synthesis.
+
+Phase B (gated on Phase A's failure profile — now in hand: typecheck 590,
+parse/truncation 523, scope 268 (97.8 % de Bruijn), references 115, of
+1,671 grammar-constrained draws):
 
 - [ ] Substrate: incremental syntax mask (GBNF prefix-feasibility) exposed as
   a per-token API.
