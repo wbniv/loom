@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Build the reference evaluator.** A definitional interpreter for the term
+- [wip T4] <!-- agent:a9ba2c41e8b0d65e3 --> **Build the reference evaluator.** A definitional interpreter for the term
   language against §2's semantics — the first thing that can *run* a Loom program.
   Unlocks three recorded residues: real semantic judging for held-out tasks,
   operational meaning for handlers and multi-shot continuations, and the obligation
