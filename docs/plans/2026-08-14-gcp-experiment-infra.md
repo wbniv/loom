@@ -13,6 +13,14 @@ approved on appeal, but GCP runs are covered by $300 in trial credits
 (infrastructure/aws/) stays as a built, tested emergency fallback only —
 launching there requires an explicit fresh operator instruction.
 
+## Operational lesson — spot vs on-demand under trial credits (2026-08-14)
+
+A spot L4 was preempted 30 minutes into a run, mid-build, with the exit trap
+unexecuted (no status object, no synced artifacts — the driver polled a ghost
+until stopped). While the $300 trial credits last, **on-demand is the default
+for real runs**: 2.4× of free is free, and preemption risk goes to zero. Spot
+remains the recorded default in the module for the post-credit era.
+
 ## Objective
 
 The AWS stack is built and waiting on an EC2 GPU allocation. Google's trial

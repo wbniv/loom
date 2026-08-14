@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/3709911) | Record compute-path directive: GCP only, AWS fallback-by-instruction |
 | [2026-08-13](https://github.com/wbniv/loom/commit/d163d64) | Add the GCP experiment runner |
 
 <!--history-meta v1
+3709911	author	Will Norris
+3709911	added	8
+3709911	deleted	0
+3709911	files	1
+3709911	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 d163d64	author	Will Norris
 d163d64	added	468
 d163d64	deleted	0

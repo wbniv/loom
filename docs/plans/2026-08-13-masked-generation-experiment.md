@@ -188,6 +188,21 @@ Phase A:
   completion-pressure (prune openings that cannot close within the remaining
   budget).
 
+  **GPU run-attempt log (2026‑08‑14):**
+  - *Attempt 2* (spot L4, us-central1): built and ran at 97 % GPU utilization,
+    then crashed 552 records in — the model invented ability hash `0x00…01`
+    and the evaluation funnel raised an uncaught `DeclarationError` through
+    the scope layer's arity resolver. Fixed: resolver refusals now classify
+    as the consulting layer's rejection per §2.3.1 (regression tests pin both
+    handle shapes); partial data archived as `runs/phase-a-full-attempt1/`.
+  - *Attempt 3* (spot): **preempted** by GCP 30 minutes in, mid-build
+    (`compute.instances.preempted`, 07:34 UTC); the exit trap never ran, so
+    no artifacts. Also surfaced a build-cache key mismatch (short vs full
+    revision hash), corrected.
+  - *Attempt 4* (running): **on-demand** — with trial credits the 2.4× price
+    is still $0 out of pocket and preemption is eliminated; launched with
+    the seeded build cache and hardened funnel.
+
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified
     against HF: sha256 `509287f7…`), is not viable on this hardware: the

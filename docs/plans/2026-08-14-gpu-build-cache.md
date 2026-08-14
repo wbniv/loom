@@ -68,6 +68,12 @@ successful run.
   best-effort upload seeds the same key. First true cache-hit proof moves to
   the next run.
 
+## Status at attempt 4
+
+The cache object exists under both keys (short-hash from the manual capture,
+full-revision from the corrective copy); attempt 4 is the first run whose
+startup check should hit. Its serial log is the completion-criterion evidence.
+
 ## Verification
 
 ```sh

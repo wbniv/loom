@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/1e3d765) | Record GPU-run restoration: 7B model, full seeds |
 | [2026-08-13](https://github.com/wbniv/loom/commit/23bea9d) | Record smoke findings: truncation artifact, amended full-run config |
 | [2026-08-13](https://github.com/wbniv/loom/commit/66edc80) | Record prompt-cache measurement deviation and KV-quant finding |
 | [2026-08-13](https://github.com/wbniv/loom/commit/489f74c) | Amend model selection: 3B local after 7B OOM and K3 evaluation |
@@ -9,6 +10,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+1e3d765	author	Will Norris
+1e3d765	added	7
+1e3d765	deleted	0
+1e3d765	files	1
+1e3d765	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 23bea9d	author	Will Norris
 23bea9d	added	15
 23bea9d	deleted	0
