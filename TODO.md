@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T3] **Track P L0: the differential harness** — JSON-lines export of every
+- [wip T3] <!-- agent:aa3205050b31ac26f --> **Track P L0: the differential harness** — JSON-lines export of every
   validator verdict (input, verdict, error class, canonical bytes, identity)
   over corpus, examples, and every test rejection case; the one prerequisite
   the Rust port track names. Spec is settled in the
