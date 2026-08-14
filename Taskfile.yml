@@ -27,6 +27,12 @@ tasks:
     cmds:
       - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
 
+  experiment:remote-gcp:
+    desc: Run Phase A on a rented g2-standard-4 (L4) in us-central1 and bring runs/ back (~$0.60)
+    deps: [setup]
+    cmds:
+      - bash scripts/run-remote-experiment-gcp.sh {{.CLI_ARGS}}
+
 
   setup:
     desc: "Install pinned project tool dependencies (terraform, gcloud) into ~/.local/bin; verify the rest. Idempotent."

@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-14 | [GCP infrastructure for the Phase A experiment run](2026-08-14-gcp-experiment-infra.md) | Implemented; `fmt` + `validate` + `shellcheck` PASS, apply gated on the operator |
 | 2026-08-13 | [GPU infrastructure for the Phase A experiment run](2026-08-13-gpu-experiment-infra.md) | Implemented; `fmt` + `validate` PASS, apply gated on operator credentials |
 | 2026-08-13 | [The reference evaluator](2026-08-13-reference-evaluator.md) | Implemented; PASS |
 | 2026-08-13 | [§3.3 subsumption in `typecheck.py`](2026-08-13-refinement-subsumption.md) | Implemented; PASS |
