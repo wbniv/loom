@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/ed66194) | Promote the corpus loop to Done |
 | [2026-08-14](https://github.com/wbniv/loom/commit/9fc2be7) | Plan store namespaces v1 against the approved lease protocol |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4658f23) | Specify the lease protocol as SPEC 5.3.3; narrow open problem 4 |
 | [2026-08-14](https://github.com/wbniv/loom/commit/b7f352f) | Draft the lease protocol design (open problem 4) for operator review |
@@ -45,6 +46,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+ed66194	author	Will Norris
+ed66194	added	1
+ed66194	deleted	1
+ed66194	files	1
+ed66194	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 9fc2be7	author	Will Norris
 9fc2be7	added	1
 9fc2be7	deleted	0
