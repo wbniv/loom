@@ -27,11 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:a10ca53ae0ffa75ef --> **Complete Phase B2: profile-directed pruners and the condition-4 run
-  (gated on Phase A's failure distribution).** Pruner priority from the Phase A
-  report, the live condition-4 run, the R5 comparison, prediction scoring. See
-  [plan](docs/plans/2026-08-13-experiment-phase-b.md). (T4: do not dispatch before
-  Phase A reports.)
 
 ## Watch
 
@@ -58,6 +53,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [phase-b2] Condition-4 matrix complete (773 draws): masking ≥ rejection everywhere, +70% no-example; typecheck 41% survivor. See [plan](docs/plans/2026-08-13-experiment-phase-b.md).
 - ✅ 2026-08-14 — [language-decision] Rust when migration fires (114/130 vs Zig 86,
   Go 83, OCaml 79); migration deferred — masker is 25x under trigger (d) in every
   single-stream config. See [plan](docs/plans/2026-08-14-production-language-decision.md).

@@ -126,9 +126,19 @@ collapsing diversity.
    `typecheck` dominates (590), with scope second only in the no-example
    regime. The funnel's late layers, not hash-guessing, are the wall.
 3. **True.** De Bruijn share of scope failures: 0.978.
-4. **Bar set, not scored**: rejection sampling adds nothing over plain
-   grammar (1.38 vs 1.45 acc/1k tok) — condition 4 must beat 1.45.
-5. Awaits B2's instrumentation.
+4. **Scored 2026‑08‑14 (773-draw condition-4 run,
+   [report](../results/2026-08-14-phase-b-condition4-report.md)): masking
+   weakly dominates rejection sampling but misses the gbnf bar.** Per 1k
+   budget tokens: none 0.851 vs 0.501 (+70 %), few_shot 0.476 vs 0.326
+   (+46 %), full_corpus 1.377 vs 1.377 (exact tie), held_out 0.081 vs
+   0.081. It never loses to rejection, wins large where examples are
+   scarce — and does **not** beat plain grammar's 1.452 in the
+   corpus-rich regime. Funnel: scope failures 268 → 17 (de Bruijn pruner),
+   typecheck now the dominant survivor at 41 %, truncation unchanged.
+5. **Scored: confirmed.** Mask share of masked-draw latency **10.4 %**
+   (3.15 ms/token warm, 6.69 cold, 152k vocabulary) — material, and
+   dominated by model latency, as predicted. Under the language plan's
+   M1 trigger (≥ 25 % of deployed decode) this does **not** fire.
 6. **True.** Repeat rate 0.88–0.93 in full-corpus vs ≤ 0.53 elsewhere;
    all 13 semantic successes are identity-match memorizations.
 
@@ -308,10 +318,17 @@ parse/truncation 523, scope 268 (97.8 % de Bruijn), references 115, of
 - [ ] Substrate: incremental type-state layer over it (§8.2 subset,
   prioritized by Phase A's profile — the checker operations that can run per
   token; record which cannot).
-- [ ] Run condition 4; complete the R3 report and the R5 comparison against
-  condition 3.
-- [ ] Record the store-shaping conclusions explicitly for the store plan that
-  follows.
+- [x] Run condition 4; complete the R3 report and the R5 comparison against
+  condition 3. Done 2026‑08‑14 — 773 draws, all regimes; R5 verdict and the
+  masking section in
+  [the preserved report](../results/2026-08-14-phase-b-condition4-report.md).
+- [x] Record the store-shaping conclusions explicitly for the store plan that
+  follows. The five Phase A conclusions above stand unchanged; condition 4
+  adds one: **decode-time store lookups are affordable in practice** — the
+  mask consulted reference and type information every token at 3.15 ms/token
+  warm (10.4 % of masked-draw latency), so a store serving `reference_type`
+  and hash-prefix queries on the generation hot path is viable without a
+  native rewrite (M1 does not fire).
 
 ## Verification
 

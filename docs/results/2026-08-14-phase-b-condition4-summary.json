@@ -1,0 +1,353 @@
+{
+  "cells": {
+    "gbnf+typemask|few_shot": {
+      "accepted": 19,
+      "accepted_per_1k_tokens": 0.476,
+      "attempts": 78,
+      "distinct_accepted_identities": 11,
+      "draws": 200,
+      "funnel": {
+        "accepted": 19,
+        "parse": 77,
+        "references": 36,
+        "scope": 6,
+        "typecheck": 62
+      },
+      "masking": {
+        "calls_by_layer": {
+          "de-bruijn": 264668,
+          "goal-type": 353491,
+          "ref-hash": 262105,
+          "syntax": 39936
+        },
+        "draws": 200,
+        "fallbacks": 39,
+        "mask_seconds": 136.032896,
+        "mask_seconds_per_token": 0.003406272,
+        "mask_seconds_per_token_uncached": 0.005391023,
+        "mask_share_of_draw_latency": 0.1469,
+        "mask_steps": 39936,
+        "pruned_by_layer": {
+          "de-bruijn": 396314,
+          "goal-type": 65115180,
+          "ref-hash": 116535403,
+          "syntax": 5873554142
+        },
+        "pruners_enabled": [
+          "de-bruijn",
+          "goal-type",
+          "ref-hash"
+        ],
+        "seconds_by_layer": {
+          "de-bruijn": 0.225579,
+          "goal-type": 0.463349,
+          "ref-hash": 0.295963,
+          "syntax": 135.047994
+        },
+        "vocab_size": 152064
+      },
+      "mean_draws_per_attempt": 2.56,
+      "mean_latency_s": 4.631,
+      "mean_tokens_to_first_success": 429.0,
+      "redraws": 122,
+      "repeated_definition_rate": 0.4211,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0128,
+      "semantic_successes": 1,
+      "tokens": 39936,
+      "total_latency_s": 926.195
+    },
+    "gbnf+typemask|full_corpus": {
+      "accepted": 55,
+      "accepted_per_1k_tokens": 1.377,
+      "attempts": 78,
+      "distinct_accepted_identities": 9,
+      "draws": 196,
+      "funnel": {
+        "accepted": 55,
+        "parse": 77,
+        "references": 5,
+        "scope": 1,
+        "typecheck": 58
+      },
+      "masking": {
+        "calls_by_layer": {
+          "de-bruijn": 183426,
+          "goal-type": 255471,
+          "ref-hash": 181751,
+          "syntax": 39936
+        },
+        "draws": 196,
+        "fallbacks": 3,
+        "mask_seconds": 79.25276,
+        "mask_seconds_per_token": 0.001984494,
+        "mask_seconds_per_token_uncached": 0.004916853,
+        "mask_share_of_draw_latency": 0.046,
+        "mask_steps": 39936,
+        "pruned_by_layer": {
+          "de-bruijn": 397733,
+          "goal-type": 64154648,
+          "ref-hash": 116353918,
+          "syntax": 5874987840
+        },
+        "pruners_enabled": [
+          "de-bruijn",
+          "goal-type",
+          "ref-hash"
+        ],
+        "seconds_by_layer": {
+          "de-bruijn": 0.152714,
+          "goal-type": 0.348348,
+          "ref-hash": 0.214115,
+          "syntax": 78.53758
+        },
+        "vocab_size": 152064
+      },
+      "mean_draws_per_attempt": 2.51,
+      "mean_latency_s": 8.7971,
+      "mean_tokens_to_first_success": 152.0,
+      "redraws": 118,
+      "repeated_definition_rate": 0.8364,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0641,
+      "semantic_successes": 5,
+      "tokens": 39936,
+      "total_latency_s": 1724.226
+    },
+    "gbnf+typemask|held_out": {
+      "accepted": 1,
+      "accepted_per_1k_tokens": 0.081,
+      "attempts": 24,
+      "distinct_accepted_identities": 1,
+      "draws": 47,
+      "funnel": {
+        "accepted": 1,
+        "parse": 24,
+        "references": 4,
+        "scope": 0,
+        "typecheck": 18
+      },
+      "masking": {
+        "calls_by_layer": {
+          "de-bruijn": 72499,
+          "goal-type": 96328,
+          "ref-hash": 71610,
+          "syntax": 12288
+        },
+        "draws": 47,
+        "fallbacks": 0,
+        "mask_seconds": 32.209531,
+        "mask_seconds_per_token": 0.002621218,
+        "mask_seconds_per_token_uncached": 0.005058854,
+        "mask_share_of_draw_latency": 0.0668,
+        "mask_steps": 12288,
+        "pruned_by_layer": {
+          "de-bruijn": 128426,
+          "goal-type": 18399554,
+          "ref-hash": 37073428,
+          "syntax": 1807755723
+        },
+        "pruners_enabled": [
+          "de-bruijn",
+          "goal-type",
+          "ref-hash"
+        ],
+        "seconds_by_layer": {
+          "de-bruijn": 0.062692,
+          "goal-type": 0.11562,
+          "ref-hash": 0.081837,
+          "syntax": 31.949384
+        },
+        "vocab_size": 152064
+      },
+      "mean_draws_per_attempt": 1.96,
+      "mean_latency_s": 10.2609,
+      "mean_tokens_to_first_success": null,
+      "redraws": 23,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 12288,
+      "total_latency_s": 482.263
+    },
+    "gbnf+typemask|none": {
+      "accepted": 34,
+      "accepted_per_1k_tokens": 0.851,
+      "attempts": 78,
+      "distinct_accepted_identities": 19,
+      "draws": 330,
+      "funnel": {
+        "accepted": 34,
+        "parse": 78,
+        "references": 30,
+        "scope": 10,
+        "typecheck": 178
+      },
+      "masking": {
+        "calls_by_layer": {
+          "de-bruijn": 334734,
+          "goal-type": 359418,
+          "ref-hash": 332394,
+          "syntax": 39936
+        },
+        "draws": 330,
+        "fallbacks": 81,
+        "mask_seconds": 168.984708,
+        "mask_seconds_per_token": 0.004231388,
+        "mask_seconds_per_token_uncached": 0.010018615,
+        "mask_share_of_draw_latency": 0.1959,
+        "mask_steps": 39936,
+        "pruned_by_layer": {
+          "de-bruijn": 581469,
+          "goal-type": 73172902,
+          "ref-hash": 112438494,
+          "syntax": 5863756670
+        },
+        "pruners_enabled": [
+          "de-bruijn",
+          "goal-type",
+          "ref-hash"
+        ],
+        "seconds_by_layer": {
+          "de-bruijn": 0.259841,
+          "goal-type": 0.409978,
+          "ref-hash": 0.38314,
+          "syntax": 167.931748
+        },
+        "vocab_size": 152064
+      },
+      "mean_draws_per_attempt": 4.23,
+      "mean_latency_s": 2.6135,
+      "mean_tokens_to_first_success": null,
+      "redraws": 252,
+      "repeated_definition_rate": 0.4412,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 862.439
+    }
+  },
+  "config": {
+    "backend": "llama-cpp",
+    "backend_extra": {},
+    "baseline_summary": "/opt/loom/repo/docs/results/2026-08-14-phase-a-summary.json",
+    "binary": "",
+    "conditions": [
+      "gbnf+typemask"
+    ],
+    "extra_args": [],
+    "hardware": "g2-standard-4 L4 24GB",
+    "leave_one_out": true,
+    "llama_lib": "/opt/loom/llama.cpp/build/bin/libllama.so",
+    "max_draws_per_task": 32,
+    "max_tokens_per_draw": 512,
+    "model_identity": "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M",
+    "model_path": "/opt/loom/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+    "n_ctx": 16384,
+    "n_gpu_layers": 99,
+    "n_threads": 0,
+    "output_dir": "runs/phase-b",
+    "pruners": [
+      "goal-type",
+      "de-bruijn",
+      "ref-hash"
+    ],
+    "raw_text_limit": 2000,
+    "regimes": [
+      "none",
+      "few_shot",
+      "full_corpus",
+      "held_out"
+    ],
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "server_url": "",
+    "source_path": "experiment/remote.config.json",
+    "stop_on_semantic_success": false,
+    "stub_masked_outputs": [],
+    "tasks": null,
+    "temperature": 0.8,
+    "timeout": 900.0,
+    "token_budget_per_task": 512
+  },
+  "contract_versions": {
+    "declarations": "1.0",
+    "parser": "1.0",
+    "policies": "1.0",
+    "references": "1.0",
+    "refinements": "1.0",
+    "scope": "1.0",
+    "typecheck": "1.1"
+  },
+  "de_bruijn_share_of_scope_failures": null,
+  "elapsed_s": 4041.43,
+  "error_paths": {
+    "parse": [],
+    "references": [],
+    "scope": [],
+    "typecheck": []
+  },
+  "failure_distribution_by_layer": {
+    "by_regime": {},
+    "overall": {
+      "accepted": 0,
+      "parse": 0,
+      "references": 0,
+      "scope": 0,
+      "typecheck": 0
+    },
+    "scope_note": "grammar-constrained draws only (conditions 2 and 3)"
+  },
+  "masking": {
+    "calls_by_layer": {
+      "de-bruijn": 855327,
+      "goal-type": 1064708,
+      "ref-hash": 847860,
+      "syntax": 132096
+    },
+    "draws": 773,
+    "fallbacks": 123,
+    "mask_seconds": 416.479895,
+    "mask_seconds_per_token": 0.003152858,
+    "mask_seconds_per_token_uncached": 0.006686029,
+    "mask_share_of_draw_latency": 0.1042,
+    "mask_steps": 132096,
+    "pruned_by_layer": {
+      "de-bruijn": 1503942,
+      "goal-type": 220842284,
+      "ref-hash": 382401243,
+      "syntax": 19420054375
+    },
+    "pruners_enabled": [
+      "de-bruijn",
+      "goal-type",
+      "ref-hash"
+    ],
+    "seconds_by_layer": {
+      "de-bruijn": 0.700826,
+      "goal-type": 1.337295,
+      "ref-hash": 0.975055,
+      "syntax": 413.466706
+    },
+    "vocab_size": 152064
+  },
+  "r5": {
+    "error": "baseline summary /opt/loom/repo/docs/results/2026-08-14-phase-a-summary.json unreadable: [Errno 2] No such file or directory: '/opt/loom/repo/docs/results/2026-08-14-phase-a-summary.json'"
+  },
+  "records": 773,
+  "resolver_objects": {
+    "ability": 8,
+    "data": 4,
+    "definition": 26,
+    "extern": 9
+  },
+  "sampling": {
+    "temperature": 0.8
+  },
+  "started_utc": "2026-08-14T19:01:47Z"
+}

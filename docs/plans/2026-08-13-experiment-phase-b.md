@@ -1,11 +1,13 @@
 # Plan — Experiment Phase B: the incremental type-state masker
 
 **Date:** 2026-08-13
-**Status:** B1 implemented and verified. B2 implemented and verified locally.
-The live condition-4 matrix has been attempted four times and is not yet
-complete; every failure is diagnosed, fixed and guarded by a test, and launch 4
-reached two full regimes with the memory fix confirmed working live. See the
-[condition-4 run log](#condition-4-run-log). Awaiting an operator relaunch.
+**Status:** Complete. B1 and B2 implemented and verified; the live
+condition-4 matrix completed on launch 5 (2026‑08‑14, 773 draws, all four
+regimes) after four instructive failures, each diagnosed, fixed and guarded.
+R5 verdict: masking weakly dominates rejection sampling (never loses; +70 %
+in the no-example regime) but does not beat plain grammar in the corpus-rich
+regime. See [the run log](#condition-4-run-log) and
+[the results](../results/2026-08-14-phase-b-condition4-report.md).
 **Parent:** [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) (R2 condition 4, R2.1 Phase B)
 
 ## Objective
@@ -269,7 +271,8 @@ B2 (gated on Phase A's report):
 - [x] A remote condition-4 configuration, ready for an operator to launch.
   `experiment/phase_b.config.json`, plus the transport seam the GCP runner
   needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
-- [wip] **Run condition 4.** Four launches so far, none complete — CPU-idle
+- [x] **Run condition 4.** Done — launch 5 completed 2026‑08‑14 19:01 UTC.
+  Four failed launches preceded it — CPU-idle
   decode, an OOM, a capacity stockout, and a batch-size abort, each diagnosed,
   fixed and guarded — see [the run log](#condition-4-run-log). Launch 4 got
   two full regimes in (`none` 330 draws, `few_shot` 200, archived at
@@ -290,7 +293,18 @@ B2 (gated on Phase A's report):
     ~1 GB, mask 2.4 ms/token — then `GGML_ASSERT(n_tokens_all <=
     cparams.n_batch)` on the first 11.9 k-token `full_corpus` prompt.
     Fixed with chunked prefill (run log). Archived as above.
-  - *Launch 5*: pending, from merged post-fix code.
+  - *Launch 5* (17:48 UTC, `20260814T174824Z`, us-east4-a after Europe and
+    us-east1 dried up): **COMPLETE — SUCCEEDED at 19:01 UTC.** 773 draws in
+    67 min; all four regimes; RSS flat ~1 GB; mask 3.15 ms/token warm,
+    10.4 % of masked-draw latency; 123 liveness fallbacks; chunked prefill
+    through every 11.9 k-token prompt without incident. Results:
+    `prototype/runs/phase-b/`, preserved with the locally-computed R5 at
+    [docs/results/2026-08-14-phase-b-condition4-report.md](../results/2026-08-14-phase-b-condition4-report.md).
+    One harness quirk for any future run: the remote R5 section rendered
+    empty because the repo tarball does not carry `docs/`, so
+    `baseline_summary` was unreadable on the instance — R5 computed
+    locally instead; fix is to point the config at a path inside
+    `prototype/` or pack the baseline into the upload.
 
 ## The B2 decisions
 
