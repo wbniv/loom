@@ -84,7 +84,7 @@ resource "aws_iam_policy" "scoped" {
         # Everything mutating after creation — TerminateInstances,
         # DeleteSecurityGroup, AuthorizeSecurityGroup*, DeleteLaunchTemplate,
         # CancelSpotInstanceRequests, DeleteTags, DeleteVolume — scoped by the
-        # resource's own Project tag. Read calls are covered by ReadAll.
+        # resource's own Project tag. Read calls are covered by ReadPerService.
         Sid      = "EC2MutateProjectTagged"
         Effect   = "Allow"
         Action   = ["ec2:*"]
@@ -113,9 +113,19 @@ resource "aws_iam_policy" "scoped" {
         ]
       },
       {
-        Sid      = "ReadAll"
-        Effect   = "Allow"
-        Action   = ["*:Get*", "*:Describe*", "*:List*"]
+        # IAM forbids wildcards in the service segment of an action, so
+        # "*:Get*" is malformed — reads are enumerated per service instead.
+        Sid    = "ReadPerService"
+        Effect = "Allow"
+        Action = [
+          "ec2:Describe*", "ec2:Get*",
+          "s3:Get*", "s3:List*",
+          "dynamodb:Describe*", "dynamodb:List*",
+          "iam:Get*", "iam:List*",
+          "ssm:Get*", "ssm:Describe*",
+          "cloudwatch:Describe*", "cloudwatch:Get*", "cloudwatch:List*",
+          "logs:Describe*", "logs:Get*",
+        ]
         Resource = "*"
       },
       {
