@@ -27,11 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:a4bfba9d623a5d9f4 --> **Language evaluation, batch 2: SML, Haskell, Clojure, Perl, Ruby vs
-  Rust** — same criteria, same weights, same rigor as
-  [batch 1](docs/plans/2026-08-14-production-language-decision.md); scores
-  need fresh per-language research and justification, hence T4. Outcome is a
-  study unless something beats 114/130.
 
 - [wip T3] <!-- agent:aa3205050b31ac26f --> **Track P L0: the differential harness** — JSON-lines export of every
   validator verdict (input, verdict, error class, canonical bytes, identity)
@@ -73,6 +68,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [language-batch-2] Scored SML/Haskell/Clojure/Perl/Ruby on the fixed rubric: Haskell 94 nearest, none approach Rust's 114; decision stands. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md).
 - ✅ 2026-08-14 — [store-namespaces] Built bindings+leases per §5.3.3: O_EXCL fences (race-proven), oracle-owned policy admission, rules enforced-or-refused. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-14 — [corpus-loop] Closed the loop: 34 generated defs harvested with provenance, resolver-driven examples, chars/token floor fixed 2.6×; A/B one launch away. See [plan](docs/plans/2026-08-14-corpus-loop.md).
 - ✅ 2026-08-14 — [experiment-writeup] Published the constrained-generation article (12-point number audit) + README results section. See [article](docs/articles/2026-08-14-constrained-generation-results.md).
