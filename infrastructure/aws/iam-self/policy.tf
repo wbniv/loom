@@ -160,6 +160,17 @@ resource "aws_iam_policy" "scoped" {
         Resource = "*"
       },
       {
+        # Appealing a quota denial is a support-case reply; the Support API
+        # has no resource-level scoping.
+        Sid    = "SupportCaseAppeals"
+        Effect = "Allow"
+        Action = [
+          "support:DescribeCases",
+          "support:AddCommunicationToCase"
+        ]
+        Resource = "*"
+      },
+      {
         Sid      = "STSCallerIdentity"
         Effect   = "Allow"
         Action   = ["sts:GetCallerIdentity"]
