@@ -233,8 +233,51 @@ def make_masker(config, backend, resolver):
     return build_masker(vocabulary(), resolver, names=config.pruners)
 
 
-def run_task(task, condition, regime, seed, backend, resolver, config, grammar, masker=None):
-    """One (task, condition, regime, seed) cell, spent down to the budget."""
+def _draw(backend, condition, masker, prompt, grammar, max_tokens, seed, temperature):
+    """One backend call for one draw attempt. Returns `(generation, mask_fields)`.
+
+    Raises `BackendUnavailable` straight through — `run_task` is the one place
+    that decides whether a failure here gets a retry.
+    """
+    if condition == CONDITION_TYPEMASK:
+        # Counters only: the transition and mask caches survive, because they
+        # are the reason the per-token cost is what it is.
+        masker.reset_stats()
+        generation = backend.generate_masked(
+            prompt, masker=masker, max_tokens=max_tokens, seed=seed, temperature=temperature)
+        mask_fields = masker.stats()
+        mask_fields["mask"] = True
+        return generation, mask_fields
+    generation = backend.generate(
+        prompt,
+        grammar=grammar if condition in GRAMMAR_CONDITIONS else None,
+        max_tokens=max_tokens,
+        seed=seed,
+        temperature=temperature,
+    )
+    return generation, {}
+
+
+def run_task(task, condition, regime, seed, backend, resolver, config, grammar, masker=None, sink=None):
+    """One (task, condition, regime, seed) cell, spent down to the budget.
+
+    Every draw's record is built and, if `sink` is given, handed to it
+    immediately (`run`'s incremental-persistence path) before the loop moves
+    on — so a crash on the *next* draw loses only that one draw, not the cell.
+    The full list is still returned for the no-`sink` in-memory contract the
+    test suite calls directly.
+
+    Each record carries two additive fields for crash-safety:
+
+    ``cell_done``   true on the record that ends the cell (budget exhausted,
+                    draw cap hit, or an early semantic-success stop) — the
+                    resume completeness marker `run` looks for. A cell cut off
+                    mid-draw writes no such record and is rerun from scratch.
+    ``retried``     true if this draw needed the one-retry-after-a-hiccup path
+                    below.
+    """
+    if condition == CONDITION_TYPEMASK and masker is None:  # pragma: no cover - `run` builds it
+        raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
     budget = config.token_budget_per_task
     used = 0
     draws = 0
@@ -250,44 +293,41 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
         # The seed varies per draw or every redraw repeats the first draw
         # exactly; the derivation is deterministic so the run still reproduces.
         draw_seed = seed * 100_003 + draws
-        mask_fields: dict = {}
-        if condition == CONDITION_TYPEMASK:
-            if masker is None:  # pragma: no cover - `run` builds it
-                raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
-            # Counters only: the transition and mask caches survive, because
-            # they are the reason the per-token cost is what it is.
-            masker.reset_stats()
-            generation = backend.generate_masked(
-                prompt,
-                masker=masker,
-                max_tokens=max_tokens,
-                seed=draw_seed,
-                temperature=config.temperature,
-            )
-            mask_fields = masker.stats()
-            mask_fields["mask"] = True
-        else:
-            generation = backend.generate(
-                prompt,
-                grammar=grammar if condition in GRAMMAR_CONDITIONS else None,
-                max_tokens=max_tokens,
-                seed=draw_seed,
-                temperature=config.temperature,
-            )
+        retried = False
+        try:
+            generation, mask_fields = _draw(
+                backend, condition, masker, prompt, grammar, max_tokens, draw_seed, config.temperature)
+        except BackendUnavailable:
+            # A server hiccup (thermal-throttle stall, transient disconnect)
+            # looks identical to a hard-down backend until a second attempt
+            # also fails. One retry; a second failure propagates and `run`'s
+            # abort path takes over.
+            retried = True
+            generation, mask_fields = _draw(
+                backend, condition, masker, prompt, grammar, max_tokens, draw_seed, config.temperature)
         spent = max(1, int(generation.completion_tokens))
         used += spent
         source = extract_definition(generation.text)
         funnel = run_funnel(source, resolver)
         semantic = score_semantic(task, funnel, source)
-        records.append({
+        # Captured before `narrowing` is updated below, so this reflects what
+        # was fed into *this* draw's prompt, not next draw's.
+        narrowed = bool(narrowing)
+        this_draw = draws
+        draws += 1
+        if condition == CONDITION_GBNF_REJECTION:
+            narrowing = narrowing_note(funnel)
+        stop_now = semantic.success and config.stop_on_semantic_success
+        cell_done = stop_now or not (used < budget and draws < config.max_draws_per_task)
+        record = {
             "task": task.task_id,
             "task_kind": task.kind,
             "condition": condition,
             "regime": regime,
             "seed": seed,
-            "draw": draws,
+            "draw": this_draw,
             "draw_seed": draw_seed,
-            "narrowed": bool(narrowing),
+            "narrowed": narrowed,
             "grammar": condition in GRAMMAR_CONDITIONS,
             "budget": budget,
             "tokens_completion": spent,
@@ -311,34 +351,118 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
             "rubric_pending": semantic.rubric_pending,
             "source": source,
             "raw": generation.text[: config.raw_text_limit],
+            "retried": retried,
+            "cell_done": cell_done,
             **mask_fields,
-        })
-        draws += 1
-        if condition == CONDITION_GBNF_REJECTION:
-            narrowing = narrowing_note(funnel)
-        if semantic.success and config.stop_on_semantic_success:
+        }
+        records.append(record)
+        if sink is not None:
+            sink(record)
+        if stop_now:
             break
     return records
 
 
-def run(config: Config, resolver=None, backend=None):
-    """Run every configured cell and return `(records, summary)`."""
+def _cell_key(record):
+    """The identity of the (task, condition, regime, seed) cell a record belongs to."""
+    return (record["task"], record["condition"], record["regime"], record["seed"])
+
+
+def run(config: Config, resolver=None, backend=None, *, output_dir=None, fresh=False, log=None):
+    """Run every configured cell and return `(records, summary)`.
+
+    With no `output_dir` this is the original in-memory contract: everything
+    lives in the returned lists, nothing touches disk. That is what the test
+    suite calls directly, and it is unchanged on purpose.
+
+    With `output_dir` given (the CLI's path, via `main`), the run is
+    crash-safe:
+
+    - Every draw's record is appended to `<output_dir>/records.jsonl` the
+      moment it is built (`run_task`'s `sink`), flushed per write, so a crash
+      loses at most the one draw in flight.
+    - A `BackendUnavailable` or `KeyboardInterrupt` from the cell loop writes
+      `summary.json` and `report.md` for whatever cells finished, then
+      re-raises with a "partial run: N of M cells" message instead of dying
+      silently.
+    - **Resume**: if `records.jsonl` already exists and `fresh` is not set,
+      records belonging to a cell whose final draw carries `cell_done: true`
+      are loaded and that cell is skipped; anything else on disk is a stale
+      partial cell (cut off mid-draw) and is discarded and rerun from draw 0,
+      so a resumed run never ends up with duplicate draw records for one
+      cell. `fresh=True` (the CLI's `--fresh`) discards the file outright
+      instead of resuming from it.
+    """
     resolver = resolver or ExperimentResolver()
     backend = backend or make_backend(config)
     grammar = grammar_text()
     masker = (make_masker(config, backend, resolver)
               if CONDITION_TYPEMASK in config.conditions else None)
+    log = log or (lambda message: print(message, file=sys.stderr))
+
+    records: list[dict] = []
+    completed_cells: set[tuple] = set()
+    directory = None
+    records_path = None
+    sink = None
+    if output_dir is not None:
+        directory = Path(output_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        records_path = directory / "records.jsonl"
+        if records_path.exists() and not fresh:
+            existing = [
+                json.loads(line)
+                for line in records_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            completed_cells = {_cell_key(r) for r in existing if r.get("cell_done")}
+            records = [r for r in existing if _cell_key(r) in completed_cells]
+            if completed_cells:
+                log(f"resuming: skipping {len(completed_cells)} completed cells")
+        # Rewrite clean: drops any partial residue from a cell that was cut
+        # off mid-draw last time, so rerunning that cell below never
+        # duplicates draw records on disk.
+        with records_path.open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+        def sink(record, _path=records_path):
+            records.append(record)
+            with _path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+                handle.flush()
+
     started = time.monotonic()
-    records = []
+    cells = []
     for regime in config.regimes:
         tasks = _select_tasks(config, regime)
         for condition in config.conditions:
             for seed in config.seeds:
                 for task in tasks:
-                    records.extend(run_task(
-                        task, condition, regime, seed, backend, resolver, config, grammar,
-                        masker=masker))
+                    cells.append((regime, condition, seed, task))
+    total = len(cells)
+    done = len(completed_cells)
+    try:
+        for regime, condition, seed, task in cells:
+            key = (task.task_id, condition, regime, seed)
+            if key in completed_cells:
+                continue
+            result = run_task(
+                task, condition, regime, seed, backend, resolver, config, grammar,
+                masker=masker, sink=sink)
+            if sink is None:
+                records.extend(result)
+            done += 1
+    except (BackendUnavailable, KeyboardInterrupt) as error:
+        message = f"partial run: {done} of {total} cells completed before aborting ({error})"
+        if directory is not None:
+            summary = summarize(records, config, resolver, time.monotonic() - started)
+            write_outputs(records, summary, directory)
+            log(f"{message} — records, summary and report written to {directory}")
+        raise type(error)(message) from error
     summary = summarize(records, config, resolver, time.monotonic() - started)
+    if directory is not None:
+        write_outputs(records, summary, directory)
     return records, summary
 
 
@@ -699,6 +823,9 @@ def main(argv=None):
     parser.add_argument("--out", default="", help="output directory (overrides the config)")
     parser.add_argument("--dry-run", action="store_true",
                         help="build the resolver, tasks and prompts, and report the plan without generating")
+    parser.add_argument("--fresh", action="store_true",
+                        help="ignore any records.jsonl already in the output dir and start clean "
+                             "(without this, an existing records.jsonl resumes instead)")
     arguments = parser.parse_args(argv)
 
     config = Config.load(arguments.config)
@@ -727,8 +854,20 @@ def main(argv=None):
         print(str(error), file=sys.stderr)
         return 2
 
-    records, summary = run(config, resolver=resolver, backend=backend)
-    records_path, summary_path, report_path = write_outputs(records, summary, config.output_dir)
+    # `run` writes records.jsonl/summary.json/report.md itself when given an
+    # output_dir — incrementally as draws complete, and one last time here on
+    # a normal return — so a crash mid-matrix never loses a finished draw.
+    try:
+        records, summary = run(
+            config, resolver=resolver, backend=backend,
+            output_dir=config.output_dir, fresh=arguments.fresh)
+    except BackendUnavailable as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    directory = Path(config.output_dir)
+    records_path = directory / "records.jsonl"
+    summary_path = directory / "summary.json"
+    report_path = directory / "report.md"
     print(render_report(summary, records))
     print(f"records: {records_path}")
     print(f"summary: {summary_path}")
