@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-14 | [The production implementation language](2026-08-14-production-language-decision.md) | Decided — Rust; migration deferred behind triggers M1–M4 |
 | 2026-08-14 | [GPU build cache](2026-08-14-gpu-build-cache.md) | In progress; capture armed |
 | 2026-08-14 | [GCP infrastructure for the Phase A experiment run](2026-08-14-gcp-experiment-infra.md) | Implemented; `fmt` + `validate` + `shellcheck` PASS, apply gated on the operator |
 | 2026-08-13 | [GPU infrastructure for the Phase A experiment run](2026-08-13-gpu-experiment-infra.md) | Implemented; `fmt` + `validate` PASS, apply gated on operator credentials |
