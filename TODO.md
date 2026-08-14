@@ -33,7 +33,7 @@ Check conformance with `task todo:lint`.
   [plan](docs/plans/2026-08-13-experiment-phase-b.md). (T4: do not dispatch before
   Phase A reports.)
 
-- [T4] **Re-evaluate the production implementation language (promoted from Watch;
+- [wip T4] <!-- agent:a7121488ef690ea48 --> **Re-evaluate the production implementation language (promoted from Watch;
   trigger (a) met).** Two consecutive corpus tranches required no canonical IR/tag
   changes and all seven validation contracts are now versioned (contracts.py 1.0).
   Compare at least Rust and one credible alternative against deterministic
