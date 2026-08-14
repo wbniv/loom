@@ -416,6 +416,10 @@ fn summary(row: &IndexRow) -> Value {
     json!({
         "hash": row.hash,
         "kind": row.kind,
+        // The corpus loop's guardrail, visible from the read API: `list --kind
+        // definition` separates generated from curated on the oracle's own
+        // statement, not on a caller's guess about naming.
+        "origin": row.origin,
         "name": row.name,
         "type": row.type_surface,
         "sequence": row.sequence,

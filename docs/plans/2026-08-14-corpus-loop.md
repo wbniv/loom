@@ -1,7 +1,9 @@
 # Plan — Closing the corpus loop: accepted generations enter the store
 
 **Date:** 2026-08-14
-**Status:** Designed; not yet built
+**Status:** Built and verified — see [Run log](#run-log) and
+[Recorded verification](#recorded-verification). One deviation is recorded and
+open: [the generated arm does not change prompt text](#open-the-generated-arm-changes-what-resolves-not-what-the-prompt-shows).
 **Parent:** SPEC §13's endgame ("accepted generations join the corpus, the
 loop closes on itself"), built on
 [store v0](2026-08-14-store-v0.md) and the
@@ -67,6 +69,13 @@ objects beyond the provenance metadata above.
 `refused_on_readmission`) — line protocol matching the store CLI; no mockup
 bundle for a machine-consumed line, recorded per the house rule.
 
+As built, the line also carries `records` / `accepted` / `distinct_identities`
+(so the counts can be checked against the run without opening it), the `run`
+block, and `refusals` — one entry per refused *identity*, carrying the refusing
+layer, its own error class, and how many records it covers. Refusals are a
+finding, so they ride on the same line rather than in a log nobody reads. The
+literal shape is in the [recorded verification](#recorded-verification).
+
 ## Cost
 
 $0 — local only. (The follow-up GPU run, when the operator launches it,
@@ -74,13 +83,208 @@ prices like every prior matrix: ~$1–3 of trial credit.)
 
 ## Work
 
-- [ ] `harvest` entry point + tests (R1, R2) — real fixture: the committed
-  run records under `prototype/runs/phase-b/` (109 accepted draws,
-  ~31 distinct identities).
-- [ ] Origin filter through export/StoreResolver + curated-only default
+- [x] `harvest` entry point + tests (R1, R2) — real fixture: the run records
+  under `prototype/runs/phase-b/` (109 accepted draws, **38** distinct
+  identities, not the ~31 estimated here).
+- [x] Origin filter through export/StoreResolver + curated-only default
   equivalence preserved (R3).
-- [ ] Two-arm follow-up config, stub-verified (R4).
-- [ ] Run log + verification recorded here.
+- [x] Two-arm follow-up config, stub-verified (R4).
+- [x] Run log + verification recorded here.
+
+## Run log
+
+### What was built
+
+| path | what it owns |
+|---|---|
+| [`prototype/harvest.py`](../../prototype/harvest.py) | selecting a run's accepted draws, re-admitting them, and the counts |
+| [`prototype/test_harvest.py`](../../prototype/test_harvest.py) | the synthetic run fixture, and R1/R2/R3/R4 as assertions |
+| [`prototype/store_admit.py`](../../prototype/store_admit.py) | the origin vocabulary and `provenance_extra` (the rest is unchanged) |
+| [`prototype/experiment/store_resolver.py`](../../prototype/experiment/store_resolver.py) | the origin filter, and the name-rebind refusal |
+| [`prototype/experiment/runner.py`](../../prototype/experiment/runner.py) | `store_export` / `include_generated`, and `make_resolver` |
+| [`prototype/experiment/followup_curated.config.json`](../../prototype/experiment/followup_curated.config.json) | arm A |
+| [`prototype/experiment/followup_generated.config.json`](../../prototype/experiment/followup_generated.config.json) | arm B — identical but for one flag |
+| [`store/src/index.rs`](../../store/src/index.rs) | the `origin` index column |
+| [`store/src/main.rs`](../../store/src/main.rs) | `origin` in `list` output |
+
+### The harvest/readmission seam: Python admits, Rust lands
+
+`harvest.py` does **not** call `loom-store admit`. It re-validates in Python
+through `store_admit.definition_sidecar` — the same entry point corpus seeding
+uses, which means the same layer order, the same §3.3 subsumption collector, and
+the same refusal classes — and then hands each finished pair to `loom-store
+put`, the store's own entry point for "the oracle has already spoken".
+
+The alternative considered and rejected was teaching `loom-store admit` to carry
+provenance: it would have meant a dozen new CLI arguments (model identity, run
+id, condition, regime, seed, draw, …) threaded through `oracle.rs` into
+`store_admit`'s `emit` subcommand, so that Rust could pass through a payload it
+has no opinion about. That is a bigger store-crate change than the escalation
+budget allowed, and it would have put the shape of the experiment's records into
+the store's argument surface, where the next run's schema change would break it.
+`put` already accepts an arbitrary oracle-produced sidecar; the harvest is an
+oracle, so it uses the oracle's door. **No new Rust argument surface exists.**
+
+The one Rust change is the `origin` column on the index row, surfaced in `list`.
+It is what makes verification step 3 a query rather than a file read: the
+guardrail "generated never passes for curated" is worth having only if somebody
+can see it from the read API. `#[serde(default)]` keeps a pre-existing index
+parseable; `fsck` reports `index_diverged` on such a store and `reindex` fixes
+it, which is the repair that already existed for exactly this case.
+
+### The naming scheme: `generated/<task id>/<12 hex>`
+
+Example: `generated/corpus/list/append/03d8abd83aae`. Three properties, in the
+order they matter.
+
+**It cannot collide with a curated name.** Everything the corpus names lives
+under `corpus/`; everything harvested lives under `generated/`. A generated
+object landing on a curated name is the one genuinely dangerous failure in this
+increment — prompt assembly looks a definition up *by name* and shows it under
+that name's spec, so a rebind would serve a model's output as a curated example,
+which is precisely conclusion 5's "memorized or merely-valid artifact
+masquerading as synthesis". The prefix makes it impossible by construction, and
+`StoreResolver._bind_name` refuses a rebind out loud in case it ever isn't.
+
+**It says what the model was asked for.** The task id is copied from the record
+verbatim, so a listing greps straight back to the draw.
+
+**It is unique.** One task yields many distinct accepted definitions —
+`corpus/clock/now` alone produced 16 of the 34 — so the task id is not a name on
+its own.
+Twelve hex digits (48 bits, git's own abbreviation length for a large
+repository) make it one.
+
+The scheme is therefore **not** a pure function of the object, and that was a
+real choice: the phase-b records contain one identity produced under two
+different tasks, so first-accepted-record-wins decides the name. That is
+deterministic in the records file, the full draw is in `provenance.run` either
+way, and the alternative — a content-only `generated/<hash>` — would have thrown
+away the one field a human reading `list --kind definition` actually wants.
+
+### The provenance schema
+
+`provenance` gains two blocks for `origin: generated`, and nothing else in the
+sidecar schema moves (version stays 1; `store_admit`'s docstring is the record):
+
+```json
+"provenance": {
+  "origin": "generated",
+  "source": "runs/phase-b/records.jsonl",
+  "admitter": "prototype.store_admit/1",
+  "run": {
+    "run_id": "phase-b@2026-08-14T19:01:47Z",
+    "started_utc": "2026-08-14T19:01:47Z",
+    "model_identity": "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M",
+    "hardware": "g2-standard-4 L4 24GB", "backend": "llama-cpp",
+    "temperature": 0.8, "condition": "gbnf+typemask", "regime": "few_shot",
+    "seed": 2, "draw": 0, "draw_seed": 200006,
+    "task": "corpus/list/append", "task_kind": "corpus"
+  },
+  "observation": {
+    "funnel_outcome": "accepted", "layers_passed": 4,
+    "semantic_rule": "identity-match", "semantic_success": false,
+    "narrowed": false, "retried": false
+  }
+}
+```
+
+**`observation` is a separate block on purpose.** R2 says the run's
+`semantic_success` is never evidence, and a comment saying so is worth less than
+a schema saying so: `validation` is what checkers proved, `observation` is what
+the run thought, and a later policy layer reading sidecars cannot conflate two
+differently-named blocks. Tested
+(`ProvenanceTest.test_semantic_success_is_an_observation_and_never_evidence`).
+
+**Nothing is inflated.** `validation` is exactly what the layers earned —
+`layers`, the contract version of each, and the subsumption obligation count.
+**`spec` stays `null`.** Borrowing the task's spec was considered and rejected:
+the task spec describes what was *asked for*, and 61 of the 109 accepted draws
+did not satisfy it, so attaching it would be the masquerade R2 forbids under a
+different name.
+
+**Nothing depends on when or where the harvest ran.** `run_id` comes from the
+run's recorded `started_utc`, `source` is the records path's last three
+components (never absolute), and `sequence` is `1_000_000` plus the draw's
+position among accepted records. That reserved band is load-bearing rather than
+cosmetic: it makes "every curated definition sorts before every generated one,
+in every store, whatever order the harvests ran in" true by construction, which
+is what keeps `definitions()` order — and therefore prompt order — stable.
+
+**A run with no recorded `model_identity` is refused.** R2.1's "recorded, not
+reconstructed" applied at the other end of the pipe: an object that cannot say
+which model produced it does not enter.
+
+### Where the origin filter lives, and why there
+
+In `StoreResolver.__init__`, as an `origins` policy (`curated` — the default —
+or `all`), applied before an object reaches either registry. `prompts.py` is
+untouched.
+
+Three reasons it belongs there and not downstream: it is the only place that
+sees provenance at all; every consumer is filtered at once, so an arm cannot be
+curated in the prompt and generated in the mask (`digests()` seeds the
+reference-hash pruner); and it makes the default *structural* — under `curated`
+a harvested store is indistinguishable from an unharvested one, which turns R3's
+byte-identity claim into a property rather than a hope.
+
+Two named policies rather than an arbitrary origin set, because the measurement
+is exactly *curated vs curated+generated* and a third spelling would be a third
+thing to keep honest. An origin outside the schema's closed vocabulary — or a
+sidecar with no origin at all — is a `StoreExportError`, never a silent
+exclusion: quietly dropping an unrecognised object would shrink the corpus, and
+corpus size is the largest effect the experiment ever measured (95.8 % → 71.5 %
+rejection).
+
+**Rejected:** filtering in the Rust `export-resolver` (`--origin curated`). One
+export would then not serve both arms, the arms would differ by which file they
+read instead of by one config flag, and the store would have grown a policy
+decision that belongs to the experiment.
+
+### Two stores on disk, deliberately
+
+`.loom-store` is the pinned corpus seed (`task store:seed`), and
+`test_store.py::test_the_seeded_store_carries_the_oracle_sidecars_unchanged`
+asserts its export *is* the oracle's corpus document — true of a seed, false of
+anything harvested. `.loom-store-generated` is the loop's store
+(`task store:harvest`): the same corpus plus a run's accepted draws. **Both
+follow-up arms read `.loom-store-generated`** and differ only by
+`include_generated`, so the A/B is one flag over one store, which is the point.
+Both are gitignored and both are reproducible from the repo.
+
+### Four accepted draws were byte-identical to curated corpus objects
+
+Content addressing turned them into `exists` against the curated object, which
+keeps its `origin: transpiled` and its `corpus/…` name. That is the correct
+answer — the bytes *are* the curated definition — and the guardrail only ever
+runs in the safe direction: a generation can never relabel a curated object.
+
+What is lost is the observation that a model reproduced it, which now lives only
+in the run records. Recording it in the store would mean a *list* of provenances
+per object, which is an evidence-object shape, and R5 defers those. Recorded as
+a watch, not built. Tested
+(`DeterminismTest.test_a_generation_identical_to_a_curated_object_dedupes_into_it`).
+
+### Open: the generated arm changes what *resolves*, not what the prompt *shows*
+
+`prompts._example_names` takes the full-corpus example list from
+`corpus_registry.MANIFEST` directly, not from the resolver. `prompts.py` is a
+hard boundary for this dispatch, so the two arms build **byte-identical
+prompts** — confirmed below: 4494/4542 prompt tokens in both arms.
+
+What the generated arm actually changes is everything downstream of the
+resolver: 81 hashes instead of 47, 60 definitions instead of 26, so a draw
+naming a generated hash *types* instead of being refused, and the masker's
+reference-hash universe includes those prefixes. That is a genuine and
+measurable A/B — composition over generated corpus — but it is **not** the A/B
+the Objective's "make prompt assembly able to draw on them" describes.
+
+The resolver *is* able: `digest_for`, `entry` and `surface` all serve generated
+names. The selection function is what is corpus-bound. Making the full-corpus
+regime draw its example list from `resolver.definitions()` is a two-line change
+to `prompts.py` — and it is a change to the thing every prior run's prompts were
+built from, so it is a call for the plan's owner, not for this dispatch.
+**ESCALATED**; everything not depending on it has landed.
 
 ## Verification
 
@@ -103,3 +307,263 @@ prices like every prior matrix: ~$1–3 of trial credit.)
   reproduces its counts deterministically on re-harvest (idempotent).
 - Curated-only prompts remain byte-identical to pre-loop prompts.
 - The two-arm experiment is one operator launch away.
+
+## Recorded verification
+
+Run 2026‑08‑14 on the implementation branch. The numbered steps are the plan's
+own, unchanged; raw output follows each.
+
+### 1. `task prototype:test` green, including new harvest tests; the existing `StoreResolverEquivalenceTest` passes **unmodified** (R3's default)
+
+Run with the curated seed's export present
+(`.loom-store/export-resolver.json`, 47 objects), so the equivalence tests ran
+against the real Rust-produced document.
+
+```
+----------------------------------------------------------------------
+Ran 628 tests in 80.831s
+
+OK (skipped=1)
+```
+
+628 tests: 587 before this increment, +41 from `test_harvest`. The whole of
+`StoreResolverEquivalenceTest`, from the same run:
+
+```
+test_a_miss_is_a_lookup_error_naming_the_hash (test_store.StoreResolverEquivalenceTest.test_a_miss_is_a_lookup_error_naming_the_hash) ... ok
+test_definitions_come_back_in_the_same_order (test_store.StoreResolverEquivalenceTest.test_definitions_come_back_in_the_same_order) ... ok
+test_digests_match_including_order (test_store.StoreResolverEquivalenceTest.test_digests_match_including_order) ... ok
+test_entries_carry_the_same_spec_and_identity (test_store.StoreResolverEquivalenceTest.test_entries_carry_the_same_spec_and_identity) ... ok
+test_every_hash_resolves_to_the_same_object (test_store.StoreResolverEquivalenceTest.test_every_hash_resolves_to_the_same_object) ... ok
+test_names_resolve_to_the_same_hashes (test_store.StoreResolverEquivalenceTest.test_names_resolve_to_the_same_hashes) ... ok
+test_object_counts_match (test_store.StoreResolverEquivalenceTest.test_object_counts_match) ... ok
+test_operation_arity_matches_for_every_ability_operation (test_store.StoreResolverEquivalenceTest.test_operation_arity_matches_for_every_ability_operation) ... ok
+test_reference_type_matches_for_every_hash (test_store.StoreResolverEquivalenceTest.test_reference_type_matches_for_every_hash) ... ok
+test_resolved_types_are_isolated_copies (test_store.StoreResolverEquivalenceTest.test_resolved_types_are_isolated_copies) ... ok
+test_the_declaration_registries_hold_the_same_objects (test_store.StoreResolverEquivalenceTest.test_the_declaration_registries_hold_the_same_objects) ... ok
+test_the_seeded_store_carries_the_oracle_sidecars_unchanged (test_store.StoreResolverEquivalenceTest.test_the_seeded_store_carries_the_oracle_sidecars_unchanged) ... ok
+test_every_task_and_regime_builds_a_byte_identical_prompt (test_store.PromptEquivalenceTest.test_every_task_and_regime_builds_a_byte_identical_prompt) ... ok
+test_narrowing_feedback_also_lands_identically (test_store.PromptEquivalenceTest.test_narrowing_feedback_also_lands_identically) ... ok
+```
+
+**Unmodified**, and provably so:
+
+```
+$ git diff --stat -- prototype/test_store.py prototype/experiment/prompts.py
+$ echo "(no output: neither file is touched by this increment)"
+(no output: neither file is touched by this increment)
+```
+
+`test_store.py` runs against the *curated* seed, so on its own it only shows
+that the filter's default costs nothing when there is nothing to filter. The
+stronger claim — byte-identical prompts from a store that **does** hold
+generated objects — is
+`test_harvest.OriginFilterTest.test_every_task_and_regime_builds_a_byte_identical_prompt`,
+which builds `34 tasks × 4 regimes × 2 leave-one-out = 272` prompt pairs through
+a harvested export and asserts byte equality on every one.
+
+**PASS.**
+
+### 2. Harvest of `prototype/runs/phase-b/records.jsonl` into a seeded store: reported counts match an independent recount from the records; store `fsck` exit 0 after
+
+`prototype/runs/` is gitignored, so the records were read from the main
+checkout at `/home/will/loom/prototype/runs/phase-b/records.jsonl`. The
+`admit --corpus` line's 47-element `objects` array and the harvest line's
+34-element one are elided for length and marked as such; nothing else is
+altered.
+
+```
+$ task store:harvest RECORDS=/home/will/loom/prototype/runs/phase-b/records.jsonl
+{"layout_version":1,"status":"created","store":"…/.loom-store-generated"}
+{"exists":0,"objects":[ …47 corpus objects, sequence 0–46… ],"status":"admitted","written":47}
+{"accepted": 109, "admitted": 34, "distinct_identities": 38, "dry_run": false, "exists": 75, "objects": […34 objects, sequence 1000000–1000107…], "records": 773, "refusals": [], "refused_on_readmission": 0, "run": {"backend": "llama-cpp", "hardware": "g2-standard-4 L4 24GB", "model_identity": "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M", "run_id": "phase-b@2026-08-14T19:01:47Z", "started_utc": "2026-08-14T19:01:47Z", "temperature": 0.8}, "source": "runs/phase-b/records.jsonl", "status": "harvested"}
+{"objects":81,"ok":true,"rows":81}
+{"objects":81,"path":"…/.loom-store-generated/export-resolver.json","status":"exported"}
+```
+
+The independent recount shares no code with `harvest.py` — it reads the records
+and the curated store's `index/types.jsonl` and re-derives the numbers:
+
+```
+$ python3 recount.py runs/phase-b/records.jsonl .loom-store/index/types.jsonl
+{
+ "accepted": 109,
+ "distinct_identities": 38,
+ "expected_admitted": 34,
+ "expected_exists": 75,
+ "funnel_outcomes": {
+  "accepted": 109,
+  "parse": 256,
+  "references": 75,
+  "scope": 17,
+  "typecheck": 316
+ },
+ "identities_already_curated": 4,
+ "identities_new": 34,
+ "records": 773
+}
+```
+
+Every number agrees: 773 records, 109 accepted, 38 distinct identities, of which
+4 are byte-identical to curated corpus objects (so 34 new), 75 records are
+repeats. `fsck` exit 0 over 81 objects and 81 index rows.
+
+Idempotence, from the completion criteria — the same records into the same store
+a second time:
+
+```
+{"accepted": 109, "admitted": 0, "distinct_identities": 38, "dry_run": false, "exists": 109, "objects": [], "records": 773, "refusals": [], "refused_on_readmission": 0, …}
+```
+
+**PASS** — nothing changed, and the line says so.
+
+`refused_on_readmission` is 0 for this run, which is the honest outcome and not
+a missing test: the contracts have not moved since phase-b. The category is
+exercised twice in `test_harvest` — a draw the run called accepted whose `ref`
+does not resolve (refused at `typecheck`, `TypingError`), and a draw whose
+recorded `identity` is not the hash of its own bytes (refused at `identity`).
+
+### 3. A generated object's sidecar shows `origin: "generated"` with the run metadata; `list --kind definition` distinguishes it from curated by sidecar, not by guesswork
+
+```
+$ loom-store --store .loom-store-generated list --kind definition
+count: 60 origins: {'generated': 34, 'transpiled': 26}
+
+{"hash": "03d8abd83aae…", "kind": "definition", "name": "generated/corpus/list/append/03d8abd83aae", "origin": "generated", "sequence": 1000039, "type": "(fn (data 0x3ff2…(I64)) () (data 0x3ff2…(I64)))"}
+{"hash": "0dba3946f35c…", "kind": "definition", "name": "corpus/maybe/mapPoly", "origin": "transpiled", "sequence": 24, "type": "(forall (forall (fn (fn (tyvar 1) () (tyvar 0)) () (fn (data 0x3ff2…((tyvar 1))) () (data 0x3ff2…((tyvar 0)))))))"}
+```
+
+The `origin` column is derived from `provenance.origin` in the sidecar and
+nothing else — not from the name — so the separation survives any naming
+convention. The full sidecar behind the first row (`spec` is `null` and
+`observation` is a sibling of `run`, both deliberate):
+
+```json
+{
+  "deps": ["3ff2104702aeeb53b4dfbc5a09c0441df19f12883e6cf66e21a3bd85420b4e2f"],
+  "hash": "03d8abd83aaed7fcb2baffa28fac1db5ea42126cf21ba224a27755dfedc3e5f8",
+  "kind": "definition",
+  "name": "generated/corpus/list/append/03d8abd83aae",
+  "object": null,
+  "provenance": {
+    "admitter": "prototype.store_admit/1",
+    "observation": {"funnel_outcome": "accepted", "layers_passed": 4,
+                    "narrowed": false, "retried": false,
+                    "semantic_rule": "identity-match", "semantic_success": false},
+    "origin": "generated",
+    "run": {"backend": "llama-cpp", "condition": "gbnf+typemask", "draw": 0,
+            "draw_seed": 200006, "hardware": "g2-standard-4 L4 24GB",
+            "model_identity": "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M",
+            "regime": "few_shot", "run_id": "phase-b@2026-08-14T19:01:47Z",
+            "seed": 2, "started_utc": "2026-08-14T19:01:47Z",
+            "task": "corpus/list/append", "task_kind": "corpus",
+            "temperature": 0.8},
+    "source": "runs/phase-b/records.jsonl"
+  },
+  "schema": 1,
+  "sequence": 1000039,
+  "spec": null,
+  "surface": "(def (fn (data 0x3ff2…(I64)) () (data 0x3ff2…(I64))) (lam (data 0x3ff2…(I64)) (let (data 0x3ff2…(I64)) (var 0) (var 1))))",
+  "type_surface": "(fn (data 0x3ff2…(I64)) () (data 0x3ff2…(I64)))",
+  "validation": {
+    "contracts": {"parser": "1.0", "references": "1.0", "scope": "1.0", "typecheck": "1.1"},
+    "layers": ["parser", "scope", "references", "typecheck"],
+    "obligations": 0
+  }
+}
+```
+
+**PASS.** (Hashes inside type and surface strings elided to `0x3ff2…` for
+width; the sidecar on disk carries them in full.)
+
+### 4. The two-arm config runs end-to-end on the stub backend
+
+Both shipped arm configs, loaded as committed and overlaid only with the stub
+transport, a two-task subset and one seed (the store export is the real
+`.loom-store-generated` one from step 2):
+
+```
+$ python3 -m experiment.runner --config followup_curated.stub.json --dry-run
+resolver objects   : {"ability": 8, "data": 4, "definition": 26, "extern": 9}
+resolver origins   : {"declared": 21, "generated": 0, "transpiled": 26}  (policy: curated)
+regimes            : full_corpus, held_out
+conditions         : gbnf+typemask
+cells to run       : 2
+
+$ python3 -m experiment.runner --config followup_generated.stub.json --dry-run
+resolver objects   : {"ability": 8, "data": 4, "definition": 60, "extern": 9}
+resolver origins   : {"declared": 21, "generated": 34, "transpiled": 26}  (policy: all)
+regimes            : full_corpus, held_out
+conditions         : gbnf+typemask
+cells to run       : 2
+```
+
+Full runs, both exit 0, both writing `records.jsonl` / `summary.json` /
+`report.md`:
+
+```
+curated   records: 4 | resolver_objects: {"ability":8,"data":4,"definition":26,"extern":9} | resolver_origins: {"declared":21,"generated":0,"transpiled":26}  | include_generated: False
+   cells: {'gbnf+typemask|full_corpus': {'accepted': 2, …}, 'gbnf+typemask|held_out': {'accepted': 2, …}}
+generated records: 4 | resolver_objects: {"ability":8,"data":4,"definition":60,"extern":9} | resolver_origins: {"declared":21,"generated":34,"transpiled":26} | include_generated: True
+   cells: {'gbnf+typemask|full_corpus': {'accepted': 2, …}, 'gbnf+typemask|held_out': {'accepted': 2, …}}
+
+curated   tokens_prompt per record: [4494, 4494, 4542, 4542]
+generated tokens_prompt per record: [4494, 4494, 4542, 4542]
+```
+
+**PASS on the step as written**, with the deviation
+[recorded above](#open-the-generated-arm-changes-what-resolves-not-what-the-prompt-shows)
+visible in the last two lines: the arms' prompts are byte-identical because
+`prompts._example_names` reads `corpus_registry.MANIFEST`, not the resolver.
+What the arms do differ in is what resolves:
+
+```
+curated digests: 47 definitions: 26
+all     digests: 81 definitions: 60
+```
+
+`digests()` is what seeds the masker's reference-hash pruner, so the generated
+arm both types and *permits* references the curated arm refuses. The two arms
+are also asserted to be identical configs but for `include_generated` and
+`output_dir`
+(`FollowUpConfigTest.test_the_two_arms_differ_only_in_the_origin_flag`), and
+both are run end-to-end in the suite so this does not depend on a manual step.
+
+### 5. `task store:test` green (no Rust changes expected; if the export schema grows the origin field, its tests grow with it)
+
+The export schema did not grow; the *index* did, by one field, so its tests grew
+with it — two new unit tests plus an extended integration test.
+
+```
+running 24 tests
+…
+test index::tests::the_origin_column_is_lifted_from_the_sidecars_provenance ... ok
+test index::tests::a_sidecar_without_provenance_indexes_as_unlabelled_not_as_curated ... ok
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+running 21 tests
+…
+test a_generated_definition_admits_against_the_stores_own_contents ... ok
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+```
+
+**PASS** — 45 tests, 0 failures (22 unit + 21 integration before this increment;
++2 unit here).
+
+`task store:lint` for good measure:
+
+```
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.59s
+store:lint exit=0
+```
+
+### 6. `task todo:lint`; `git diff --check`
+
+```
+TODO.md: clean
+todo:lint exit=0
+git diff --check exit=0
+```
+
+**PASS** — both clean. `TODO.md` is untouched by this branch; moving the corpus
+loop item is the orchestrator's call.

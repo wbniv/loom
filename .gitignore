@@ -13,10 +13,16 @@ prototype/runs/
 .terraform.tfstate.lock.info
 crash.log
 
-# Rust build output and the seeded store. The store is reproducible from the
-# pinned corpus by `task store:seed`, so it is derived data, not a fixture.
+# Rust build output and the stores. Both are reproducible — `.loom-store` from
+# the pinned corpus by `task store:seed`, `.loom-store-generated` from that plus
+# a run's records by `task store:harvest` — so they are derived data, not
+# fixtures. They are kept apart deliberately: `.loom-store` is the curated seed
+# the equivalence tests read, and harvesting into it would make
+# `test_the_seeded_store_carries_the_oracle_sidecars_unchanged` false by adding
+# objects the oracle's corpus document does not contain.
 store/target/
 .loom-store/
+.loom-store-generated/
 
 prototype/experiment/phase_a.local.json
 prototype/experiment/phase_a.smoke.json

@@ -55,6 +55,16 @@ Sidecar schema, version 1
 ``provenance``       ``origin`` (``transpiled`` | ``declared`` |
                      ``generated``), free-text ``source``, ``admitter``, and
                      for externs the pinned ``artifact`` and ``abi``.
+                     ``origin: generated`` objects additionally carry the two
+                     blocks `harvest.py` fills in — ``run`` (model identity,
+                     run id, condition, regime, seed, draw: everything needed
+                     to reconstruct which process produced the bytes) and
+                     ``observation`` (what the *run* thought of the draw,
+                     `semantic_success` above all). ``observation`` is a
+                     separate block on purpose: it is a report about a draw,
+                     never evidence about an object, and nesting it away from
+                     ``validation`` is what keeps a later policy layer from
+                     mistaking one for the other.
 ``validation``       ``layers`` actually run, in order; ``contracts``, the
                      contract version of each at admission time (R3's "a
                      future MAJOR bump can find every object that predates
@@ -112,6 +122,21 @@ KIND_DEFINITION = "definition"
 KIND_DATA = "data"
 KIND_ABILITY = "ability"
 KIND_EXTERN = "extern"
+
+#: The provenance origins this schema knows. Deliberately a closed set: the
+#: corpus-loop plan's R3 turns `origin` into a *filter*, and a filter over an
+#: open vocabulary silently drops whatever it has not met. Anything outside this
+#: set is refused loudly by the consumer rather than quietly excluded.
+ORIGIN_TRANSPILED = "transpiled"
+ORIGIN_DECLARED = "declared"
+ORIGIN_GENERATED = "generated"
+
+#: Origins that mean "a human or a transpiler put this here" — the curated
+#: corpus. `generated` is the whole of the complement, and keeping the two
+#: spellings separate is conclusion 5's guardrail in one line: a model's output
+#: never reaches a prompt under a curated label.
+CURATED_ORIGINS = frozenset({ORIGIN_TRANSPILED, ORIGIN_DECLARED})
+ORIGINS = frozenset({*CURATED_ORIGINS, ORIGIN_GENERATED})
 
 #: Object-kind tag (§4.1/§5.1, position 0 of every canonical object) to the
 #: store's kind string. The store never reads the tag — it reads this string
@@ -236,12 +261,20 @@ def definition_sidecar(
     spec: str | None = None,
     origin: str = "generated",
     provenance_source: str = "",
+    provenance_extra: dict | None = None,
 ) -> tuple[bytes, dict]:
     """Validate one definition surface and build its object bytes + sidecar.
 
     The layer order is `experiment.evaluate.run_funnel`'s, and the refusal is
     that layer's own exception class — conclusion 2's shape, at admission time
     rather than at lookup time.
+
+    `provenance_extra` is merged into the provenance mapping. It exists so an
+    admitter that knows *more* about where bytes came from — `harvest.py` knows
+    the run, the condition, the seed and the draw — can say so without this
+    module having to learn what an experiment run is. It may not overwrite the
+    three fields this module owns: an admitter that could rewrite its own
+    `origin` would make the origin filter advisory.
     """
     try:
         ir = transcode.parse_source(source)
@@ -275,6 +308,16 @@ def definition_sidecar(
         except Exception as error:  # noqa: BLE001 - the layer class is the taxonomy
             raise AdmissionRefused(layer, error) from None
 
+    provenance = {
+        "origin": origin,
+        "source": provenance_source,
+        "admitter": ADMITTER,
+    }
+    for key, value in (provenance_extra or {}).items():
+        if key in provenance:
+            raise ValueError(f"provenance_extra may not overwrite {key!r}")
+        provenance[key] = value
+
     sidecar = {
         "schema": SCHEMA,
         "hash": digest,
@@ -286,11 +329,7 @@ def definition_sidecar(
         "object": None,
         "spec": spec,
         "sequence": sequence,
-        "provenance": {
-            "origin": origin,
-            "source": provenance_source,
-            "admitter": ADMITTER,
-        },
+        "provenance": provenance,
         "validation": {
             "layers": list(DEFINITION_LAYERS),
             "contracts": _contract_versions(DEFINITION_LAYERS),

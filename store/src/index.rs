@@ -23,6 +23,7 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::error::{Result, StoreError};
 use crate::hash::ObjectHash;
@@ -36,6 +37,18 @@ use crate::sidecar::Sidecar;
 pub struct IndexRow {
     pub hash: String,
     pub kind: String,
+    /// `provenance.origin` from the sidecar, lifted into the index so the read
+    /// API can tell a generated object from a curated one without opening the
+    /// sidecar. It is the one provenance field a *query* needs: the corpus loop
+    /// plan's guardrail is that generated objects never pass for curated, and a
+    /// guardrail nobody can see from `list` is a guardrail nobody checks.
+    ///
+    /// `None` only for a sidecar with no `provenance.origin` at all, which the
+    /// oracle never emits; the store reports what it finds rather than
+    /// inventing a default, because "unlabelled" and "curated" must not be the
+    /// same answer.
+    #[serde(default)]
+    pub origin: Option<String>,
     pub name: Option<String>,
     pub type_surface: Option<String>,
     pub deps: Vec<String>,
@@ -48,6 +61,11 @@ impl IndexRow {
         IndexRow {
             hash: sidecar.hash.clone(),
             kind: sidecar.kind.clone(),
+            origin: sidecar
+                .provenance
+                .get("origin")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             name: sidecar.name.clone(),
             type_surface: sidecar.type_surface.clone(),
             deps: sidecar.deps.clone(),
@@ -155,6 +173,7 @@ mod tests {
         IndexRow {
             hash: hash.to_string(),
             kind: "definition".into(),
+            origin: Some("transpiled".into()),
             name: None,
             type_surface: None,
             deps: Vec::new(),
@@ -181,6 +200,28 @@ mod tests {
         let mut rows = vec![row(&"aa".repeat(32)), row(&"11".repeat(32))];
         let bytes = render(&mut rows).unwrap();
         assert_eq!(parse(&bytes, Path::new("x")).unwrap(), rows);
+    }
+
+    #[test]
+    fn the_origin_column_is_lifted_from_the_sidecars_provenance() {
+        let text = format!(
+            r#"{{"schema":1,"hash":"{}","kind":"definition","deps":[],"sequence":0,"provenance":{{"origin":"generated","source":"runs/x"}}}}"#,
+            "ab".repeat(32)
+        );
+        let sidecar = Sidecar::parse(text.as_bytes(), Path::new("x")).unwrap();
+        let row = IndexRow::from_sidecar(&sidecar, text.as_bytes());
+        assert_eq!(row.origin.as_deref(), Some("generated"));
+    }
+
+    #[test]
+    fn a_sidecar_without_provenance_indexes_as_unlabelled_not_as_curated() {
+        let text = format!(
+            r#"{{"schema":1,"hash":"{}","kind":"definition","deps":[],"sequence":0}}"#,
+            "ab".repeat(32)
+        );
+        let sidecar = Sidecar::parse(text.as_bytes(), Path::new("x")).unwrap();
+        let row = IndexRow::from_sidecar(&sidecar, text.as_bytes());
+        assert_eq!(row.origin, None);
     }
 
     #[test]

@@ -13,7 +13,7 @@ tasks:
     desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, evaluator, experiment-harness, mask, and store-admission tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker test_store -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker test_store test_harvest -v
 
   experiment:phase-a:
     desc: Run masked-generation experiment Phase A (conditions 1-3) from a config file
@@ -293,6 +293,43 @@ tasks:
       LOOM_STORE: '{{.ROOT_DIR}}/.loom-store'
     cmds:
       - store/target/debug/loom-store export-resolver --out '{{.ROOT_DIR}}/.loom-store/export-resolver.json'
+
+  # ── the corpus loop (docs/plans/2026-08-14-corpus-loop.md) ────────────────
+  # A *second* store, deliberately. `.loom-store` is the pinned corpus seed the
+  # resolver-equivalence tests read, and one of them asserts that its export is
+  # exactly the oracle's corpus document — true of a seed, false of anything
+  # harvested. `.loom-store-generated` is the loop's store: same corpus, plus a
+  # run's accepted draws labelled `origin: generated`. Both follow-up arms read
+  # this one and differ only by `include_generated`, which is the whole A/B.
+
+  store:harvest:
+    desc: "Seed .loom-store-generated with the corpus, then admit a run's accepted draws as origin=generated (RECORDS=path)"
+    deps: [store:build]
+    env:
+      LOOM_STORE: '{{.ROOT_DIR}}/.loom-store-generated'
+      LOOM_PROTOTYPE: '{{.ROOT_DIR}}/prototype'
+    vars:
+      RECORDS: '{{.RECORDS | default "prototype/runs/phase-b/records.jsonl"}}'
+    cmds:
+      - store/target/debug/loom-store init --from-oracle
+      - store/target/debug/loom-store admit --corpus
+      - python3 prototype/harvest.py --records '{{.RECORDS}}' --store '{{.ROOT_DIR}}/.loom-store-generated' --store-bin '{{.ROOT_DIR}}/store/target/debug/loom-store'
+      - store/target/debug/loom-store fsck
+      - store/target/debug/loom-store export-resolver --out '{{.ROOT_DIR}}/.loom-store-generated/export-resolver.json'
+
+  store:harvest-dry:
+    desc: "Recount a run's accepted draws through the admit path without touching a store (RECORDS=path)"
+    vars:
+      RECORDS: '{{.RECORDS | default "prototype/runs/phase-b/records.jsonl"}}'
+      RESOLVER: '{{.RESOLVER | default "./.loom-store/export-resolver.json"}}'
+    cmds:
+      - python3 prototype/harvest.py --records '{{.RECORDS}}' --dry-run --resolver '{{.RESOLVER}}'
+
+  experiment:followup:
+    desc: "Run one arm of the corpus-loop follow-up (ARM=curated|generated); needs task store:harvest first"
+    dir: prototype
+    cmds:
+      - python3 -m experiment.runner --config 'experiment/followup_{{.ARM | default "curated"}}.config.json' {{.CLI_ARGS}}
 
   experiment:mask-sanity:
     desc: Live sanity for Phase B's transport — loads a GGUF in process and walks the mask

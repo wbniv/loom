@@ -522,4 +522,24 @@ fn a_generated_definition_admits_against_the_stores_own_contents() {
     let (_, body) = cli(root.path(), &["list"]);
     assert_eq!(body["count"], 48);
     assert_eq!(cli(root.path(), &["fsck"]).0, exit::OK);
+
+    // The corpus loop's guardrail, from the read API alone: `list --kind
+    // definition` separates the one generated definition from the 26 curated
+    // ones on the oracle's `provenance.origin`, with no naming convention and
+    // no second lookup involved.
+    let (_, body) = cli(root.path(), &["list", "--kind", "definition"]);
+    let rows = body["objects"].as_array().unwrap();
+    let generated: Vec<&Value> = rows
+        .iter()
+        .filter(|row| row["origin"] == "generated")
+        .collect();
+    assert_eq!(rows.len(), 27);
+    assert_eq!(generated.len(), 1);
+    assert_eq!(generated[0]["name"], "generated/id");
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["origin"] == "transpiled")
+            .count(),
+        26
+    );
 }

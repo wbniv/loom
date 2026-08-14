@@ -72,6 +72,7 @@ from .evaluate import (
 from .masker import PRUNER_NAMES, build_masker
 from .prompts import KIND_CORPUS, KIND_HELD_OUT, REGIMES, Task, all_tasks, build_prompt, tasks_for_regime
 from .resolver import ExperimentResolver
+from .store_resolver import POLICY_ALL, POLICY_CURATED, StoreExportError, StoreResolver
 
 CONDITION_UNCONSTRAINED = "unconstrained"
 CONDITION_GBNF = "gbnf"
@@ -151,6 +152,18 @@ class Config:
     #: line so the comparison's provenance is recorded with the run that made
     #: it. Ignored unless condition 4 ran.
     baseline_summary: str = ""
+
+    # -- the corpus loop (docs/plans/2026-08-14-corpus-loop.md R3/R4) ------
+    #: A `loom-store export-resolver` document to build the resolver from,
+    #: instead of the pinned corpus tree. Empty keeps the original behaviour
+    #: exactly: `ExperimentResolver()` over `corpus_registry.MANIFEST`.
+    store_export: str = ""
+    #: Whether the resolver admits `origin: generated` objects. This is the
+    #: whole of the follow-up A/B: two configs identical but for this flag,
+    #: reading the same store. False is the default everywhere, and under it a
+    #: harvested store is indistinguishable from an unharvested one.
+    include_generated: bool = False
+
     n_ctx: int = 4096
     n_threads: int = 0
     #: Layers offloaded to the GPU by the in-process transport. `-1` is
@@ -184,6 +197,11 @@ class Config:
         if config.baseline_summary and not Path(config.baseline_summary).is_absolute():
             config.baseline_summary = str(
                 (path.parent / config.baseline_summary).resolve())
+        # Same anchoring, same reason: the follow-up arms name a store export
+        # that sits at the repo root, and both arms must resolve it identically
+        # wherever the runner is launched from.
+        if config.store_export and not Path(config.store_export).is_absolute():
+            config.store_export = str((path.parent / config.store_export).resolve())
         config.validate()
         return config
 
@@ -210,6 +228,11 @@ class Config:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
             raise SystemExit("at least one seed is required; the run must be reproducible")
+        if self.include_generated and not self.store_export:
+            raise SystemExit(
+                "include_generated is set but store_export is empty. Generated "
+                "objects exist only in a store; the corpus tree has none, so "
+                "this config would silently run the curated arm twice.")
         if self.backend in ("llama-server", "llama-cli", "llama-cpp") and not self.model_identity:
             raise SystemExit(
                 "model_identity is empty. R2.1 requires the model and hardware to be "
@@ -234,6 +257,40 @@ def _select_tasks(config: Config, regime: str) -> tuple[Task, ...]:
     # list is a filter, never a way to smuggle held-out tasks into `few_shot`.
     kind = KIND_HELD_OUT if regime == "held_out" else KIND_CORPUS
     return tuple(task for task in chosen if task.kind == kind)
+
+
+def make_resolver(config: Config):
+    """The resolver this config's arm runs against.
+
+    Three states, and the first is the one every pre-existing config is in:
+
+    * no `store_export` — `ExperimentResolver()` over the pinned corpus tree,
+      byte for byte the behaviour every prior run had;
+    * `store_export`, `include_generated: false` — `StoreResolver` under the
+      curated origin policy. Same objects, same order, same prompts; the store
+      is merely a different way of reading the same corpus, which is what store
+      v0's equivalence gate proved;
+    * `store_export`, `include_generated: true` — the same store with its
+      harvested generations admitted as well.
+
+    The filter is applied here, once, and every consumer inherits it: prompt
+    examples, `reference_type` on the decode path, and the masker's
+    reference-hash universe. An arm cannot be curated in one and generated in
+    another.
+    """
+    if not config.store_export:
+        return ExperimentResolver()
+    path = Path(config.store_export)
+    if not path.is_file():
+        raise SystemExit(
+            f"store_export {path} does not exist. Build it with "
+            "`task store:seed && task store:export`, or `task store:harvest` "
+            "for an arm that needs the generated objects too.")
+    policy = POLICY_ALL if config.include_generated else POLICY_CURATED
+    try:
+        return StoreResolver.from_path(path, origins=policy)
+    except StoreExportError as error:
+        raise SystemExit(f"store_export {path} is unusable: {error}") from None
 
 
 def make_masker(config, backend, resolver):
@@ -409,7 +466,7 @@ def run(config: Config, resolver=None, backend=None, *, output_dir=None, fresh=F
       cell. `fresh=True` (the CLI's `--fresh`) discards the file outright
       instead of resuming from it.
     """
-    resolver = resolver or ExperimentResolver()
+    resolver = resolver or make_resolver(config)
     backend = backend or make_backend(config)
     grammar = grammar_text()
     masker = (make_masker(config, backend, resolver)
@@ -678,6 +735,11 @@ def summarize(records, config, resolver, elapsed_s):
         "sampling": config.sampling(),
         "contract_versions": dict(contracts.VERSIONS),
         "resolver_objects": resolver.counts(),
+        # Which arm this was, from the resolver rather than from the config —
+        # the config states an intent, this states what the run actually held.
+        # Absent for the corpus-built resolver, which has no origins to count.
+        **({"resolver_origins": resolver.origin_counts()}
+           if hasattr(resolver, "origin_counts") else {}),
         "records": len(records),
         "cells": cells,
         "failure_distribution_by_layer": {
@@ -985,7 +1047,7 @@ def main(argv=None):
     if arguments.out:
         config.output_dir = arguments.out
 
-    resolver = ExperimentResolver()
+    resolver = make_resolver(config)
     if arguments.dry_run:
         cells = 0
         for regime in config.regimes:
@@ -993,6 +1055,9 @@ def main(argv=None):
             cells += len(tasks) * len(config.conditions) * len(config.seeds)
         print(f"config             : {config.source_path}")
         print(f"resolver objects   : {json.dumps(resolver.counts(), sort_keys=True)}")
+        if hasattr(resolver, "origin_counts"):
+            print(f"resolver origins   : {json.dumps(resolver.origin_counts(), sort_keys=True)}"
+                  f"  (policy: {resolver.origin_policy})")
         print(f"regimes            : {', '.join(config.regimes)}")
         print(f"conditions         : {', '.join(config.conditions)}")
         print(f"seeds              : {config.seeds}")

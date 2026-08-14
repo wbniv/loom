@@ -28,6 +28,29 @@ Everything the harness asks a resolver for is here, with the same names and the
 same refusal behaviour — a hash in neither source raises `LookupError` rather
 than guessing, exactly as §2.3.1 requires and as the live GPU run's invented
 ability hash demonstrated the hard way.
+
+The origin filter (corpus-loop plan R3)
+---------------------------------------
+
+A store that has been harvested holds two populations, and the whole point of
+the A/B the harvest enables is that they stay separable. The filter lives
+*here*, at resolver construction, and not in prompt assembly, for three reasons:
+
+* it is the only place that sees provenance at all — `experiment.prompts` is
+  handed a resolver and asks it for surfaces, so a filter downstream of this
+  point would have to re-derive what the sidecar already says;
+* every consumer is filtered at once — prompt examples, `reference_type` on the
+  decode path, and the masker's reference-hash universe (`digests()`) — so an
+  arm cannot accidentally be curated in the prompt and generated in the mask;
+* it makes the default *structural*. `POLICY_CURATED` excludes generated
+  objects before they enter either registry, so under the default a harvested
+  store is indistinguishable from an unharvested one, which is what makes R3's
+  byte-identity claim a property rather than a hope.
+
+An origin the policy does not classify is a `StoreExportError`, never a silent
+exclusion: a filter that quietly drops what it has not met would shrink the
+corpus without anybody noticing, and shrinking the corpus is the single largest
+lever the experiment measured.
 """
 
 from __future__ import annotations
@@ -43,9 +66,33 @@ import cbor_canonical
 import transcode
 from declarations import DeclarationRegistry
 from definition_types import DefinitionTypeRegistry
-from store_admit import json_to_ir
+from store_admit import CURATED_ORIGINS, ORIGINS, json_to_ir
 
 from .resolver import KIND_ABILITY, KIND_DATA, KIND_DEFINITION, KIND_EXTERN, KINDS, Resolved
+
+#: Curated corpus only — the default, and what R3 requires prompts to keep
+#: seeing unless an experiment arm asks for otherwise in its config.
+POLICY_CURATED = "curated"
+
+#: Curated corpus plus every harvested generation. The opt-in arm.
+POLICY_ALL = "all"
+
+#: Two policies, not an arbitrary set of origins. The measurement this exists
+#: for is exactly *curated vs curated+generated*, and a third spelling would be
+#: a third thing to keep the equivalence proof honest about.
+ORIGIN_POLICIES = {POLICY_CURATED: frozenset(CURATED_ORIGINS), POLICY_ALL: frozenset(ORIGINS)}
+
+
+def origin_of(sidecar: dict) -> str | None:
+    """The sidecar's declared origin, or `None` when it declares none.
+
+    `None` is deliberately not folded into a default. "This object did not say
+    where it came from" and "this object came from the curated corpus" are
+    different statements, and only one of them is safe to put in a prompt.
+    """
+    provenance = sidecar.get("provenance") or {}
+    origin = provenance.get("origin")
+    return origin if isinstance(origin, str) else None
 
 
 @dataclass(frozen=True)
@@ -77,13 +124,24 @@ class StoreExportError(ValueError):
 class StoreResolver:
     """Hash-keyed lookup over the objects a store holds."""
 
-    def __init__(self, document: dict):
+    def __init__(self, document: dict, *, origins: str = POLICY_CURATED):
         schema = document.get("schema")
         if schema != 1:
             raise StoreExportError(f"export schema {schema!r} is not 1")
         objects = document.get("objects")
         if not isinstance(objects, list):
             raise StoreExportError("export has no `objects` array")
+        try:
+            admitted_origins = ORIGIN_POLICIES[origins]
+        except KeyError:
+            raise StoreExportError(
+                f"unknown origin policy {origins!r}; known policies: "
+                f"{', '.join(sorted(ORIGIN_POLICIES))}"
+            ) from None
+        self._origin_policy = origins
+        objects = [
+            sidecar for sidecar in objects if self._admits(sidecar, admitted_origins)
+        ]
 
         self._declarations = DeclarationRegistry()
         resolved: dict[bytes, Resolved] = {}
@@ -107,8 +165,7 @@ class StoreResolver:
             type_ir = self._declarations.reference_type(digest) if kind == KIND_EXTERN else None
             self._check_type_surface(sidecar, type_ir)
             resolved[digest] = Resolved(digest=digest, kind=kind, name=name, type_ir=type_ir)
-            if name is not None:
-                by_name[name] = digest
+            self._bind_name(by_name, name, digest)
 
         self._definitions = DefinitionTypeRegistry(self._declarations.operation_arity)
         for sidecar in definition_sidecars:
@@ -128,8 +185,8 @@ class StoreResolver:
                 type_ir=type_ir,
                 surface=surface,
             )
+            self._bind_name(by_name, name, digest)
             if name is not None:
-                by_name[name] = digest
                 entries[digest] = StoreEntry(
                     name_path=name,
                     spec=sidecar.get("spec") or "",
@@ -146,13 +203,72 @@ class StoreResolver:
             bytes.fromhex(sidecar["hash"]) for sidecar in definition_sidecars
         )
         self._contracts = MappingProxyType(dict(document.get("store", {}).get("contracts", {})))
+        self._origins = MappingProxyType(
+            {
+                digest: origin_of(sidecar)
+                for sidecar in objects
+                for digest in [bytes.fromhex(sidecar["hash"])]
+            }
+        )
 
     # -- construction --------------------------------------------------------
 
     @classmethod
-    def from_path(cls, path) -> StoreResolver:
+    def from_path(cls, path, *, origins: str = POLICY_CURATED) -> StoreResolver:
         """Build from a `loom-store export-resolver --out PATH` document."""
-        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+        return cls(json.loads(Path(path).read_text(encoding="utf-8")), origins=origins)
+
+    # -- the origin filter ----------------------------------------------------
+
+    @staticmethod
+    def _admits(sidecar: dict, admitted: frozenset) -> bool:
+        """Whether this object's origin is one the policy lets through.
+
+        An origin outside the schema's closed vocabulary is refused rather than
+        excluded. The difference matters: exclusion is invisible and would make
+        a prompt quietly smaller, and prompt size is the largest effect the
+        experiment measured.
+        """
+        origin = origin_of(sidecar)
+        if origin not in ORIGINS:
+            raise StoreExportError(
+                f"{sidecar.get('hash')}: unknown provenance origin {origin!r}; "
+                f"known origins: {', '.join(sorted(ORIGINS))}"
+            )
+        return origin in admitted
+
+    @staticmethod
+    def _bind_name(by_name: dict, name, digest: bytes) -> None:
+        """Bind a §5.2 metadata name, refusing to rebind one already taken.
+
+        Last-write-wins here would be the corpus loop's one genuinely dangerous
+        failure: a generated object landing on a curated name would be served to
+        prompt assembly under the curated definition's spec, which is exactly
+        the "memorized or merely-valid artifact masquerading as synthesis" the
+        parent plan's conclusion 5 forbids. `harvest.py` keeps generated names
+        inside a `generated/` prefix so this cannot happen by construction; this
+        is the check that says so out loud if it ever does.
+        """
+        if name is None:
+            return
+        existing = by_name.get(name)
+        if existing is not None and existing != digest:
+            raise StoreExportError(
+                f"name {name!r} is claimed by both {existing.hex()} and {digest.hex()}"
+            )
+        by_name[name] = digest
+
+    @property
+    def origin_policy(self) -> str:
+        """Which of `POLICY_CURATED` / `POLICY_ALL` this resolver was built under."""
+        return self._origin_policy
+
+    def origin_counts(self) -> dict[str, int]:
+        """How many objects of each origin survived the filter — a report line."""
+        return {
+            origin: sum(1 for value in self._origins.values() if value == origin)
+            for origin in sorted(ORIGINS)
+        }
 
     # -- verification --------------------------------------------------------
 
@@ -267,7 +383,11 @@ __all__ = [
     "KIND_DATA",
     "KIND_DEFINITION",
     "KIND_EXTERN",
+    "ORIGIN_POLICIES",
+    "POLICY_ALL",
+    "POLICY_CURATED",
     "StoreEntry",
     "StoreExportError",
     "StoreResolver",
+    "origin_of",
 ]
