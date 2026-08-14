@@ -66,6 +66,56 @@ def stub_config(**overrides):
     return config
 
 
+def crash_safety_config(**overrides):
+    """Two one-task cells (seed 1, seed 2), each exactly two draws.
+
+    Small and deterministic on purpose: the crash-safety tests care about
+    *which* cell's draws land on disk and *how many* backend calls a resumed
+    run makes, not about the harness's usual breadth.
+    """
+    config = runner.Config(
+        backend="stub",
+        seeds=[1, 2],
+        conditions=[runner.CONDITION_GBNF],
+        regimes=["few_shot"],
+        tasks=["corpus/bool/not"],
+        token_budget_per_task=1000,
+        max_tokens_per_draw=60,
+        max_draws_per_task=2,
+        stub_outputs=STUB_OUTPUTS,
+        stub_grammar_outputs=STUB_GRAMMAR_OUTPUTS,
+        source_path="<test>",
+    )
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    config.validate()
+    return config
+
+
+class _FlakyBackend(StubBackend):
+    """A `StubBackend` that raises `BackendUnavailable` on chosen calls.
+
+    Models the real failure this hardening exists for: a draw that stalls
+    past the backend's timeout (thermal-throttled decode collapsing to
+    0.3 tok/s in the incident this file is a response to). `fail_at` is
+    1-based; `fail_forever=True` keeps failing every call from `fail_at` on
+    (a hard-down backend — exercises the abort path), `fail_forever=False`
+    fails exactly that one call (a hiccup — exercises the retry path).
+    """
+
+    def __init__(self, *args, fail_at, fail_forever=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_at = fail_at
+        self.fail_forever = fail_forever
+        self.calls = 0
+
+    def generate(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls == self.fail_at or (self.fail_forever and self.calls >= self.fail_at):
+            raise BackendUnavailable("stub: simulated backend hiccup")
+        return super().generate(*args, **kwargs)
+
+
 class ResolverTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -410,6 +460,127 @@ class EndToEndStubRunTest(unittest.TestCase):
         self.assertEqual(
             [(r["task"], r["condition"], r["draw"], r["funnel_outcome"]) for r in again],
             [(r["task"], r["condition"], r["draw"], r["funnel_outcome"]) for r in self.records])
+
+
+class CrashSafetyTest(unittest.TestCase):
+    """The failure this hardening answers: hours of CPU decode, one draw over
+    the backend timeout, `BackendUnavailable`, and the old runner wrote
+    nothing at all. `runner.run`'s `output_dir` path (only taken when a
+    caller asks for it — the in-memory contract every other test in this file
+    uses is unchanged) persists every draw as it lands, survives a dead
+    backend with a readable partial summary/report, and resumes instead of
+    redoing completed cells.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def test_records_are_persisted_as_the_run_goes_not_only_at_the_end(self):
+        config = crash_safety_config()
+        with tempfile.TemporaryDirectory() as directory:
+            records, _ = runner.run(config, resolver=self.resolver, output_dir=directory)
+            on_disk = [
+                json.loads(line)
+                for line in (Path(directory) / "records.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(on_disk), len(records))
+            self.assertEqual({r["draw_seed"] for r in on_disk}, {r["draw_seed"] for r in records})
+            self.assertTrue(all("cell_done" in r and "retried" in r for r in on_disk))
+
+    def test_a_dead_backend_leaves_completed_records_and_a_partial_summary_and_report(self):
+        config = crash_safety_config()
+        backend = _FlakyBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS, fail_at=3, fail_forever=True)
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(BackendUnavailable) as raised:
+                runner.run(config, resolver=self.resolver, backend=backend, output_dir=directory)
+            self.assertIn("partial run: 1 of 2 cells", str(raised.exception))
+
+            # Cell 1 (seed 1) ran to completion — two draws — before cell 2
+            # died on the first attempt of its first draw, so exactly cell
+            # 1's records made it to disk, nothing was silently lost, and
+            # nothing from the dead cell is half-written.
+            records_path = Path(directory) / "records.jsonl"
+            on_disk = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(on_disk), 2)
+            self.assertEqual({r["seed"] for r in on_disk}, {1})
+            self.assertTrue(on_disk[-1]["cell_done"])
+
+            summary = json.loads((Path(directory) / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["records"], 2)
+            report = (Path(directory) / "report.md").read_text(encoding="utf-8")
+            self.assertIn("Phase A results", report)
+
+    def test_resume_skips_the_completed_cell_and_finishes_the_rest(self):
+        config = crash_safety_config()
+        dead_backend = _FlakyBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS, fail_at=3, fail_forever=True)
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(BackendUnavailable):
+                runner.run(config, resolver=self.resolver, backend=dead_backend, output_dir=directory)
+
+            logged = []
+            fresh_backend = StubBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS)
+            records, summary = runner.run(
+                config, resolver=self.resolver, backend=fresh_backend,
+                output_dir=directory, log=logged.append)
+
+            self.assertTrue(any("resuming: skipping 1 completed cells" in m for m in logged), logged)
+            # Only cell 2's two draws needed redoing; cell 1 was skipped, not
+            # regenerated, so the fresh backend was called exactly twice.
+            self.assertEqual(fresh_backend.draws, 2)
+            self.assertEqual(len(records), 4)
+            self.assertEqual({r["seed"] for r in records}, {1, 2})
+            draw_keys = [(r["task"], r["condition"], r["regime"], r["seed"], r["draw"]) for r in records]
+            self.assertEqual(len(draw_keys), len(set(draw_keys)), "resume must not duplicate a draw")
+            self.assertEqual(summary["records"], 4)
+            on_disk = [
+                json.loads(line)
+                for line in (Path(directory) / "records.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(on_disk), 4)
+
+    def test_fresh_refuses_to_clobber_by_default_and_obeys_with_the_flag(self):
+        config = crash_safety_config()
+        with tempfile.TemporaryDirectory() as directory:
+            first_backend = StubBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS)
+            runner.run(config, resolver=self.resolver, backend=first_backend, output_dir=directory)
+
+            # Default: an existing, fully-complete records.jsonl is resumed
+            # rather than clobbered, so a backend with nothing left to do is
+            # never called at all.
+            resumed_backend = StubBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS)
+            runner.run(config, resolver=self.resolver, backend=resumed_backend, output_dir=directory)
+            self.assertEqual(resumed_backend.draws, 0)
+
+            # `fresh=True` (the CLI's `--fresh`) obeys: it discards the old
+            # file and every cell is redrawn from scratch.
+            fresh_backend = StubBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS)
+            records, _ = runner.run(
+                config, resolver=self.resolver, backend=fresh_backend,
+                output_dir=directory, fresh=True)
+            self.assertEqual(fresh_backend.draws, 4)
+            self.assertEqual(len(records), 4)
+
+    def test_a_backend_hiccup_is_retried_once_and_recorded(self):
+        config = crash_safety_config(seeds=[1], max_draws_per_task=1)
+        backend = _FlakyBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS, fail_at=1, fail_forever=False)
+        with tempfile.TemporaryDirectory() as directory:
+            records, _ = runner.run(config, resolver=self.resolver, backend=backend, output_dir=directory)
+            self.assertEqual(len(records), 1)
+            self.assertTrue(records[0]["retried"])
+            self.assertTrue(records[0]["cell_done"])
+            # The failed first attempt plus the successful retry.
+            self.assertEqual(backend.calls, 2)
+
+    def test_a_second_consecutive_failure_is_not_swallowed(self):
+        config = crash_safety_config(seeds=[1], max_draws_per_task=1)
+        backend = _FlakyBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS, fail_at=1, fail_forever=True)
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(BackendUnavailable):
+                runner.run(config, resolver=self.resolver, backend=backend, output_dir=directory)
+            # Nothing landed on disk: the very first draw never succeeded.
+            on_disk = (Path(directory) / "records.jsonl").read_text(encoding="utf-8")
+            self.assertEqual(on_disk, "")
 
 
 class CliTest(unittest.TestCase):

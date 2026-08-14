@@ -280,6 +280,43 @@ PASS.
 own terms; the live run is gated on the T5 model-selection item and gets
 recorded by the runner itself when it happens.
 
+## Hardening amendment (2026-08-13)
+
+A real full-matrix run on CPU exposed the gap the completion criteria above
+don't cover: a draw exceeded the backend timeout hours in (thermal throttling
+had collapsed decode to 0.3 tok/s), `BackendUnavailable` propagated out of
+`run()`, and the process died having written **nothing** — `runner.py`
+buffered every record in memory and only wrote `records.jsonl`/`summary.json`/
+`report.md` at the very end, and there was no way to resume. `experiment/runner.py`
+and `test_experiment.py` were hardened in response, with no change to the
+records schema beyond two additive per-draw fields:
+
+- **Append-mode records.** When `run()` is given an `output_dir` (the CLI's
+  path, via `main`), every draw's record is appended to `records.jsonl` the
+  moment it is built and flushed per write, instead of being held in memory
+  until the end. Callers that call `run()` directly with no `output_dir` — the
+  rest of the test suite — get the original pure in-memory contract,
+  unchanged.
+- **Partial-run artifacts.** A `BackendUnavailable` or `KeyboardInterrupt`
+  from the cell loop now writes `summary.json`/`report.md` for whatever cells
+  finished before re-raising with a "partial run: N of M cells" message,
+  instead of the process dying silently mid-matrix.
+- **Resume.** Each draw record carries an additive `cell_done: true` on the
+  record that ends its `(task, condition, regime, seed)` cell — the
+  completeness marker. On startup, if `records.jsonl` already exists, cells
+  whose completeness marker is present are loaded and skipped ("resuming:
+  skipping N completed cells"); a cell cut off mid-draw has no such marker and
+  is discarded and rerun from draw 0, so a resumed run never duplicates draw
+  records. `--fresh` discards the existing file outright instead of resuming.
+- **Per-draw retry.** One retry after a `BackendUnavailable` on a single draw
+  (a server hiccup, not necessarily a hard-down backend), recorded on the
+  record as an additive `retried: true`. A second consecutive failure is not
+  swallowed — it propagates into the partial-write abort path above.
+
+Covered by `test_experiment.CrashSafetyTest` (incremental persistence, partial
+artifacts on a dead backend, resume skipping a completed cell and finishing
+the rest, `--fresh`'s refuse-then-obey behaviour, and the retry-once path).
+
 ## Completion criteria
 
 - [x] R1's resolver exists, unifies the registries behind one lookup surface,
