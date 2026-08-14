@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/4a3b3b8) | Index the corpus-loop plan; triage its auto-captured deferral |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a4d241e) | Record store v0's run log and verification |
 | [2026-08-14](https://github.com/wbniv/loom/commit/2dd638c) | Index the store plan; refresh stale plan-index statuses |
 | [2026-08-14](https://github.com/wbniv/loom/commit/1c4b585) | Decide the production implementation language: Rust, migration deferred |
@@ -41,6 +42,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+4a3b3b8	author	Will Norris
+4a3b3b8	added	1
+4a3b3b8	deleted	0
+4a3b3b8	files	1
+4a3b3b8	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 a4d241e	author	Will Norris
 a4d241e	added	1
 a4d241e	deleted	1

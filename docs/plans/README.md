@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-14 | [The namespace lease protocol](2026-08-14-lease-protocol.md) | Draft — four decisions await operator sign-off |
 | 2026-08-14 | [Closing the corpus loop](2026-08-14-corpus-loop.md) | Designed; open as `[T4]` |
 | 2026-08-14 | [Store v0: persistent content-addressed objects in Rust](2026-08-14-store-v0.md) | Built and verified; 47 objects seeded, `fsck` clean, prompt equivalence proven |
 | 2026-08-14 | [The production implementation language](2026-08-14-production-language-decision.md) | Decided — Rust; migration deferred behind triggers M1–M4 |

@@ -27,12 +27,12 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] **Close the corpus loop: harvest accepted generations into the store**
+- [wip T4] <!-- agent:a972fbe78eacec82d --> **Close the corpus loop: harvest accepted generations into the store**
   with honest provenance, origin-filtered prompt assembly (curated-only
   default proven byte-identical), and the two-arm follow-up config. Judgment
   in the provenance/tier boundaries and the readmission seam, hence T4.
   See [plan](docs/plans/2026-08-14-corpus-loop.md).
-- [T2] **Public write-up of the masked-generation experiment** — one article
+- [wip T2] <!-- agent:ae5bf2871462f56fb --> **Public write-up of the masked-generation experiment** — one article
   in docs/ from the two result reports plus a README section; bounded,
   sources fixed, hence T2.
 
