@@ -32,11 +32,6 @@ Check conformance with `task todo:lint`.
   policy oracle. Cross-cutting Rust state stratum + Python oracle seam,
   hence T4. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 
-- [wip T4] <!-- agent:a972fbe78eacec82d --> **Close the corpus loop: harvest accepted generations into the store**
-  with honest provenance, origin-filtered prompt assembly (curated-only
-  default proven byte-identical), and the two-arm follow-up config. Judgment
-  in the provenance/tier boundaries and the readmission seam, hence T4.
-  See [plan](docs/plans/2026-08-14-corpus-loop.md).
 
 ## Watch
 
@@ -69,6 +64,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [corpus-loop] Closed the loop: 34 generated defs harvested with provenance, resolver-driven examples, chars/token floor fixed 2.6×; A/B one launch away. See [plan](docs/plans/2026-08-14-corpus-loop.md).
 - ✅ 2026-08-14 — [experiment-writeup] Published the constrained-generation article (12-point number audit) + README results section. See [article](docs/articles/2026-08-14-constrained-generation-results.md).
 - ✅ 2026-08-14 — [store-v0] Built the Rust store: 47 corpus objects seeded, fsck 3-invariant, 172-prompt resolver equivalence proven; first Track G code. See [plan](docs/plans/2026-08-14-store-v0.md).
 - ✅ 2026-08-14 — [phase-b2] Condition-4 matrix complete (773 draws): masking ≥ rejection everywhere, +70% no-example; typecheck 41% survivor. See [plan](docs/plans/2026-08-13-experiment-phase-b.md).
