@@ -23,15 +23,44 @@ tasks:
 
   experiment:remote:
     desc: Run Phase A on a rented g6.xlarge in us-east-2 and bring runs/ back (~$1)
+    deps: [setup]
     cmds:
       - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
 
 
-  aws-narrow:
-    desc: "One-time, after aws-bootstrap: apply the self-narrowing IAM policy, verify it suffices, detach the broad policies."
+  setup:
+    desc: "Install pinned project tool dependencies (terraform 1.9.8) into ~/.local/bin; verify the rest. Idempotent."
     cmds:
       - |
         set -euo pipefail
+        TF_VERSION=1.9.8
+        BIN="$HOME/.local/bin"
+        mkdir -p "$BIN"
+        if "$BIN/terraform" version 2>/dev/null | grep -q "v${TF_VERSION}"; then
+          echo "✓ terraform v${TF_VERSION} already installed at $BIN"
+        else
+          echo "Installing terraform v${TF_VERSION} → $BIN"
+          TMP=$(mktemp -d)
+          curl -fsSL -o "$TMP/tf.zip" "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+          unzip -o -q "$TMP/tf.zip" -d "$BIN" terraform
+          rm -rf "$TMP"
+          echo "✓ installed: $("$BIN/terraform" version | head -1)"
+        fi
+        for tool in aws python3 tar unzip curl git; do
+          command -v "$tool" >/dev/null && echo "✓ $tool" || { echo "✗ missing: $tool — install it via your package manager"; exit 1; }
+        done
+        case ":$PATH:" in
+          *":$HOME/.local/bin:"*) echo "✓ ~/.local/bin is on PATH" ;;
+          *) echo "note: ~/.local/bin not on your shell PATH — project tasks handle this themselves, but add it to your rc for direct use" ;;
+        esac
+
+  aws-narrow:
+    desc: "One-time, after aws-bootstrap: apply the self-narrowing IAM policy, verify it suffices, detach the broad policies."
+    deps: [setup]
+    cmds:
+      - |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
         PROFILE=loom-terraform
         ACCOUNT=353144603271
         TFDIR=infrastructure/aws/iam-self
@@ -77,9 +106,11 @@ tasks:
 
   aws-bootstrap:
     desc: "One-time: create the loom-terraform IAM profile locally and bootstrap the S3/DynamoDB state backend."
+    deps: [setup]
     cmds:
       - |
         set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
 
         # Portable masked read: go-task's interpreter lacks bash's `read -n1`,
         # so hide echo with stty instead of star-masking per keystroke.
