@@ -1,8 +1,12 @@
 # Design — The namespace lease protocol (open problem 4)
 
 **Date:** 2026-08-14
-**Status:** Draft for operator review — four decisions below need sign-off
-before this touches SPEC §5.3 or the store
+**Status:** **Approved** (operator, 2026‑08‑14) — all four decisions as
+drafted, plus one amendment from review: an explicit `revoke` verb
+(operator-initiated, fence-bumping) is *named as deliberate future work* so
+the mid-lease-eviction question is visibly decided rather than unconsidered.
+SPEC §5.3.3 now carries the protocol; §13 problem 4 is narrowed to the
+fairness/scale residue.
 **Parent:** SPEC §5.3 / §13 open problem 4; the
 [store v0 plan](2026-08-14-store-v0.md)'s "what a future increment touches
 first" notes
@@ -75,7 +79,11 @@ would make every policy amendment a potential availability weapon, and the
 new policy binds at the next `acquire`/`renew` anyway (renewals re-check).
 The admission-rule-1 race stays solved exactly as §5.3.2 states: the
 binding's `policy-ref` mismatch refuses, and the *lease* is what guarantees
-the retry isn't racing a second writer too.
+the retry isn't racing a second writer too. *(Approved amendment:* a
+compromised-writer scenario — tightening `writers` to remove a principal —
+is bounded by the old policy's own key 6, and the stronger response is a
+future `revoke` verb, operator-initiated and fence-bumping, named in
+§5.3.3 as deliberate future work.*)*
 
 ### L5 — Granularity: one lease per namespace, not per subtree
 

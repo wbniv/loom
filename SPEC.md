@@ -1043,10 +1043,9 @@ rule requiring ⊒ A1 on kind 0 forbids A0 on every `ensures` outright).
 
 **Lease keys and the redraw budget.** Key 4 `signers` restricts whose A0 evidence
 a governed binding may carry and is checked at admission. Keys 5 and 6 state who
-may hold the namespace's write lease and for how long; the lease protocol itself
-is open problem 4 (§13), so a store that does not implement leases must **refuse**
-bindings governed by a policy stating either key rather than admit them
-unenforced. Key 7 is the redraw budget §8.3 names: it constrains the generation
+may hold the namespace's write lease and for how long; the lease protocol is
+§5.3.3, and a store that does not implement it must **refuse** bindings
+governed by a policy stating either key rather than admit them unenforced. Key 7 is the redraw budget §8.3 names: it constrains the generation
 loop, not binding admission — a promoted binding carries no record of how many
 redraws produced it — so it is advisory, and it is the only key in the table that
 is.
@@ -1099,7 +1098,7 @@ it is admitting; nothing resolves in a circle.
 1. Its `policy-ref` equals the hash of `p`'s governing policy `G`. A mismatch
    refuses — a proposal that raced a policy rebind is retried against the new
    policy rather than silently cleared under stale rules. What serializes that
-   race is the namespace lease (§5.3), whose protocol is open problem 4.
+   race is the namespace lease, whose protocol is §5.3.3.
 2. Every policy on the chain from `G` upward to the default dominates the policy
    governing it.
 3. Its obligation set — those §6.2 generates, plus every obligation `G` injects —
@@ -1160,6 +1159,68 @@ assurance on any given name then only ever rises, because the next rebind must b
 satisfy the new policy and carry evidence ⊒ the old. A projection may render a
 binding whose `policy-ref` is not the current governing policy as **stale** — a
 review surface (§9), not a refusal.
+
+#### 5.3.3 The lease protocol
+
+*(Specified 2026‑08‑14, resolving the protocol half of what was open problem 4;
+design record: [docs/plans/2026-08-14-lease-protocol.md](docs/plans/2026-08-14-lease-protocol.md).)*
+
+A lease is store **state**, not store content: it expires, so it is neither
+immutable nor content-addressed, and it lives in its own stratum — an
+append-only per-namespace log of lease events outside object identity. The
+current lease is the fold of the log; a conforming store's integrity check
+verifies that every log parses, fences increase strictly, and any cached
+current-lease state equals the fold. "Every previous state of every namespace
+remains addressable" (§5.3) is a claim about bindings; the lease log is
+operational coordination with an audit trail, not addressable knowledge.
+
+**Fencing, not clocks.** Every successful acquisition issues a **fence
+number** — strictly increasing per namespace, from 1. Admitting a binding
+(including a `POLICY` rebind) requires the proposal to carry the namespace's
+current, unexpired fence; a holder whose lease expired or was superseded fails
+the fence check regardless of what it believes about time. Clocks matter only
+at the single arbiter the store already is (§5.3 needs no consensus): expiry
+is judged by the store's clock at admission time, so writer-side clock skew is
+harmless, and a store-side clock jump can shorten or lengthen a lease in wall
+terms but can never admit two writers. The fence is the guarantee; the TTL is
+only liveness.
+
+**Verbs.** Four, with lazy expiry and no queue:
+
+- `acquire(namespace, principal, ttl-millis)` → `granted{fence, expires}`, or
+  a refusal naming its reason: *held* (with holder and expiry), *writer* (the
+  principal is not in the governing policy's key 5 set), or *bound* (the
+  requested TTL exceeds key 6 — refused, never silently clamped).
+- `renew(namespace, fence, ttl-millis)` — extends expiry under the **same**
+  fence (holder continuity is renewal's point), re-checked against the
+  *current* governing policy.
+- `release(namespace, fence)` — ends the lease immediately.
+- Expiry is lazy: no reaper; an expired lease is simply acquirable, and the
+  next grant increments the fence. Contention is poll-based.
+
+**Policy integration.** `acquire` and `renew` resolve the namespace's
+governing policy (§5.3.2) and record its hash in the lease event, mirroring a
+binding's `policy-ref`. A `POLICY` rebind that tightens key 5 or key 6
+mid-lease does **not** evict the current holder: the lease was cleared under
+the policy in force at grant, eviction-by-rebind would make every policy
+amendment an availability weapon, and the new policy binds at the next
+`acquire` or `renew` anyway. Exposure from a newly-distrusted holder is
+bounded by the old policy's own key 6. An explicit `revoke` verb —
+operator-initiated, fence-bumping — is named as deliberate future work rather
+than left unconsidered.
+
+**Granularity.** One lease per namespace: a lease on `stats/` covers bindings
+whose parent is `stats/` — including `stats/POLICY` — and says nothing about
+`stats/inner/`, which has its own. Cross-level races are already refused by
+admission rule 1's `policy-ref` check (§5.3.2), so subtree-spanning leases buy
+no correctness and would concentrate contention.
+
+**The principal gap, inherited not created.** Key 5 compares 32-byte
+principal-ids; possession-proof remains the A0 payload's open question (§13).
+A conforming store records the claimed principal-id unverified — the same
+stance §5.3.1 takes for A0 signers — making the lease log an accountability
+record, not an authentication one, with a clean seam for a proof argument
+when the A0 format lands.
 
 ### 5.4 The draft region
 
@@ -1574,7 +1635,13 @@ IDE affordances.
    is in context. What stays open: batched-serving cost (the §8.2 question
    at B ≫ 1), and pruning the layer that now dominates — typecheck
    positions the per-token proof discipline must abstain on.
-4. **Lease granularity** (§5.3) under high agent counts.
+4. **Lease fairness at scale — narrowed 2026‑08‑14.** The lease *protocol*
+   is now specified (§5.3.3: fencing over clocks, append-only state log,
+   lazy expiry, per-namespace granularity). What stays open: fairness and
+   throughput when many agents contend for one namespace (queues,
+   hierarchical sharding, lease splitting — gated on real agent-count
+   data), the named-but-unbuilt `revoke` verb, and principal
+   possession-proof, which belongs to the A0 payload (problem 6).
 5. **Intensional identity** (§4.1) means semantically identical
    definitions duplicate evidence effort; an extensional-equality memo
    layer is future work.
@@ -1592,8 +1659,8 @@ IDE affordances.
    sound-but-incomplete** single-rule test that refuses some genuinely
    at-least-as-strict successors; and **atomic policy-plus-binding change**,
    which would need §10's binding-group record extended across a `POLICY` name.
-   Policy keys 5 and 6 state what a policy demands of a lease but not how it is
-   enforced — that stays open problem 4; (b) **generator
+   Policy keys 5 and 6 are now enforced through §5.3.3's protocol; the
+   possession-proof they lean on stays with this problem's A0 payload; (b) **generator
    comparability** — incomparability across generators is sound but blunt,
    and there is no way to say one generator dominates another (stochastically
    or by coverage) short of re-running the old one; (c) **method families

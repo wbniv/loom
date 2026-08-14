@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/b7f352f) | Draft the lease protocol design (open problem 4) for operator review |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4a3b3b8) | Index the corpus-loop plan; triage its auto-captured deferral |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a4d241e) | Record store v0's run log and verification |
 | [2026-08-14](https://github.com/wbniv/loom/commit/2dd638c) | Index the store plan; refresh stale plan-index statuses |
@@ -42,6 +43,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+b7f352f	author	Will Norris
+b7f352f	added	1
+b7f352f	deleted	0
+b7f352f	files	1
+b7f352f	body	Fencing over clocks, state-log outside object identity, per-namespace\ngranularity, lazy expiry; four decisions marked for sign-off. Also\nstamps the two in-flight dispatch items.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 4a3b3b8	author	Will Norris
 4a3b3b8	added	1
 4a3b3b8	deleted	0

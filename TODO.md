@@ -43,9 +43,11 @@ Check conformance with `task todo:lint`.
   plan's M1 trigger (≥ 25 % of decode) could still fire. Revisit when any
   serving-shaped workload exists.
 
-- Lease acquisition/renewal/expiry protocol for namespaces (SPEC.md §5.3, §13 open
-  problem 4) — "a lease held by one agent or principal" has no protocol defined yet;
-  revisit once agent-count assumptions are less speculative.
+- Lease fairness at scale (SPEC.md §5.3.3, §13 problem 4 — narrowed) — the
+  protocol is **specified and approved** (fencing, state log, lazy expiry,
+  per-namespace); watched residue: contention fairness (queues/sharding),
+  the named `revoke` verb, and A0 possession-proof. Revisit on real
+  agent-count data or when the store's namespaces increment starts.
 
 - Extensional-equality memo layer for intensional identity (SPEC.md §4.1, §13 open
   problem 5) — semantically identical definitions currently duplicate evidence effort;
