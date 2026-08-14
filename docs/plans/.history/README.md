@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/4658f23) | Specify the lease protocol as SPEC 5.3.3; narrow open problem 4 |
 | [2026-08-14](https://github.com/wbniv/loom/commit/b7f352f) | Draft the lease protocol design (open problem 4) for operator review |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4a3b3b8) | Index the corpus-loop plan; triage its auto-captured deferral |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a4d241e) | Record store v0's run log and verification |
@@ -43,6 +44,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+4658f23	author	Will Norris
+4658f23	added	1
+4658f23	deleted	1
+4658f23	files	1
+4658f23	body	Operator-approved D1-D4 plus the revoke amendment: fencing over\nclocks, append-only lease state outside object identity, lazy expiry,\nper-namespace granularity, no eviction on mid-lease policy rebind\n(revoke named as future work). Problem 4 narrows to fairness at\nscale; keys 5/6 enforcement now points at the protocol.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 b7f352f	author	Will Norris
 b7f352f	added	1
 b7f352f	deleted	0
