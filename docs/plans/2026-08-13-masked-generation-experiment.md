@@ -1,7 +1,10 @@
 # Plan — The masked-generation experiment
 
 **Date:** 2026-08-13
-**Status:** Designed; substrate not yet built
+**Status:** Complete — Phase A (2,335 draws) and Phase B condition 4
+(773 draws) both run; all six predictions scored; store-shaping conclusions
+recorded. Results: [Phase A](../results/2026-08-14-phase-a-report.md),
+[condition 4](../results/2026-08-14-phase-b-condition4-report.md).
 **Decides:** §8.4's central hypothesis; sequencing of the store
 
 ## Objective

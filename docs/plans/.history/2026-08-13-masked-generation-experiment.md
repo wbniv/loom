@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/447ef63) | Land condition 4: 773 draws, R5 scored, Phase B complete |
 | [2026-08-14](https://github.com/wbniv/loom/commit/de317f2) | Bring plans and the source-code investigation current with Phase B events |
 | [2026-08-14](https://github.com/wbniv/loom/commit/23b6c2f) | Record the condition-4 launch and close out the build-cache plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/f8617b7) | Close out the Phase A run log; grace-poll the driver deadline |
@@ -15,6 +16,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+447ef63	author	Will Norris
+447ef63	added	24
+447ef63	deleted	7
+447ef63	files	1
+447ef63	body	Masking weakly dominates rejection sampling (+70% no-example, +46%\nfew-shot, exact tie full-corpus and held-out) but misses plain\ngrammar's 1.452 corpus-rich bar. Scope failures 268 -> 17; typecheck\nthe 41% survivor; mask 10.4% of masked-draw latency (M1 does not\nfire). Predictions 4 and 5 scored; B2 promoted to Done.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 de317f2	author	Will Norris
 de317f2	added	11
 de317f2	deleted	0
