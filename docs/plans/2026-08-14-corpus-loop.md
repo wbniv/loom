@@ -1,8 +1,10 @@
 # Plan — Closing the corpus loop: accepted generations enter the store
 
 **Date:** 2026-08-14
-**Status:** Built and verified — see [Run log](#run-log) and
-[Recorded verification](#recorded-verification). One escalation was raised and
+**Status:** Complete — built, verified, and the A/B **run and positive**
+(2026‑08‑14, run ids `20260814T213313Z` curated / `20260814T221904Z`
+generated, both on europe‑west4‑c L4, ~$1.30 total). See
+[the A/B verdict](#the-ab-verdict) below. One escalation was raised and
 resolved during implementation:
 [the arms must differ in what the model sees](#escalation-and-resolution-the-arms-must-differ-in-what-the-model-sees).
 **Parent:** SPEC §13's endgame ("accepted generations join the corpus, the
@@ -721,3 +723,38 @@ git diff --check exit=0
 
 **PASS** — both clean. `TODO.md` is untouched by this branch; moving the corpus
 loop item is the orchestrator's call.
+
+
+## The A/B verdict (2026‑08‑14)
+
+Two arms, identical but for `include_generated`, same zone, same hardware,
+same seeds. The curated arm **exactly replicated** phase‑b's cells
+(196/55/1.377 and 47/1/0.081) — the cleanest possible baseline. Against it,
+the generated arm (34 model-generated definitions added to context,
+prompts +26 % tokens):
+
+| metric | curated | generated | Δ |
+|---|---|---|---|
+| full_corpus acc/1k tok | 1.377 | **1.803** | **+31 %** |
+| full_corpus accepted/draws | 55/196 | 72/206 | 28 % → 35 % |
+| full_corpus semantic · distinct | 5 · 9 | 6 · 11 | both up |
+| tokens to first acceptance | 152 | **98.5** | −35 % |
+| repeat rate | 0.836 | 0.847 | diversity held |
+| held_out acc/1k tok | 0.081 | **0.244** | **3×** |
+| held_out accepted (distinct) | 1 (1) | **3 (3)** | first movement in any run |
+| held_out semantic | 0 | 0 | composition still unsolved |
+
+**Reading.** 1.803 is the highest per-token acceptance in the whole
+experiment — above plain grammar's corpus-rich 1.452, the bar condition 4
+alone could not beat. Feeding the model's own accepted outputs back as
+context made it more productive without collapsing diversity, and held-out
+acceptance moved for the first time anywhere (3 distinct checker-accepted
+definitions vs the 0-or-1 wall). Honest limits: one run per arm, small
+held-out counts (1 vs 3 is noise-sensitive), zero held-out *semantic*
+success — recall improved, synthesis did not, exactly as conclusion 5
+predicted. The loop's next turn (harvest this run, re-run) and a
+larger-sample held-out arm are the obvious follow-ups, neither dispatched.
+
+Reports preserved:
+[curated](../results/2026-08-14-followup-curated-report.md) ·
+[generated](../results/2026-08-14-followup-generated-report.md).
