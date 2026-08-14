@@ -113,6 +113,20 @@ resource "aws_iam_policy" "scoped" {
         ]
       },
       {
+        # First spot use in an account creates the EC2 Spot service-linked
+        # role; without this the very first RunInstances with a spot market
+        # option fails AuthFailure.ServiceLinkedRoleCreationNotPermitted.
+        Sid      = "SpotServiceLinkedRole"
+        Effect   = "Allow"
+        Action   = ["iam:CreateServiceLinkedRole"]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "spot.amazonaws.com"
+          }
+        }
+      },
+      {
         # IAM forbids wildcards in the service segment of an action, so
         # "*:Get*" is malformed — reads are enumerated per service instead.
         Sid    = "ReadPerService"
