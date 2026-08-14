@@ -28,12 +28,6 @@ Check conformance with `task todo:lint`.
 ## Open
 
 
-- [wip T3] <!-- agent:aa3205050b31ac26f --> **Track P L0: the differential harness** — JSON-lines export of every
-  validator verdict (input, verdict, error class, canonical bytes, identity)
-  over corpus, examples, and every test rejection case; the one prerequisite
-  the Rust port track names. Spec is settled in the
-  [language decision](docs/plans/2026-08-14-production-language-decision.md)
-  §"Track P" (L0); execution spans the test modules, hence T3.
 
 
 
@@ -68,6 +62,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [track-p-l0] Built the differential harness: 3,681 cases via transparent entry-point instrumentation, byte-reproducible, zero test changes. See [language plan](docs/plans/2026-08-14-production-language-decision.md) Track P.
 - ✅ 2026-08-14 — [language-batch-2] Scored SML/Haskell/Clojure/Perl/Ruby on the fixed rubric: Haskell 94 nearest, none approach Rust's 114; decision stands. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md).
 - ✅ 2026-08-14 — [store-namespaces] Built bindings+leases per §5.3.3: O_EXCL fences (race-proven), oracle-owned policy admission, rules enforced-or-refused. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-14 — [corpus-loop] Closed the loop: 34 generated defs harvested with provenance, resolver-driven examples, chars/token floor fixed 2.6×; A/B one launch away. See [plan](docs/plans/2026-08-14-corpus-loop.md).
