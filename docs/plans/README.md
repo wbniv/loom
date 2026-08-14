@@ -2,16 +2,17 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-14 | [Store v0: persistent content-addressed objects in Rust](2026-08-14-store-v0.md) | Designed; open as `[T4]` |
 | 2026-08-14 | [The production implementation language](2026-08-14-production-language-decision.md) | Decided — Rust; migration deferred behind triggers M1–M4 |
-| 2026-08-14 | [GPU build cache](2026-08-14-gpu-build-cache.md) | In progress; capture armed |
+| 2026-08-14 | [GPU build cache](2026-08-14-gpu-build-cache.md) | Complete; hit proven on two consecutive runs |
 | 2026-08-14 | [GCP infrastructure for the Phase A experiment run](2026-08-14-gcp-experiment-infra.md) | Implemented; `fmt` + `validate` + `shellcheck` PASS, apply gated on the operator |
 | 2026-08-13 | [GPU infrastructure for the Phase A experiment run](2026-08-13-gpu-experiment-infra.md) | Implemented; `fmt` + `validate` PASS, apply gated on operator credentials |
 | 2026-08-13 | [The reference evaluator](2026-08-13-reference-evaluator.md) | Implemented; PASS |
 | 2026-08-13 | [§3.3 subsumption in `typecheck.py`](2026-08-13-refinement-subsumption.md) | Implemented; PASS |
-| 2026-08-13 | [Experiment Phase B: the incremental type-state masker](2026-08-13-experiment-phase-b.md) | B1 implemented; B2 gated |
+| 2026-08-13 | [Experiment Phase B: the incremental type-state masker](2026-08-13-experiment-phase-b.md) | Complete; condition 4 run (773 draws), R5 scored |
 | 2026-08-13 | [The obligation pipeline, and what a `sat` verdict means](2026-08-13-obligation-pipeline.md) | Implemented; PASS |
 | 2026-08-13 | [Masked-generation experiment, Phase A substrate and harness](2026-08-13-experiment-phase-a.md) | Implemented; PASS (live run gated on the T5 model item) |
-| 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Designed; Phase A substrate built |
+| 2026-08-13 | [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) | Complete; both phases run, six predictions scored |
 | 2026-08-13 | [Boolean and comparison base externs](2026-08-13-boolean-base-externs.md) | Implemented; PASS |
 | 2026-08-13 | [Versioned validation contracts](2026-08-13-validation-contracts.md) | Implemented; PASS |
 | 2026-08-13 | [Bootstrap corpus tranche 4: the refinement slice](2026-08-13-corpus-tranche-4.md) | Implemented; PASS |
