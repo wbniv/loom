@@ -1,7 +1,8 @@
 # Plan — Experiment Phase B: the incremental type-state masker
 
 **Date:** 2026-08-13
-**Status:** B1 implemented and verified; B2 gated on Phase A's failure profile
+**Status:** B1 implemented and verified. B2 implemented and verified locally;
+the live condition-4 matrix is prepared and awaits an operator launch.
 **Parent:** [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) (R2 condition 4, R2.1 Phase B)
 
 ## Objective
@@ -254,10 +255,159 @@ B1 (this dispatch):
 
 B2 (gated on Phase A's report):
 
-- [ ] Pruner priority from the failure distribution; enable/extend
-  accordingly.
-- [ ] Run condition 4; complete the R5 comparison and the parent plan's
-  prediction scoring.
+- [x] Pruner priority from the failure distribution; enable/extend
+  accordingly. `goal-type` built and placed first, ahead of `de-bruijn` and
+  `ref-hash`; completion pressure ruled out with reasons. See
+  [the B2 decisions](#the-b2-decisions) below.
+- [x] Machinery for the R5 comparison and the parent plan's prediction
+  scoring, producible from the run report. `runner.r5_comparison`,
+  `Config.baseline_summary`, the report's **R5** section and the masking
+  section's **Prediction 5** block.
+- [x] A remote condition-4 configuration, ready for an operator to launch.
+  `experiment/phase_b.config.json`, plus the transport seam the GCP runner
+  needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
+- [ ] **Run condition 4.** Operator step; not run here by rule (no cloud
+  instance is launched from this dispatch). The exact invocation is recorded
+  below.
+
+## The B2 decisions
+
+Recorded 2026‑08‑14, from Phase A's failure distribution by layer.
+
+Phase A's gate, over the 1,671 grammar-constrained draws of conditions 2–3:
+**typecheck 590, parse 523, scope 268** (de Bruijn share 0.978),
+**references 115**, accepted 175. `typecheck`'s error localization is
+dominated by `definition.term` (×330), then `.body.condition` (×37), then
+match arms and nested bodies.
+
+### Priority: type-goal tracking first
+
+`PRUNER_NAMES = ("goal-type", "de-bruijn", "ref-hash")` — the profile's own
+order. It is not cosmetic: `Masker._veto_layer` credits the **first** layer that
+refuses a byte, so profile order makes `mask_pruned_by_layer` read as "what the
+dominant checker layer removed", which is the number R5 wants. It changes
+attribution between layers, never the mask itself.
+
+**What made a goal pruner possible at all** is one structural fact:
+`root ::= "(def " type " " term ")"`, so a definition's declared type is
+**complete before its term begins**. At the moment the term starts, the state
+has that type in hand; it parses it once, peels the prenex `forall`s exactly as
+`MatchChecker.check_definition` does, and carries the result as the term's goal.
+That is precisely the position the ×330 localization points at.
+
+**And what makes a byte-level veto a proof** is that `transcode.parse_source`
+refuses any surface that is not `def_to_surface(ir)`. An accepted definition's
+bytes therefore *are* the canonical rendering of its IR, so wherever the checker
+forces a sub-type to equal a type already known, the bytes at that position are
+determined and every other byte is refusable. This is the single hardest prune
+in the stack — a whole type subtree collapses to one string — and it exists only
+because the surface is canonical.
+
+Five vetoes, each with its rule in `typecheck.py`:
+
+| veto | proof |
+|---|---|
+| a `lam` annotation under a `fn` goal, and a `fix` annotation under any goal, are **forced** to canonical bytes | `check` tag 3 fails on `term[1] != expected[1]` and `_check_fix` on `annotation != expected`, both immediately, with no subsumption or instantiation path behind them |
+| head feasibility: `lam`/`fix` need a `fn` goal, `lit` a base goal, `con` a nominal one | `check` tag 6 fails outright on a non-nominal goal; the others synthesize a type whose erasure cannot meet the goal's |
+| a literal's kind word is fixed by a base goal | `synth` tag 2 returns `[0, k]`, and literal-kind codes are base-type codes |
+| a `con`'s data hash is fixed by a nominal goal | `check` tag 6 fails unless `term[1] == expected[1]` |
+| a `ref`'s digest is filtered to those whose resolved type meets the goal | a `ref` synthesizes its resolved type; equality, first-order instantiation of a `forall`, and subsumption all fail when a non-quantified type erases differently |
+
+The last one is B1's "kind-specialising the reference trie is a B2 lever",
+taken — specialised by *type* rather than by kind, which is strictly narrower.
+
+Every comparison is on §3.2.1 **refinement erasure**, which is subsumption's own
+precondition. That keeps all five proofs independent of whether a caller
+supplies `MatchChecker`'s obligation collector. `evaluate.run_funnel` does not
+supply one, so subsumption never fires in this experiment — but nothing above
+leans on that, and `test_masker` pins the coupling so a future collector cannot
+silently widen what the checker accepts under a mask built for the narrower
+rule.
+
+One consequence worth naming: the goal layer can prove `(ref …)` impossible at a
+goal no digest could meet, and refuses the **head** rather than walking into a
+hash position where it would have to refuse every digit until the mask emptied
+and fell back for liveness. On *this* corpus that veto is inert — one corpus
+definition is polymorphic, and §3.1.3 instantiates a `forall` against any goal,
+so exactly one digest survives every goal. The test says so rather than hiding
+it, and drives the mechanism against a resolver holding only an ill-fitting
+type, which is what a larger monomorphic corpus produces.
+
+### Completion pressure: **out of B2 scope**, and why
+
+Parse deaths are second (523) and are essentially all budget truncation at 512
+tokens. A masker cannot extend a budget, so the only pruner shaped like an
+answer is one that vetoes branches that cannot close within the remaining
+tokens. It is not built, for four reasons, in order of weight:
+
+1. **The only sound bound is too weak to steer.** Minimum *bytes* to close is
+   computable from the grammar; minimum *tokens* is not, because tokenization is
+   the model's. The sound lower bound is `min_bytes / max_piece_len`, and
+   `max_piece_len` is ~24 on this vocabulary. With 400 tokens left that permits
+   ~9,600 bytes — so the veto cannot fire at the point where steering would
+   change the program. The version that *would* steer needs an expected
+   bytes-per-token estimate, and an estimate is a heuristic, which R4's
+   proof-or-abstain rule forbids outright.
+2. **It would break the memoization the design's affordability rests on.** The
+   mask is a memoized transition over `(grammar state, type state)`. Remaining
+   budget is a per-step quantity, so admitting it into the veto puts it in the
+   cache key and every step becomes a cache miss. B1's whole tractability
+   argument is that per-token cost tracks what survives rather than the
+   vocabulary; this would trade the dominant layer's prune for a cache.
+3. **Closing early converts a failure, it does not create an acceptance.** A
+   draw steered to close inside budget yields a complete definition that then
+   meets the checkers — a truncation relabelled as a typecheck failure.
+   Accepted-per-1k-tokens, the R5 measure, does not move.
+4. It does not touch the dominant layer.
+
+Recorded as an abstention rather than an omission. What would change the answer:
+a per-position bytes-per-token bound that is a *bound* and not an estimate, or a
+budget large enough that truncation stops being the second-largest killer — the
+latter being the honest reading of Phase A's parse row anyway.
+
+### Abstentions added (R6: which checker operations cannot run per token)
+
+B1 left one entry. B2 adds these, all recorded in `part_goal` and pinned by
+`test_masker.GoalTypePrunerTest.test_the_synthesis_positions_are_abstentions_not_omissions`:
+
+| position | why the goal is unknown |
+|---|---|
+| `app`'s function and argument | `synth` tag 4 synthesizes the function, and the argument's goal is that function's domain — not available from a byte prefix unless the function is already resolved |
+| `let`'s bound term and body | `synth` tag 5 checks the bound term against the `let`'s *written* type and then **synthesizes** the body; neither is a goal the declared type supplies |
+| a `match` scrutinee | synthesized, and it is what determines the arms' constructor set |
+| `con` and `perform` field arguments | field types come from `constructor_fields` / `operation_signature`, i.e. a declaration lookup keyed on a tag that follows in the byte stream |
+| `hole`'s annotation | `synth` tag 11 returns the annotation, which may itself be a `forall` and reach the goal by instantiation, so it is not forced |
+| the type of a `(var N)` | needs a binder-*type* environment; the state carries binder depths, not types |
+| minimum tokens to close a form | see the completion-pressure decision above |
+| an operation clause's binder count (B1) | still open: `parameter_count + 1` needs ability resolution. Note the two abstentions are **independent** — a handler clause's *goal* is known (`_check_handler` checks every clause body against the expected type) even though its depth is not, and B2 propagates the goal there |
+
+### `mask_fallbacks` means something new
+
+B1's liveness fallback fired when the type layer would empty a non-empty syntax
+mask, and read as "the type layer over-pruned". With a goal layer it can also
+mean **the prefix is provably dead** — every continuation fails the checker, and
+the mask has no way to say so. Both are still counted the same way and are still
+honest instrumentation; the interpretation of a non-zero count in a live run is
+now "the model painted itself into a corner", not necessarily "a pruner is too
+aggressive". The corpus walk records zero either way.
+
+## The remote path for condition 4
+
+The condition-4 config alone could not have run. The GCP runner's
+[startup script](../../infrastructure/gcp/modules/experiment-runner/startup-script.sh.tftpl)
+hardcoded `backend = "llama-server"` and dropped `model_path`, and
+`llama-server` exposes no `mask_vocabulary`, so
+`make_masker` would have refused by name after the instance was already paid
+for. The startup script now reads the transport out of the operator's own
+config: `gbnf+typemask` present means the in-process `llama-cpp` backend with
+`model_path` and `llama_lib` filled in and no `llama-server` started (a second
+full offload would contend for the same VRAM); anything else is Phase A's served
+path, unchanged. A config **mixing** condition 4 with a Phase A condition is
+refused before anything is built, because `llama-cpp` implements
+`generate_masked` only and would otherwise die partway through a GPU-hour
+matrix. `libllama.so` is now named as a build target and required of a build
+cache hit, so a cache seeded before condition 4 existed fails the hit test rather
+than failing the run.
 
 ## Verification
 
@@ -387,6 +537,162 @@ which is what a misaligned struct actually corrupts.
 failure distribution by rule (R2.1) — B1 deliberately claims no pruner-priority
 conclusion from data it does not have.
 
+### Recorded — B2, 2026‑08‑14
+
+**1. `task prototype:test`**
+
+```
+Ran 541 tests in 19.569s
+
+OK (skipped=1)
+```
+
+PASS. 541 tests. `test_masker.py` goes from 64 to 92: `GoalTypePrunerTest`'s 23
+probes, four R5/config-readiness cases in `ConditionFourTest`, and one added to
+`MaskerApiTest`.
+
+**2. `python3 -m py_compile prototype/*.py prototype/experiment/*.py`**
+
+```
+py_compile exit=0
+```
+
+PASS.
+
+**3. `task todo:lint`**
+
+```
+TODO.md: clean
+todo:lint exit=0
+```
+
+PASS.
+
+**4. `git diff --check`**
+
+```
+diff --check exit=0
+```
+
+PASS.
+
+**5. The mask-soundness suite over every corpus fixture (R4)** — the property
+the phase rests on, now with a third pruner in the stack.
+`python3 -m unittest test_masker.MaskSoundnessTest test_masker.GoalTypePrunerTest`:
+
+```
+Ran 29 tests in 14.888s
+
+OK
+```
+
+PASS. All 26 corpus fixtures walk under four tokenizations with `goal-type`
+active, the fixture's own next token never masked, and **zero liveness
+fallbacks** — which is the load-bearing number, because the goal layer is by far
+the most aggressive of the three and a fallback is how over-aggression would
+show up.
+
+Two unsoundnesses the suite caught during development, both recorded because
+they are the shape of mistake this layer invites:
+
+- **A terminator is not an extension.** The first head veto tested
+  `atom + byte` against the feasible-head prefixes, so the space ending `lam`
+  was read as the head `lam ` and refused — killing every `lam` in the corpus.
+  Terminators now judge the finished atom instead, and
+  `test_a_finished_head_is_judged_at_its_terminator_not_extended` pins it.
+- **`arm` and `op` are not in `FORMS`,** so `_apply_part` indexes their spec by
+  `part` rather than `part - 1`. Propagating the goal to "part 3" of an arm
+  silently propagated it nowhere.
+  `test_match_arms_and_handler_clauses_inherit_the_goal` pins the real indices.
+
+**6. Live sanity — the real tokenizer, on this box.**
+`task experiment:mask-sanity -- --fixtures 0 --max-tokens 64`:
+
+```
+model            : /home/will/loom-tools/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+vocabulary       : 151936 tokens, 333028 trie nodes, loaded in 2.5 s
+tokenizer        : detokenize == concat(pieces)  [checked at load]
+soundness        : 26/26 fixtures, 11341 mask steps, 0 violations, 15.6 s
+masked draw      : 29 tokens in 2.2 s, stop=stop
+  text           : '(def (fn Bool () Bool) (lam Bool (if (var 0) (lit bool false) (lit bool true))))\n'
+  stats          : {"mask_cache_hit_rate": 0.931, "mask_fallbacks": 0,
+                    "mask_pruned_by_layer": {"de-bruijn": 902, "goal-type": 19529,
+                                             "ref-hash": 0, "syntax": 4376944},
+                    "mask_seconds": 0.003458, "mask_seconds_per_token": 0.000119232,
+                    "mask_seconds_per_token_uncached": 0.001220578,
+                    "mask_steps": 29, "mask_vocab_size": 151936}
+```
+
+PASS, and it carries three things worth stating carefully:
+
+- **R4 holds under the model's own tokenization** with the goal layer in: 26/26
+  fixtures, 11,341 mask steps, zero violations, zero fallbacks, over a
+  151,936-token vocabulary.
+- **The goal layer is the dominant type-layer pruner**, by more than an order of
+  magnitude: 19,529 tokens removed against de Bruijn's 902 and the reference
+  trie's 0. That is the profile order paying off in the direction Phase A's gate
+  pointed.
+- **The draw completed and stopped on its own** (`stop=stop`, EOS at a state the
+  grammar may end in) with a definition that is byte-identical to
+  `corpus/bool_not.loom.sexpr`. Under B1's two pruners the same model at
+  temperature 0 was still mid-`(if (var ` after 16 tokens.
+
+  **This is one draw at temperature 0 on the 1.5B model, and it is a
+  memorization-shaped success** — identity match against a corpus fixture, which
+  is exactly the mechanism Phase A's prediction 6 found behind all 13 of its
+  semantic successes. It is a signal that the matrix is worth running, not a
+  result. Nothing here is evidence about held-out composition, where Phase A
+  measured zero.
+
+**7. The remote path renders, parses and lints.**
+
+```
+$ python3 scripts/render-gcp-startup-script.py <out>
+rendered ok, no unknown interpolation
+
+$ bash -n <out>
+bash -n OK
+
+$ shellcheck <out>
+SC2015 (info) at the build-cache seeding line
+```
+
+PASS. The one `shellcheck` info is **pre-existing and unchanged** — rendering
+`HEAD`'s template reproduces the identical finding at the same line, so this
+change introduces no new lint. (`shellcheck-exit=0` recorded in the GPU
+build-cache plan predates the `&& … || …` seeding line.)
+
+```
+$ bash -n scripts/run-remote-experiment-gcp.sh && shellcheck scripts/run-remote-experiment-gcp.sh
+driver bash -n OK
+driver-shellcheck-exit=0
+```
+
+PASS.
+
+**Not run: the condition-4 matrix itself.** No cloud instance was launched from
+this dispatch, by rule. The operator's invocation is recorded below.
+
+### What the operator runs
+
+```sh
+scripts/run-remote-experiment-gcp.sh \
+  --model-identity "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M" \
+  --gguf qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+  --config prototype/experiment/phase_b.config.json \
+  --remote-output-dir runs/phase-b \
+  --dest prototype/runs/phase-b
+```
+
+The config is Phase A's matrix with condition 4 substituted: seeds {1, 2, 3},
+temperature 0.8, 512 tokens per task and per draw, all four regimes,
+leave-one-out on, the three pruners in profile order. `backend`, `model_path`,
+`llama_lib`, `model_identity` and `hardware` are left empty so the entry point
+refuses a local run; the instance fills them. `baseline_summary` points at the
+committed Phase A summary, so the returned `report.md` carries the R5 table and
+the prediction-4 verdict without anyone assembling it by hand — condition 4's
+bar is `gbnf|full_corpus` at **1.452** accepted per 1k tokens.
+
 ## Completion criteria
 
 - B1: every corpus fixture's canonical surface walks token-by-token with the
@@ -396,6 +702,31 @@ conclusion from data it does not have.
   `test_masker.ConditionFourTest`.
 - B2: condition 4 live results reported against conditions 1–3 under the
   shared budget rule; R5 answered with numbers; predictions scored.
+  **Partly met.** The pruner priority is decided and built, the abstention list
+  is extended, and every number R5 and predictions 4–5 need is produced by the
+  run report from a recorded baseline. What is outstanding is the run itself,
+  which is an operator step by rule.
+
+## What B2 hands the operator, and the next dispatch
+
+- **The one thing left is a launch.** Everything downstream of it is
+  mechanical: `report.md` carries the R5 table, the prediction-4 verdict and the
+  prediction-5 share on the page.
+- **Prediction 5 now has two readings pointing the same way.** B1 measured the
+  mask at ~0.03 % of decode; B2 measures ~0.16 % (0.12 ms/token warm,
+  1.22 ms/token cold, against ~76 ms/token of CPU decode for the 1.5B). Both are
+  the opposite of the prediction's first clause. The L4 decodes far faster than
+  this box, so the matrix is where the clause is actually settled — the mask
+  cost is transport-independent but the decode it is divided by is not.
+- **Two aggression levers remain**, both deliberate: a `(var N)` carries no
+  type because the state tracks binder depths and not binder types, and
+  `con`/`perform` argument goals need a declaration lookup keyed on a tag that
+  has not been written yet. Each is a real pruner; each needs the state to carry
+  more than it does.
+- **If the live run shows non-zero `mask_fallbacks`**, read it with the note
+  above: with a goal layer, a fallback can mean the prefix is provably dead
+  rather than that a pruner over-pruned. The two are worth separating before
+  drawing a conclusion from the count.
 
 ## What B1 hands B2
 

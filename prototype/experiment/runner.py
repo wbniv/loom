@@ -146,6 +146,11 @@ class Config:
     #: `libllama.so` of the pinned llama.cpp build; empty uses `llama_ffi`'s
     #: default, which is the path the parent plan records.
     llama_lib: str = ""
+    #: An earlier run's `summary.json` — Phase A's — that condition 4 is scored
+    #: against for R5. Named in the config rather than passed on the command
+    #: line so the comparison's provenance is recorded with the run that made
+    #: it. Ignored unless condition 4 ran.
+    baseline_summary: str = ""
     n_ctx: int = 4096
     n_threads: int = 0
 
@@ -168,6 +173,13 @@ class Config:
                 f"known keys are {', '.join(sorted(known - {'source_path'}))}")
         config = cls(**raw)
         config.source_path = str(path)
+        # Anchored to the config's own directory rather than the process's cwd:
+        # the remote runner launches from `prototype/` while the config it
+        # launches lives in `prototype/experiment/`, so a cwd-relative baseline
+        # would resolve on this box and silently vanish on the instance.
+        if config.baseline_summary and not Path(config.baseline_summary).is_absolute():
+            config.baseline_summary = str(
+                (path.parent / config.baseline_summary).resolve())
         config.validate()
         return config
 
@@ -577,6 +589,62 @@ def _error_paths(rows, layer, limit=5):
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
 
 
+def r5_comparison(cells, baseline_path):
+    """R5, as a table: condition 4 against the conditions it has to beat.
+
+    Phase A and Phase B are separate runs on separate transports, so the
+    comparison cannot be read off one set of records. It is assembled here from
+    this run's cells plus a **recorded** earlier summary, named in the config so
+    the number's provenance travels with the result instead of being pasted in
+    afterwards. Returns `None` when either half is missing.
+
+    The measure is `accepted_per_1k_tokens`, which is R2's shared-budget rule
+    and the one number that survives the R1 comparability boundary: both runs
+    spend the same token purse per task, whatever the wall clock says.
+    """
+    masked = {
+        key.split("|", 1)[1]: cell for key, cell in cells.items()
+        if key.startswith(f"{CONDITION_TYPEMASK}|")}
+    if not masked or not baseline_path:
+        return None
+    try:
+        baseline = json.loads(Path(baseline_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {"error": f"baseline summary {baseline_path} unreadable: {error}"}
+    prior = baseline.get("cells", {})
+    rows = []
+    for regime in sorted(masked):
+        cell = masked[regime]
+        entry = {
+            "regime": regime,
+            CONDITION_TYPEMASK: cell["accepted_per_1k_tokens"],
+            "masked_accepted": cell["accepted"],
+            "masked_tokens": cell["tokens"],
+        }
+        for condition in GRAMMAR_CONDITIONS:
+            found = prior.get(f"{condition}|{regime}")
+            entry[condition] = found["accepted_per_1k_tokens"] if found else None
+        bar = max((entry[c] for c in GRAMMAR_CONDITIONS if entry[c] is not None), default=None)
+        entry["bar"] = bar
+        entry["delta"] = round(entry[CONDITION_TYPEMASK] - bar, 3) if bar is not None else None
+        rows.append(entry)
+    comparable = [row for row in rows if row["delta"] is not None]
+    return {
+        "baseline_summary": str(baseline_path),
+        "baseline_run": baseline.get("started_utc"),
+        "baseline_backend": baseline.get("config", {}).get("backend"),
+        "measure": "accepted_per_1k_tokens",
+        "by_regime": rows,
+        # Prediction 4 said rejection sampling would stay competitive with
+        # masking. It is scored false only if masking beats the best Phase A
+        # grammar condition in every regime the two runs share.
+        "masking_beats_the_bar_everywhere": (
+            all(row["delta"] > 0 for row in comparable) if comparable else None),
+        "regimes_masking_wins": sum(1 for row in comparable if row["delta"] > 0),
+        "regimes_compared": len(comparable),
+    }
+
+
 def summarize(records, config, resolver, elapsed_s):
     cells = {
         f"{condition}|{regime}": _cell_metrics(rows)
@@ -596,8 +664,10 @@ def summarize(records, config, resolver, elapsed_s):
         overall.add(row["funnel_outcome"])
     scope_rows = [r for r in grammar_rows if r["funnel_outcome"] == "scope"]
     masking = _mask_metrics(records)
+    r5 = r5_comparison(cells, config.baseline_summary)
     return {
         **({"masking": masking} if masking else {}),
+        **({"r5": r5} if r5 else {}),
         "started_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "elapsed_s": round(elapsed_s, 3),
         "config": {k: v for k, v in asdict(config).items() if k not in ("stub_outputs", "stub_grammar_outputs")},
@@ -675,6 +745,77 @@ def _render_masking(summary):
         "the check. The combined transition and mask caches are part of the "
         "design, not an artefact of the measurement, and their hit rate is in "
         "the per-draw records.",
+        "",
+        "### Prediction 5 — is Python-side masking overhead material?",
+        "",
+        "Prediction 5 said masking overhead would be *material relative to "
+        "local decode speed* but dominated by model latency. The share below is "
+        "that number: mask time over total masked-draw latency, both measured "
+        "on the same transport in the same process, so it is a like-for-like "
+        "ratio rather than a cross-transport comparison.",
+        "",
+        f"- **Mask share of masked-draw latency: {masking['mask_share_of_draw_latency']}** "
+        "— the figure to score against.",
+        f"- Warm: {masking['mask_seconds_per_token']} s/token. "
+        f"Cold: {masking['mask_seconds_per_token_uncached']} s/token. "
+        "Score against both; the caches are part of the design, so the warm "
+        "number is what a run actually pays and the cold one bounds it.",
+    ]
+    return out
+
+
+def _render_r5(summary):
+    """R5's comparison, when the config recorded a baseline to compare against."""
+    r5 = summary.get("r5")
+    if not r5:
+        return []
+    if "error" in r5:
+        return ["", "## R5 — condition 4 against conditions 2 and 3", "",
+                f"Not computed: {r5['error']}", ""]
+    out = [
+        "",
+        "## R5 — condition 4 against conditions 2 and 3",
+        "",
+        "The experiment's decisive comparison: does per-token type-directed "
+        "masking produce more accepted definitions per token than "
+        "definition-level rejection sampling? The measure is "
+        f"`{r5['measure']}`, which is R2's shared-budget rule and the one "
+        "number that survives R1's comparability boundary — both runs spend the "
+        "same token purse per task whatever the wall clock says.",
+        "",
+        f"**Baseline:** `{r5['baseline_summary']}` "
+        f"(run {r5['baseline_run']}, backend {r5['baseline_backend']})",
+        "",
+    ]
+    rows = [[
+        row["regime"],
+        row[CONDITION_TYPEMASK],
+        row[CONDITION_GBNF] if row[CONDITION_GBNF] is not None else "—",
+        row[CONDITION_GBNF_REJECTION] if row[CONDITION_GBNF_REJECTION] is not None else "—",
+        row["bar"] if row["bar"] is not None else "—",
+        row["delta"] if row["delta"] is not None else "—",
+        ("masking" if row["delta"] is not None and row["delta"] > 0
+         else "baseline" if row["delta"] is not None else "—"),
+    ] for row in r5["by_regime"]]
+    out.append(_table(
+        ["regime", "gbnf+typemask", "gbnf", "gbnf+rejection", "bar", "delta", "wins"], rows))
+    verdict = r5["masking_beats_the_bar_everywhere"]
+    out += [
+        "",
+        f"Masking beats the bar in {r5['regimes_masking_wins']} of "
+        f"{r5['regimes_compared']} comparable regimes.",
+        "",
+        "**Prediction 4** said condition 3 would stay competitive with "
+        "condition 4 — the honest prediction that threatens the masker. It is "
+        + ("**false**: masking beats the best grammar condition in every "
+           "comparable regime, so §8.2's complexity is carried by the numbers."
+           if verdict is True else
+           "**true or partial**: masking does not beat the best grammar "
+           "condition everywhere, so the per-token masker is not paying for "
+           "itself across the matrix on this measure."
+           if verdict is False else
+           "not scoreable: no regime had both halves of the comparison."),
+        "",
     ]
     return out
 
@@ -783,6 +924,7 @@ def render_report(summary, records):
         if paths:
             out.append(f"**{layer}** — " + ", ".join(f"`{p}` ×{n}" for p, n in paths))
     out += _render_masking(summary)
+    out += _render_r5(summary)
     out += [
         "",
         "## Outstanding by rule, not by omission",
@@ -791,9 +933,16 @@ def render_report(summary, records):
         f"{sum(c['rubric_pending'] for c in summary['cells'].values())} draws that met "
         "the mechanical floor. The metric is partly human and this line is what keeps "
         "it from being silently dropped.",
-        "- Predictions 4 and 5 (rejection sampling versus masking, and masking "
-        "overhead) cannot be scored from Phase A alone: both compare against "
-        "condition 4.",
+        ("- Prediction 5 is scored in the masking section above. Prediction 4 "
+         "is scored in the R5 section above."
+         if masked and summary.get("r5") and "error" not in summary["r5"] else
+         "- Prediction 5 is scored in the masking section above. Prediction 4 "
+         "needs a baseline to compare against: set `baseline_summary` in the "
+         "run config to a Phase A `summary.json` and the R5 table appears here."
+         if masked else
+         "- Predictions 4 and 5 (rejection sampling versus masking, and masking "
+         "overhead) cannot be scored from Phase A alone: both compare against "
+         "condition 4."),
         "",
     ]
     return "\n".join(out) + "\n"

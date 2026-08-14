@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Loom masked-generation experiment, Phase A — remote runner (GCP).
+# Loom masked-generation experiment — remote runner (GCP).
+#
+# Serves Phase A's conditions 1-3 over `llama-server`, and Phase B's condition 4
+# ("gbnf+typemask") over the in-process `llama-cpp` ctypes transport, which is
+# the only one that exposes the per-token logits a mask needs. Which of the two
+# it is, is read out of the operator's own config rather than configured twice.
 #
 # Rendered by Terraform (infrastructure/gcp/modules/experiment-runner). Bash
 # variables are written without braces so Terraform's own dollar-brace
@@ -122,6 +127,35 @@ if [ -z "$MODEL_PATH" ] || [ ! -f "$MODEL_PATH" ]; then
 fi
 log "model: $MODEL_PATH"
 
+# --- 3b. Which transport this run needs -------------------------------------
+# Condition 4 masks at the logit level, and `llama-server`'s HTTP API exposes no
+# per-token logit callback (Phase B R1), so a masked matrix runs in process over
+# `libllama.so` instead. The config decides; the operator does not configure the
+# transport twice and cannot get the two out of step.
+log "fetching the run config"
+gsutil -q cp "gs://$BUCKET/$CONFIG_KEY" "$WORK/run.config.json"
+
+MASKED=0
+if python3 -c 'import json,sys; sys.exit(0 if "gbnf+typemask" in json.load(open(sys.argv[1]))["conditions"] else 1)' \
+     "$WORK/run.config.json"; then
+  MASKED=1
+fi
+
+if [ "$MASKED" = 1 ]; then
+  # One run, one backend: `llama-cpp` implements `generate_masked` only and
+  # refuses `generate` by name, so a config mixing condition 4 with any Phase A
+  # condition would die partway through a matrix that costs GPU-hours. Fail here
+  # instead, before anything is built.
+  if ! python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["conditions"]; sys.exit(0 if c==["gbnf+typemask"] else 1)' \
+       "$WORK/run.config.json"; then
+    log "config mixes 'gbnf+typemask' with Phase A conditions; one run serves one transport"
+    exit 1
+  fi
+  log "transport: in-process llama-cpp (condition 4)"
+else
+  log "transport: llama-server (conditions 1-3)"
+fi
+
 # --- 4. llama.cpp at the pinned revision ------------------------------------
 # Revision-keyed build cache: hit -> ~30 s extract; miss -> build once and
 # seed the cache for every later run. The cache is an optimization, never a
@@ -130,10 +164,18 @@ log "model: $MODEL_PATH"
 BUILD_CACHE="gs://$BUCKET/builds/llama-$LLAMA_REV-cu129-g2.tar.gz"
 git clone "$LLAMA_REPO" "$WORK/llama.cpp"
 git -C "$WORK/llama.cpp" checkout --detach "$LLAMA_REV"
+# The masked transport dlopens `libllama.so` from the same build tree, so both
+# artifacts are required of a cache hit and both are named as build targets.
+# They come from one build either way — `llama-server` links the shared library
+# — but naming them makes a cache seeded before condition 4 existed fail the
+# hit test rather than fail the run.
+LLAMA_LIB="$WORK/llama.cpp/build/bin/libllama.so"
+SERVER_BIN="$WORK/llama.cpp/build/bin/llama-server"
+
 if gsutil -q stat "$BUILD_CACHE" 2>/dev/null && \
    gsutil -q cp "$BUILD_CACHE" /tmp/llama-build.tar.gz && \
    tar -xzf /tmp/llama-build.tar.gz -C "$WORK/llama.cpp" && \
-   test -x "$WORK/llama.cpp/build/bin/llama-server"; then
+   test -x "$SERVER_BIN" && test -f "$LLAMA_LIB"; then
   log "build cache hit: $BUILD_CACHE"
 else
   log "build cache miss — building llama.cpp at $LLAMA_REV with CUDA"
@@ -143,46 +185,53 @@ else
     -DGGML_CUDA=ON \
     -DLLAMA_CURL=OFF \
     -DLLAMA_BUILD_TESTS=OFF
-  cmake --build "$WORK/llama.cpp/build" --config Release --target llama-server -j "$(nproc)"
+  cmake --build "$WORK/llama.cpp/build" --config Release --target llama llama-server -j "$(nproc)"
   (cd "$WORK/llama.cpp" && tar czf - build | gsutil -q cp - "$BUILD_CACHE") \
     && log "build cache seeded: $BUILD_CACHE" \
     || log "build cache upload failed (continuing — cache is best-effort)"
 fi
 
-SERVER_BIN="$WORK/llama.cpp/build/bin/llama-server"
 test -x "$SERVER_BIN"
+test -f "$LLAMA_LIB"
 
 # --- 5. llama-server --------------------------------------------------------
-log "starting llama-server"
-"$SERVER_BIN" \
-  --model "$MODEL_PATH" \
-  --host 127.0.0.1 --port 8080 \
-  -ngl "$NGL" -c "$CTX" --parallel "$PARALLEL" \
-  > "$SERVER_LOG" 2>&1 &
-SERVER_PID=$!
+# Skipped entirely for a masked run: the in-process transport loads its own copy
+# of the weights, and a second full offload would contend for the same VRAM.
+if [ "$MASKED" = 0 ]; then
+  log "starting llama-server"
+  "$SERVER_BIN" \
+    --model "$MODEL_PATH" \
+    --host 127.0.0.1 --port 8080 \
+    -ngl "$NGL" -c "$CTX" --parallel "$PARALLEL" \
+    > "$SERVER_LOG" 2>&1 &
+  SERVER_PID=$!
 
-log "waiting for llama-server health"
-for attempt in $(seq 1 120); do
-  if curl -sf http://127.0.0.1:8080/health >/dev/null; then
-    log "llama-server healthy after $attempt attempts"
-    break
-  fi
-  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    log "llama-server died during startup"
-    tail -n 100 "$SERVER_LOG"
-    exit 1
-  fi
-  sleep 5
-done
-curl -sf http://127.0.0.1:8080/health >/dev/null
+  log "waiting for llama-server health"
+  for attempt in $(seq 1 120); do
+    if curl -sf http://127.0.0.1:8080/health >/dev/null; then
+      log "llama-server healthy after $attempt attempts"
+      break
+    fi
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+      log "llama-server died during startup"
+      tail -n 100 "$SERVER_LOG"
+      exit 1
+    fi
+    sleep 5
+  done
+  curl -sf http://127.0.0.1:8080/health >/dev/null
+else
+  log "skipping llama-server: the masked transport loads the model in process"
+fi
 
 # --- 6. Remote config -------------------------------------------------------
-# The operator's own Phase A config travels up untouched; only the backend
-# seam, the recorded identity fields and the output directory are rewritten
-# here, so the matrix that runs remotely is the matrix they configured.
+# The operator's own config travels up untouched; only the backend seam, the
+# recorded identity fields and the output directory are rewritten here, so the
+# matrix that runs remotely is the matrix they configured — seeds, conditions,
+# regimes, budgets and pruner set included.
 log "patching the run config"
-gsutil -q cp "gs://$BUCKET/$CONFIG_KEY" "$WORK/run.config.json"
 
+MASKED="$MASKED" MODEL_PATH="$MODEL_PATH" LLAMA_LIB="$LLAMA_LIB" \
 MODEL_IDENTITY="$MODEL_IDENTITY" HARDWARE="$HARDWARE" OUTPUT_DIR="$OUTPUT_DIR" \
   python3 - "$WORK/run.config.json" "$WORK/repo/prototype/experiment/remote.config.json" <<'PY'
 import json
@@ -193,13 +242,22 @@ source, target = sys.argv[1], sys.argv[2]
 with open(source, encoding="utf-8") as handle:
     config = json.load(handle)
 
-config["backend"] = "llama-server"
-config["server_url"] = "http://127.0.0.1:8080"
+if os.environ["MASKED"] == "1":
+    # Phase B R1: the mask needs per-token logits, which only the in-process
+    # ctypes transport over the pinned `libllama.so` exposes. Same GGUF, same
+    # engine build, same sampling parameters as the served conditions.
+    config["backend"] = "llama-cpp"
+    config["model_path"] = os.environ["MODEL_PATH"]
+    config["llama_lib"] = os.environ["LLAMA_LIB"]
+    config.pop("server_url", None)
+else:
+    config["backend"] = "llama-server"
+    config["server_url"] = "http://127.0.0.1:8080"
+    config.pop("model_path", None)
 config["model_identity"] = os.environ["MODEL_IDENTITY"]
 config["hardware"] = os.environ["HARDWARE"]
 config["output_dir"] = os.environ["OUTPUT_DIR"]
 config.pop("binary", None)
-config.pop("model_path", None)
 
 with open(target, "w", encoding="utf-8") as handle:
     json.dump(config, handle, indent=2, sort_keys=True)
@@ -211,7 +269,7 @@ PY
 # `experiment.runner` writes records.jsonl incrementally and resumes from it, so
 # a re-run against a restored output directory picks up where a preempted run
 # stopped rather than repeating finished cells.
-log "running the Phase A matrix"
+log "running the matrix"
 cd "$WORK/repo/prototype"
 python3 -m experiment.runner --config experiment/remote.config.json
 
