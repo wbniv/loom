@@ -1,11 +1,17 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/a4d241e) | Record store v0's run log and verification |
 | [2026-08-13](https://github.com/wbniv/loom/commit/a19d194) | Close effect-consistency review follow-ups |
 | [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
 | [2026-08-13](https://github.com/wbniv/loom/commit/72736d0) | Add Loom-vs-Lisp doc; ignore session transcripts |
 | [2026-08-12](https://github.com/wbniv/loom/commit/c624690) | Import Loom v0.1 spec and overview from ~/docs |
 
 <!--history-meta v1
+a4d241e	author	Will Norris
+a4d241e	added	10
+a4d241e	deleted	5
+a4d241e	files	1
+a4d241e	body	All seven of the plan's numbered verification steps, run as written with raw\noutput recorded below each, plus the two completion criteria that are not\nnumbered steps (fsck catching an edited sidecar; a re-seeded store being\nbyte-identical under diff -r).\n\nResults: 43 Rust tests green, clippy + fmt clean, 47 objects seeded and\nfsck exit 0, 587 Python tests green (555 before, +32 from test_store), a\ncorrupted object refused with exit 4 naming both hashes, an absent hash\nrefused with exit 3 on stdout, todo:lint and git diff --check clean.\n\nThe run log also records the design decisions taken inside the plan's shape\nand the alternatives rejected — notably why declarations travel as a JSON\nmirror of their IR rather than through a new Python CBOR decoder, and why\nthe index carries a sidecar digest.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 a19d194	author	Will Norris
 a19d194	added	2
 a19d194	deleted	2
