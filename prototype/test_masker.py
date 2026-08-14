@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 
 import corpus_registry
+import transcode
 from experiment import runner
 from experiment.backends import (
     DECOY_HASH,
@@ -38,9 +39,11 @@ from experiment.backends import (
 from experiment.evaluate import ACCEPTED, run_funnel
 from experiment.gbnf import Grammar, GrammarError, loom_grammar
 from experiment.masker import (
+    LIT_KIND_NAMES,
     PRUNABLE,
     PRUNER_NAMES,
     DeBruijnPruner,
+    GoalTypePruner,
     Masker,
     ReferenceHashPruner,
     StaticVocabulary,
@@ -342,6 +345,286 @@ class PrunerTest(unittest.TestCase):
         self.assertFalse(self.veto(self.indices, unknown[: -len("(var ")], "v"))
 
 
+class GoalTypePrunerTest(unittest.TestCase):
+    """B2's goal-type layer, probed where it claims a proof and where it does not.
+
+    Phase A put `typecheck` at the top of the failure distribution (590 of 1,671
+    grammar-constrained draws), localized at `definition.term`, so these are the
+    cases that decide whether the dominant layer is actually being pruned.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.goals = GoalTypePruner(cls.resolver.digests(), cls.resolver.reference_type)
+        cls.blind = GoalTypePruner(cls.resolver.digests())
+
+    def veto(self, prefix: str, char: str, pruner=None) -> bool:
+        pruner = pruner or self.goals
+        return pruner.veto(TypeState().feed(prefix.encode("utf-8")), ord(char))
+
+    # -- the declared type becomes the term's goal -------------------------
+
+    def test_the_declared_type_is_captured_and_becomes_the_terms_goal(self):
+        state = TypeState().feed(b"(def (fn Bool () Bool) (")
+        self.assertEqual(state.top.goal_in, b"(fn Bool () Bool)")
+        # ... and a prenex `forall` is peeled exactly as `check_definition` does.
+        state = TypeState().feed(b"(def (forall (fn (tyvar 0) () (tyvar 0))) (")
+        self.assertEqual(state.top.goal_in, b"(fn (tyvar 0) () (tyvar 0))")
+
+    def test_a_declared_type_this_layer_cannot_read_abstains(self):
+        # Rank-2: `forall_prefix` refuses it, so there is no goal and no veto.
+        prefix = "(def (fn (forall Bool) () Bool) ("
+        self.assertEqual(TypeState().feed(prefix.encode()).top.goal_in, b"")
+        for char in "lcfr":
+            self.assertFalse(self.veto(prefix, char), char)
+
+    # -- 1. the forced annotation -----------------------------------------
+
+    def test_a_lambda_annotation_is_forced_to_the_goal_domain(self):
+        opened = "(def (fn Bool () I64) (lam "
+        self.assertEqual(TypeState().feed(opened.encode()).forced, b"Bool")
+        self.assertFalse(self.veto(opened, "B"))
+        for char in "IFTUb(":
+            self.assertTrue(self.veto(opened, char), char)
+        # The run is consumed byte by byte and stops having an opinion at its end.
+        self.assertFalse(self.veto(opened + "Boo", "l"))
+        self.assertTrue(self.veto(opened + "Boo", "k"))
+        self.assertEqual(TypeState().feed((opened + "Bool").encode()).forced, b"")
+
+    def test_a_forced_annotation_spans_a_whole_nested_type(self):
+        domain = "(fn I64 () Bool)"
+        opened = f"(def (fn {domain} () Bool) (lam "
+        state = TypeState().feed(opened.encode())
+        self.assertEqual(state.forced, domain.encode("ascii"))
+        for index in range(len(domain)):
+            with self.subTest(offset=index):
+                self.assertFalse(self.veto(opened + domain[:index], domain[index]))
+
+    def test_a_fix_annotation_is_forced_to_the_whole_goal(self):
+        opened = "(def (fn Bool () Bool) (fix "
+        self.assertEqual(TypeState().feed(opened.encode()).forced, b"(fn Bool () Bool)")
+        self.assertFalse(self.veto(opened, "("))
+        self.assertTrue(self.veto(opened, "B"))
+
+    def test_nothing_is_forced_where_the_goal_is_unknown(self):
+        # `app` synthesizes both parts, so a `lam` under one has no goal.
+        opened = "(def Bool (app (lam "
+        self.assertEqual(TypeState().feed(opened.encode()).forced, b"")
+        for char in "BIFTU(":
+            self.assertFalse(self.veto(opened, char), char)
+
+    # -- 2. head feasibility ----------------------------------------------
+
+    def test_a_lambda_head_needs_a_function_goal(self):
+        self.assertTrue(self.veto("(def Bool (l", "a"))
+        self.assertFalse(self.veto("(def (fn Bool () Bool) (l", "a"))
+        # `let` and `lit` keep the bare `l` alive at a base goal.
+        self.assertFalse(self.veto("(def Bool (", "l"))
+        self.assertFalse(self.veto("(def Bool (l", "e"))
+
+    def test_a_literal_head_needs_a_base_goal(self):
+        self.assertTrue(self.veto("(def (fn Bool () Bool) (l", "i"))
+        self.assertFalse(self.veto("(def Bool (l", "i"))
+
+    def test_a_constructor_head_needs_a_nominal_goal(self):
+        self.assertTrue(self.veto("(def Bool (", "c"))
+        nominal = "(data 0x" + "ab" * 32 + " ())"
+        self.assertFalse(self.veto(f"(def {nominal} (", "c"))
+
+    def test_a_fix_head_needs_a_function_goal(self):
+        self.assertTrue(self.veto("(def Bool (", "f"))
+        self.assertFalse(self.veto("(def (fn Bool () Bool) (", "f"))
+
+    def test_a_finished_head_is_judged_at_its_terminator_not_extended(self):
+        """The terminator case, because getting it wrong killed every `lam`.
+
+        A space does not extend `lam` into `lam ` — it ends the atom, and what
+        must be judged there is the head that was written.
+        """
+        self.assertFalse(self.veto("(def (fn Bool () Bool) (lam", " "))
+        self.assertTrue(self.veto("(def Bool (lam", " "))
+        # A word that is not a head at all is the grammar's business.
+        self.assertFalse(self.veto("(def Bool (nonesuch", " "))
+
+    def test_a_head_the_goal_cannot_reject_is_never_vetoed(self):
+        for prefix, char in (("(def Bool (", "m"), ("(def Bool (", "h"),
+                             ("(def Bool (", "a"), ("(def Bool (", "p")):
+            self.assertFalse(self.veto(prefix, char), char)
+
+    def test_a_ref_head_is_refused_when_no_digest_could_meet_the_goal(self):
+        """The dead-end the layer declines to walk into.
+
+        If nothing the resolver holds could be named here, `(ref …)` could only
+        be followed by digits the layer would then refuse one by one until the
+        mask emptied and fell back for liveness. Refusing the head is the same
+        proof applied one atom earlier.
+
+        **On this corpus the veto is inert**, and the test says so rather than
+        hiding it: one corpus definition is polymorphic, and §3.1.3 instantiates
+        a `forall` against any goal, so exactly one digest survives every goal
+        and `ref` always stays feasible. The mechanism is therefore driven here
+        against a resolver that holds only an ill-fitting type -- which is the
+        situation a *larger* corpus of monomorphic definitions produces.
+        """
+        digest = bytes.fromhex("ab" * 32)
+        only_i64 = GoalTypePruner([digest], lambda _: [0, 2])   # I64
+        self.assertTrue(only_i64.veto(TypeState().feed(b"(def Bool ("), ord("r")))
+        self.assertFalse(only_i64.veto(TypeState().feed(b"(def I64 ("), ord("r")))
+        # With no resolver at all there is nothing to prove, so the head stays.
+        self.assertFalse(self.veto("(def Bool (", "r", pruner=self.blind))
+        # And the corpus's own polymorphic definition is why the real pruner
+        # keeps `ref` alive at a goal no monomorphic definition could meet.
+        self.assertFalse(self.veto("(def Bool (", "r"))
+
+    # -- 3/4. literal kinds and constructor hashes -------------------------
+
+    def test_a_literal_kind_word_is_fixed_by_a_base_goal(self):
+        self.assertFalse(self.veto("(def Bool (lit ", "b"))
+        for char in "iftu":
+            self.assertTrue(self.veto("(def Bool (lit ", char), char)
+        self.assertFalse(self.veto("(def I64 (lit ", "i"))
+        self.assertTrue(self.veto("(def I64 (lit ", "b"))
+        # Terminators judge the finished word, they do not extend it.
+        self.assertFalse(self.veto("(def Bool (lit bool", " "))
+        self.assertTrue(self.veto("(def Unit (lit bool", " "))
+        self.assertFalse(self.veto("(def Unit (lit unit", ")"))
+
+    def test_literal_kinds_and_base_codes_agree_position_for_position(self):
+        """The correspondence the kind veto is built on, asked of the source.
+
+        `synth` tag 2 returns `[0, term[1]]`, so a literal's kind code *is* a
+        base-type code. If those two tables ever drift apart the veto above
+        starts naming the wrong word, and it would be a silent unsoundness.
+        """
+        from transcode import BASE_CODE, LIT_KIND
+        self.assertEqual(
+            [name.decode("ascii") for name in LIT_KIND_NAMES],
+            [name for name, _ in sorted(LIT_KIND.items(), key=lambda kv: kv[1])])
+        self.assertEqual(sorted(LIT_KIND.values()), sorted(BASE_CODE.values()))
+
+    def test_a_constructor_hash_is_fixed_by_the_nominal_goal(self):
+        digest = "ab" * 32
+        prefix = f"(def (data 0x{digest} ()) (con 0x"
+        for index in range(len(digest)):
+            with self.subTest(offset=index):
+                self.assertFalse(self.veto(prefix + digest[:index], digest[index]))
+        self.assertTrue(self.veto(prefix, "c"))
+        self.assertTrue(self.veto(prefix + digest, "c"))
+        self.assertFalse(self.veto(prefix + digest, " "))
+        self.assertTrue(self.veto(prefix + digest[:-2], " "))
+
+    # -- 5. the goal-filtered digest universe ------------------------------
+
+    def test_a_ref_digest_must_resolve_to_a_type_meeting_the_goal(self):
+        wanted = self.resolver.digest_for("corpus/bool/not").hex()
+        goal = "(fn Bool () Bool)"
+        self.assertEqual(
+            transcode.type_to_surface(self.resolver.reference_type(
+                self.resolver.digest_for("corpus/bool/not"))), goal)
+        for index in range(len(wanted)):
+            with self.subTest(offset=index):
+                self.assertFalse(self.veto(f"(def {goal} (ref 0x{wanted[:index]}",
+                                           wanted[index]))
+        # The same digest at a goal its type cannot meet is gone by its 4th
+        # digit at the latest -- and `ref-hash` would have kept every one.
+        other = "(fn I64 () I64)"
+        refused = any(self.veto(f"(def {other} (ref 0x{wanted[:index]}", wanted[index])
+                      for index in range(8))
+        self.assertTrue(refused)
+
+    def test_a_polymorphic_definition_survives_every_goal(self):
+        """§3.1.3 instantiates a `forall` against whatever is expected.
+
+        Deciding that per byte would mean re-implementing `_instantiate`, so a
+        quantified type is kept at every goal. The proof stays one-sided.
+        """
+        polymorphic = [
+            found for found in self.resolver.definitions()
+            if found.type_ir and found.type_ir[0] == 6]
+        if not polymorphic:
+            self.skipTest("the corpus holds no polymorphic definition")
+        digest = polymorphic[0].digest.hex()
+        for goal in ("(fn Bool () Bool)", "(fn I64 () I64)"):
+            with self.subTest(goal=goal):
+                for index in range(len(digest)):
+                    self.assertFalse(
+                        self.veto(f"(def {goal} (ref 0x{digest[:index]}", digest[index]))
+
+    # -- goal propagation, and where it deliberately stops ------------------
+
+    def test_an_if_condition_is_Bool_even_under_an_unknown_goal(self):
+        # `check` tag 12 and `synth` tag 12 both check the condition against
+        # BOOL, so this is the one goal that needs no goal above it.
+        state = TypeState().feed(b"(def Bool (app (if (")
+        self.assertEqual(state.top.goal_in, b"Bool")
+        self.assertTrue(self.veto("(def Bool (app (if (l", "a"))
+        # ... and the branches inherit the outer goal, which here is unknown.
+        state = TypeState().feed(b"(def Bool (app (if (var 0) (")
+        self.assertEqual(state.top.goal_in, b"")
+
+    def test_match_arms_and_handler_clauses_inherit_the_goal(self):
+        arm = TypeState().feed(b"(def Bool (match (var 0) ((0 0 (")
+        self.assertEqual(arm.top.goal_in, b"Bool")
+        clause = TypeState().feed(
+            b"(def Bool (handle 0x" + b"aa" * 32 + b" (lit unit) ((0 (")
+        self.assertEqual(clause.top.goal_in, b"Bool")
+        self.assertTrue(clause.depth_unknown,
+                        "the de Bruijn abstention is independent of the goal")
+        ret = TypeState().feed(
+            b"(def Bool (handle 0x" + b"aa" * 32 + b" (lit unit) () (")
+        self.assertEqual(ret.top.goal_in, b"Bool")
+
+    def test_the_synthesis_positions_are_abstentions_not_omissions(self):
+        """Every position this layer deliberately says nothing about.
+
+        Each is a checker rule that synthesizes rather than checks, so no goal
+        exists to prune against. They are listed here so that a later change
+        that starts propagating one has to come through this test.
+        """
+        unknown = {
+            "app function": b"(def Bool (app (",
+            "app argument": b"(def Bool (app (var 0) (",
+            "let bound": b"(def Bool (let Bool (",
+            "let body": b"(def Bool (let Bool (var 0) (",
+            "match scrutinee": b"(def Bool (match (",
+            "con field": b"(def (data 0x" + b"ab" * 32 + b" ()) (con 0x" + b"ab" * 32 + b" 0 ((",
+            "hole annotation": b"(def Bool (hole (",
+            "refine predicate": b"(def (refine Bool (",
+        }
+        for name, prefix in unknown.items():
+            with self.subTest(position=name):
+                state = TypeState().feed(prefix)
+                self.assertEqual(state.top.goal_in, b"", name)
+                self.assertEqual(state.forced, b"", name)
+
+    def test_a_var_type_is_never_pruned(self):
+        # The binder-type environment is not carried, so `(var N)` is the de
+        # Bruijn layer's business alone at every goal.
+        for goal in ("Bool", "(fn Bool () Bool)"):
+            for digit in "0123456789":
+                self.assertFalse(
+                    self.veto(f"(def {goal} (lam Bool (var ", digit), (goal, digit))
+
+    # -- the coupling the proofs are written against ------------------------
+
+    def test_the_funnel_supplies_no_subsumption_collector(self):
+        """§3.3 subsumption does not fire in this experiment, and the vetoes
+        above are written not to depend on that -- every type comparison they
+        make is on refinement *erasure*, which is subsumption's own
+        precondition. This test exists so that wiring a collector into
+        `run_funnel` has to come past a line that names the coupling, rather
+        than silently widening what the checker accepts under a mask built for
+        the narrower rule.
+        """
+        import inspect
+
+        from experiment import evaluate
+        source = inspect.getsource(evaluate.run_funnel)
+        self.assertIn("typecheck.validate_source(source", source)
+        self.assertNotIn("obligation", source)
+
+
 class MaskSoundnessTest(unittest.TestCase):
     """R4. The property the whole of Phase B rests on.
 
@@ -406,12 +689,19 @@ class MaskSoundnessTest(unittest.TestCase):
             "a fallback means the type layer emptied a mask it should not have")
 
     def test_the_mask_shrinks_hard_and_still_offers_something(self):
+        # A hash position inside a definition whose goal is a function type:
+        # the goal layer keeps the corpus's function-typed digests, so the mask
+        # is tiny but alive, and the type layers -- not syntax alone -- are what
+        # made it tiny.
         self.masker.reset()
-        self.masker.accept_bytes(b"(def Bool (ref 0x")
+        self.masker.accept_bytes(b"(def (fn Bool () Bool) (ref 0x")
         step = self.masker.step()
         self.assertTrue(step.allowed)
+        self.assertFalse(step.fallback)
         self.assertLess(step.size, len(self.vocabulary) // 10)
-        self.assertGreater(step.pruned["ref-hash"], 0)
+        type_layers = sum(count for layer, count in step.pruned.items() if layer != "syntax")
+        self.assertGreater(type_layers, 0)
+        self.assertGreater(step.pruned.get("goal-type", 0), 0)
 
 
 class MaskerApiTest(unittest.TestCase):
@@ -429,7 +719,9 @@ class MaskerApiTest(unittest.TestCase):
         masker = self.masker()
         self.assertEqual(masker.enabled_pruners, PRUNER_NAMES)
         masker.enable("de-bruijn", False)
-        self.assertEqual(masker.enabled_pruners, ("ref-hash",))
+        self.assertEqual(
+            masker.enabled_pruners,
+            tuple(name for name in PRUNER_NAMES if name != "de-bruijn"))
         masker.enable("de-bruijn", True)
         self.assertEqual(masker.enabled_pruners, PRUNER_NAMES)
         with self.assertRaises(KeyError):
@@ -487,12 +779,34 @@ class MaskerApiTest(unittest.TestCase):
         masker.enable("de-bruijn", False)
         self.assertIn(index_decoy, masker.step().allowed)
 
+        # The hash decoy is refused by *two* layers once B2's goal pruner is in:
+        # `ref-hash` because no digest extends it, `goal-type` because no digest
+        # of the goal's type extends it either. That overlap is the point of
+        # prioritising by Phase A's profile, so it is asserted rather than
+        # designed around: the decoy comes back only when both are off.
         masker = self.masker()
-        masker.accept_bytes(b"(def Bool (ref 0x")
+        masker.accept_bytes(b"(def (fn Bool () Bool) (ref 0x")
         hash_decoy = self.vocabulary.lookup(DECOY_HASH)
         self.assertNotIn(hash_decoy, masker.step().allowed)
         masker.enable("ref-hash", False)
+        self.assertNotIn(hash_decoy, masker.step().allowed)
+        masker.enable("goal-type", False)
         self.assertIn(hash_decoy, masker.step().allowed)
+
+    def test_the_goal_layer_narrows_a_hash_position_further_than_existence_does(self):
+        """`goal-type` prunes by *type*, where `ref-hash` prunes by existence.
+
+        Same position, same resolver: the goal layer alone leaves strictly fewer
+        tokens than the existence layer alone, because a digest that resolves
+        but resolves to the wrong type is still refused.
+        """
+        prefix = b"(def Bool (ref 0x"
+        by_existence = self.masker(names=["ref-hash"])
+        by_existence.accept_bytes(prefix)
+        by_type = self.masker(names=["goal-type"])
+        by_type.accept_bytes(prefix)
+        wide, narrow = by_existence.step(), by_type.step()
+        self.assertTrue(set(narrow.allowed) < set(wide.allowed))
 
     def test_the_cache_is_a_speedup_and_not_a_different_answer(self):
         cold = build_masker(self.vocabulary, self.resolver)
@@ -590,6 +904,89 @@ class ConditionFourTest(unittest.TestCase):
                 set(record["mask_pruned_by_layer"]), {"syntax", *PRUNER_NAMES})
             self.assertGreater(record["mask_pruned_by_layer"]["syntax"], 0)
             self.assertEqual(record["mask_fallbacks"], 0)
+
+    def test_the_r5_comparison_is_produced_from_a_recorded_baseline(self):
+        """R5 has to be readable off the run report, not reconstructed later.
+
+        Phase A and Phase B are separate runs on separate transports, so the
+        comparison is assembled from this run's cells plus a Phase A
+        `summary.json` named in the config. The baseline below is shaped like
+        the real one and carries the real bar: `gbnf|full_corpus` at 1.452
+        accepted per 1k tokens, which is the number condition 4 must beat.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = Path(directory) / "phase-a-summary.json"
+            baseline.write_text(json.dumps({
+                "started_utc": "2026-08-14T11:14:03Z",
+                "config": {"backend": "llama-server"},
+                "cells": {
+                    "gbnf|few_shot": {"accepted_per_1k_tokens": 0.376},
+                    "gbnf+rejection|few_shot": {"accepted_per_1k_tokens": 0.326},
+                    "gbnf|full_corpus": {"accepted_per_1k_tokens": 1.452},
+                },
+            }), encoding="utf-8")
+            _, records, summary = self.run_condition_four(
+                baseline_summary=str(baseline))
+
+        r5 = summary["r5"]
+        self.assertEqual(r5["measure"], "accepted_per_1k_tokens")
+        row = next(r for r in r5["by_regime"] if r["regime"] == "few_shot")
+        # The bar is the *best* Phase A grammar condition, not whichever is
+        # listed first -- masking has to beat the strongest baseline.
+        self.assertEqual(row["bar"], 0.376)
+        self.assertEqual(row["gbnf+rejection"], 0.326)
+        self.assertEqual(
+            row["delta"], round(row[runner.CONDITION_TYPEMASK] - 0.376, 3))
+        self.assertEqual(r5["regimes_compared"], 1)
+
+        report = runner.render_report(summary, records)
+        self.assertIn("## R5 — condition 4 against conditions 2 and 3", report)
+        self.assertIn("gbnf+rejection", report)
+        self.assertIn("Prediction 4", report)
+        self.assertIn("Prediction 5", report)
+
+    def test_the_r5_section_is_absent_without_a_baseline_and_says_how(self):
+        _, records, summary = self.run_condition_four()
+        self.assertNotIn("r5", summary)
+        report = runner.render_report(summary, records)
+        self.assertNotIn("## R5 —", report)
+        self.assertIn("baseline_summary", report)
+
+    def test_an_unreadable_baseline_is_reported_not_swallowed(self):
+        _, records, summary = self.run_condition_four(
+            baseline_summary="/nonexistent/phase-a-summary.json")
+        self.assertIn("error", summary["r5"])
+        self.assertIn("## R5 —", runner.render_report(summary, records))
+
+    def test_the_shipped_phase_b_config_is_ready_for_the_live_matrix(self):
+        """The condition-4 config an operator launches, checked as a whole.
+
+        It is the deliverable, so its matrix is asserted rather than described:
+        Phase A's seeds and budget, all four regimes, condition 4 alone, the
+        profile-ordered pruner set, and the backend seam left empty so the entry
+        point refuses until the runner fills it in.
+        """
+        path = HERE / "experiment" / "phase_b.config.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(config["conditions"], [runner.CONDITION_TYPEMASK])
+        self.assertEqual(config["seeds"], [1, 2, 3])
+        self.assertEqual(config["token_budget_per_task"], 512)
+        self.assertEqual(config["max_tokens_per_draw"], 512)
+        self.assertEqual(config["regimes"], list(runner.REGIMES))
+        self.assertEqual(config["pruners"], list(PRUNER_NAMES))
+        self.assertEqual(config["temperature"], 0.8)
+        for empty in ("backend", "model_path", "llama_lib", "model_identity", "hardware"):
+            self.assertEqual(config[empty], "", empty)
+        # And it loads: every key is one `Config` knows, so a live run does not
+        # discover a typo after paying for an instance. `load` anchors the
+        # baseline to the config's own directory, so the path it produces is
+        # the one the remote runner will read whatever its cwd is.
+        loaded = runner.Config.load(path)
+        self.assertEqual(loaded.conditions, [runner.CONDITION_TYPEMASK])
+        baseline = Path(loaded.baseline_summary)
+        self.assertTrue(baseline.is_absolute())
+        self.assertTrue(baseline.is_file(), f"baseline summary missing: {baseline}")
+        self.assertIn("cells", json.loads(baseline.read_text(encoding="utf-8")))
 
     def test_the_summary_and_report_gain_a_masking_section(self):
         _, records, summary = self.run_condition_four()

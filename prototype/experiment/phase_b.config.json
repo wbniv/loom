@@ -8,14 +8,15 @@
   "hardware": "",
   "temperature": 0.8,
   "token_budget_per_task": 512,
-  "max_tokens_per_draw": 256,
+  "max_tokens_per_draw": 512,
   "max_draws_per_task": 32,
   "seeds": [1, 2, 3],
   "conditions": ["gbnf+typemask"],
-  "pruners": ["ref-hash", "de-bruijn"],
+  "pruners": ["goal-type", "de-bruijn", "ref-hash"],
   "regimes": ["none", "few_shot", "full_corpus", "held_out"],
   "tasks": null,
   "leave_one_out": true,
   "stop_on_semantic_success": false,
+  "baseline_summary": "../../docs/results/2026-08-14-phase-a-summary.json",
   "output_dir": "runs/phase-b"
 }

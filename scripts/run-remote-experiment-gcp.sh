@@ -49,9 +49,22 @@ usage() {
     cat <<'USAGE'
 Usage: scripts/run-remote-experiment-gcp.sh --model-identity NAME [options]
 
-Runs Phase A of the masked-generation experiment on a Spot g2-standard-4
-(one NVIDIA L4 24 GB) in us-central1 and downloads the results, then destroys
-everything it created.
+Runs the masked-generation experiment on a Spot g2-standard-4 (one NVIDIA
+L4 24 GB) in us-central1 and downloads the results, then destroys everything
+it created.
+
+Which phase it runs is read out of --config, not configured here. A config
+whose conditions are Phase A's is served over llama-server; a config asking
+for "gbnf+typemask" (Phase B condition 4) runs in process over the pinned
+libllama.so instead, because a per-token mask needs logits the HTTP API does
+not expose. Mixing the two in one config is refused on the instance.
+
+  Phase B condition 4:
+    scripts/run-remote-experiment-gcp.sh \
+      --model-identity "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M" \
+      --gguf qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+      --config prototype/experiment/phase_b.config.json \
+      --remote-output-dir runs/phase-b --dest prototype/runs/phase-b
 
 Required:
   --model-identity NAME   Recorded model identity, e.g.
@@ -69,6 +82,9 @@ Options:
                           Default: prototype/experiment/phase_a.config.json
   --dest DIR              Where to put the returned runs/ output.
                           Default: prototype/runs/phase-a-full
+  --remote-output-dir DIR Output directory on the instance, and the name the
+                          results are stored under in the bucket.
+                          Default: runs/phase-a-full
   --run-id ID             Run identifier. Default: a UTC timestamp.
   --machine-type TYPE     Default: g2-standard-4
   --hardware STRING       Recorded hardware string.
@@ -98,6 +114,7 @@ while [ $# -gt 0 ]; do
         --gguf) GGUF_FILENAME="$2"; shift 2 ;;
         --config) CONFIG_PATH="$2"; shift 2 ;;
         --dest) DEST_DIR="$2"; shift 2 ;;
+        --remote-output-dir) REMOTE_OUTPUT_DIR="$2"; shift 2 ;;
         --run-id) RUN_ID="$2"; shift 2 ;;
         --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
         --hardware) HARDWARE="$2"; shift 2 ;;

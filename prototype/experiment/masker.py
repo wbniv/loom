@@ -10,9 +10,39 @@ automaton alive.
 
 **Type state** — `TypeState`, a structural scanner over the same byte stream
 that knows, at every byte, which grammar atom is being written (a hash, a
-`var` index, a `tyvar` index, a head keyword, a literal payload) and what the de
-Bruijn binder depths are there. Pruners are pluggable checks over that state,
+`var` index, a `tyvar` index, a head keyword, a literal payload), what the de
+Bruijn binder depths are there, and — since B2 — what *goal type* the checker
+will demand at that position. Pruners are pluggable checks over that state,
 each individually toggleable and individually timed (R3).
+
+The goal type, and why a left-to-right scanner can have one (B2)
+----------------------------------------------------------------
+`root ::= "(def " type " " term ")"`, so a definition's **declared type is
+complete before its term begins**. That single structural fact is what makes
+type-goal tracking possible from a byte prefix at all: at the moment the term
+starts, `TypeState` has the declared type in hand, parses it once, peels its
+prenex `forall`s exactly as `MatchChecker.check_definition` does, and carries
+the result as the term's goal. From there the goal descends by the checker's own
+*checking-mode* rules and by nothing else — `lam` splits a `fn` goal into domain
+and codomain, `if` gives its condition `Bool` and its branches the goal, `match`
+arms and `handle` clauses inherit it, `fix` forces its annotation to be it.
+Where the checker switches to synthesis (`app`, `let`, a match scrutinee) the
+goal is simply unknown and the layer abstains.
+
+Phase A's profile is why this is the first thing B2 built: `typecheck` killed
+590 of 1,671 grammar-constrained draws — more than any other layer — and its
+error localization is dominated by `definition.term` (×330), which is precisely
+the position whose goal is known exactly.
+
+**Canonical surfaces are what make a byte-equality veto a proof.**
+`transcode.parse_source` refuses any surface that is not `def_to_surface(ir)`,
+so an accepted definition's bytes *are* the canonical rendering of its IR. When
+the checker forces a sub-type to equal a type we already know (a `lam`
+annotation against the goal's domain; a `fix` annotation against the goal
+itself), the bytes at that position are therefore determined, and every byte
+that differs from the canonical rendering can be refused outright. That is the
+single most aggressive prune in the stack: a whole type subtree collapses to one
+string.
 
 The soundness rule, which is the whole of R4
 --------------------------------------------
@@ -56,6 +86,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field, replace
+
+import sexpr
+import transcode
+from scope import forall_prefix
+# `_erase_refinements` is §3.2.1's erasure and is the *only* place it is
+# defined. The goal pruner compares types exactly where the checker does, so it
+# imports that function rather than carrying a second copy that could drift out
+# of step with a contract-versioned validator. Nothing here modifies it.
+from typecheck import _erase_refinements
 
 from .gbnf import Grammar, loom_grammar
 
@@ -156,6 +195,234 @@ HEAD_TYVAR = b"tyvar"
 _PENDING = "pending-head"
 _ROOT = "root"
 
+#: The goal an `if` condition carries, in both checking and synthesis mode
+#: (`MatchChecker.check` tag 12 and `MatchChecker.synth` tag 12 both check it
+#: against `BOOL`). Unconditional, so it is the one goal that needs no goal
+#: above it — which is why `.body.condition` (×37 in Phase A) is prunable even
+#: inside a term whose own goal is unknown.
+BOOL_SURFACE = b"Bool"
+
+#: `(lit <kind> …)` synthesizes `[0, LIT_KIND[kind]]`, and `base` codes agree
+#: with literal-kind codes position for position (`transcode.LIT_KIND` /
+#: `transcode.BASE_CODE`); `test_masker` pins that correspondence.
+LIT_KIND_NAMES = (b"unit", b"bool", b"i64", b"f64", b"text", b"bytes")
+
+#: Every term head, and the refinement-erased goal tag each one *requires*.
+#: A head absent from the table can check against any goal, because it reaches
+#: the goal through synthesis and synthesis can produce any type.
+#:
+#: * `lam` — `check` tag 3 takes the function branch only when the goal is a
+#:   `fn`; otherwise the synthesized `[2, …]` must still erase to a `fn`.
+#: * `fix` — `_check_fix` fails unless the annotation equals the goal *and* the
+#:   annotation is a `fn`, so the goal must be one too.
+#: * `lit` — synthesizes `[0, k]`, so the goal must erase to a base type.
+#: * `con` — `check` tag 6 fails outright unless the goal is nominal.
+TERM_HEADS = ("var", "ref", "lit", "lam", "app", "let", "con",
+              "match", "perform", "handle", "fix", "hole", "if")
+HEAD_REQUIRES_TAG = {"lam": 2, "fix": 2, "lit": 0, "con": 1}
+
+
+# --------------------------------------------------------------------------
+# Goal types, as canonical surface bytes
+# --------------------------------------------------------------------------
+#
+# A goal travels through the state as the *canonical surface bytes* of a type,
+# never as an IR list. Two reasons, both load-bearing:
+#
+# * `TypeState` is a frozen dataclass used as a dictionary key by the mask's
+#   memoized transition, so every field it carries must be hashable. An IR node
+#   is a list and is not.
+# * The bytes are what the byte-equality veto compares against anyway, so the
+#   representation the state carries is the representation the pruner uses.
+#
+# Everything derived from a goal — its tag, its erasure, its domain and
+# codomain — is computed once per distinct goal and memoized here.
+
+
+def _freeze(node):
+    """A hashable, comparable image of a type IR. Never raises."""
+    if isinstance(node, list):
+        return tuple(_freeze(item) for item in node)
+    return node
+
+
+@dataclass(frozen=True)
+class _TypeInfo:
+    """What a pruner needs to know about one goal type."""
+
+    tag: int                 # the goal's own tag — what the exact rules read
+    erased_tag: int          # §3.2.1 erasure's tag — what head feasibility reads
+    erased: tuple            # the whole erasure, for equality against a `ref`
+    domain: bytes = b""      # `fn` domain, canonically rendered
+    codomain: bytes = b""    # `fn` codomain, canonically rendered
+    nominal: bytes = b""     # `data` digest as `0x…`, for a `con` head
+    base_kind: int = -1      # base-type code, for a `lit` kind word
+
+
+#: `goal surface -> _TypeInfo | None`. `None` records a goal this layer could
+#: not make sense of, and every veto abstains on it.
+_TYPE_INFO: dict[bytes, _TypeInfo | None] = {}
+
+
+def type_info(goal: bytes) -> _TypeInfo | None:
+    """Parse one goal surface, once. Returns `None` where anything went wrong.
+
+    Failure is always an abstention, never a veto: a goal this layer cannot
+    read is a goal it must have no opinion about.
+    """
+    if not goal:
+        return None
+    try:
+        return _TYPE_INFO[goal]
+    except KeyError:
+        pass
+    info: _TypeInfo | None
+    try:
+        ir = transcode.type_to_ir(sexpr.parse_all(goal.decode("utf-8"))[0])
+        erased = _erase_refinements(ir)
+        info = _TypeInfo(
+            tag=ir[0],
+            erased_tag=erased[0],
+            erased=_freeze(erased),
+            domain=(transcode.type_to_surface(ir[1]).encode("utf-8")
+                    if ir[0] == 2 else b""),
+            codomain=(transcode.type_to_surface(ir[3]).encode("utf-8")
+                      if ir[0] == 2 else b""),
+            nominal=(b"0x" + ir[1].hex().encode("ascii") if ir[0] == 1 else b""),
+            base_kind=ir[1] if ir[0] == 0 else -1,
+        )
+    except Exception:       # noqa: BLE001 - any surface problem is an abstention
+        info = None
+    _TYPE_INFO[goal] = info
+    return info
+
+
+#: `declared type surface -> the term's goal surface`. The term of
+#: `(def T t)` is checked against `T`'s quantified body, exactly as
+#: `MatchChecker.check_definition` does it via `scope.forall_prefix`.
+_DECLARED_GOAL: dict[bytes, bytes] = {}
+
+
+def declared_goal(declared: bytes) -> bytes:
+    """The goal `(def T …)`'s term carries, or `b""` when `T` is unreadable."""
+    try:
+        return _DECLARED_GOAL[declared]
+    except KeyError:
+        pass
+    try:
+        ir = transcode.type_to_ir(sexpr.parse_all(declared.decode("utf-8"))[0])
+        _, quantified = forall_prefix(ir)
+        goal = transcode.type_to_surface(quantified).encode("utf-8")
+    except Exception:       # noqa: BLE001 - a rank-2 or malformed type abstains
+        goal = b""
+    _DECLARED_GOAL[declared] = goal
+    return goal
+
+
+#: Every term head as bytes — the set `_veto_head` needs to tell "this word is a
+#: head I have an opinion about" from "this word is something else entirely".
+ALL_HEAD_BYTES = frozenset(head.encode("ascii") for head in TERM_HEADS)
+
+_FEASIBLE_HEADS: dict[tuple, frozenset] = {}
+_HEAD_PREFIXES: dict[tuple, frozenset] = {}
+
+
+def _feasible_heads(erased_tag: int, ref_ok: bool = True) -> frozenset:
+    """The term heads that can check against a goal erasing to this tag.
+
+    `ref_ok` is `False` when the resolver holds no digest whose type could meet
+    this goal — then `(ref …)` cannot be written here at all, and refusing the
+    head is what keeps the mask from walking into a hash position where it would
+    have to refuse every digit and fall back for liveness instead.
+    """
+    key = (erased_tag, ref_ok)
+    try:
+        return _FEASIBLE_HEADS[key]
+    except KeyError:
+        pass
+    heads = frozenset(
+        head.encode("ascii") for head in TERM_HEADS
+        if HEAD_REQUIRES_TAG.get(head, erased_tag) == erased_tag
+        and (ref_ok or head != "ref"))
+    _FEASIBLE_HEADS[key] = heads
+    return heads
+
+
+def _head_prefixes(erased_tag: int, ref_ok: bool = True) -> frozenset:
+    """Every prefix of every term head that can check against this goal tag."""
+    key = (erased_tag, ref_ok)
+    try:
+        return _HEAD_PREFIXES[key]
+    except KeyError:
+        pass
+    prefixes = {b""}
+    for head in _feasible_heads(erased_tag, ref_ok):
+        for length in range(1, len(head) + 1):
+            prefixes.add(head[:length])
+    frozen = frozenset(prefixes)
+    _HEAD_PREFIXES[key] = frozen
+    return frozen
+
+
+def part_goal(kind: str, goal_in: bytes, part: int) -> tuple:
+    """`(goal, forced)` for part `part` of a `kind` form whose goal is `goal_in`.
+
+    This function *is* the correspondence with `typecheck.MatchChecker`, and it
+    only ever propagates a goal where the checker is in checking mode with that
+    same expected type. `forced` is non-empty only where the checker demands
+    byte-for-byte equality with a type already known.
+
+    Deliberately silent — an abstention — everywhere the checker synthesizes:
+    `app`'s function and argument, `let`'s bound term and body, a `match`
+    scrutinee, `con`/`perform` field arguments, and `hole`'s annotation. Each is
+    an entry in the plan's abstention list, not an omission.
+    """
+    if kind == "if":
+        # Unconditional: both `check` and `synth` check the condition against
+        # `BOOL`, so this fires even under an unknown goal.
+        return (BOOL_SURFACE, b"") if part == 1 else (goal_in, b"")
+    if not goal_in:
+        return (b"", b"")
+    if kind == "lam":
+        info = type_info(goal_in)
+        if info is not None and info.tag == 2:
+            # `check` tag 3: `term[1] != expected[1]` fails outright, with no
+            # subsumption or instantiation path behind it — so the annotation's
+            # bytes are the goal domain's canonical bytes.
+            if part == 1:
+                return (info.domain, info.domain)
+            if part == 2:
+                return (info.codomain, b"")
+        return (b"", b"")
+    if kind == "fix":
+        # `_check_fix`: `annotation != expected` fails outright, so the whole
+        # annotation is forced; the body is then checked against it.
+        if part == 1:
+            return (goal_in, goal_in)
+        if part == 4:
+            return (goal_in, b"")
+        return (b"", b"")
+    if kind == "match":
+        # `_check_match` with an expected type checks every arm body against it.
+        return (goal_in, b"") if part == 2 else (b"", b"")
+    if kind == "handle":
+        # `_check_handler` checks the return term and every operation clause
+        # body against the expected type. The binder *depths* in a clause are
+        # still unknown — that abstention is the de Bruijn pruner's and is
+        # independent of this one.
+        return (goal_in, b"") if part in (3, 4) else (b"", b"")
+    if kind in ("ref", "con", "lit") and part == 1:
+        return (goal_in, b"")
+    # `arm` and `op` are not in `FORMS`, so `_apply_part` indexes their spec by
+    # `part` rather than `part - 1`: an arm's body is part 2 of `ARM_PARTS`
+    # (tag, binder count, body) and an operation clause's body is part 1 of
+    # `OP_PARTS` (index, body). `test_masker` walks both.
+    if kind == P_ARM:
+        return (goal_in, b"") if part == 2 else (b"", b"")
+    if kind == P_OP:
+        return (goal_in, b"") if part == 1 else (b"", b"")
+    return (b"", b"")
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -175,6 +442,8 @@ class Frame:
     eligible: bool = False      # this frame itself sits in a prenex position
     binders: int = 0            # a match arm's binder count, once read
     lit_kind: str = ""
+    goal: bytes = b""           # goal type of the part being written now
+    goal_in: bytes = b""        # goal type of the position this frame fills
 
 
 _ROOT_FRAME = Frame(
@@ -197,6 +466,16 @@ class TypeState:
     prenex: int = 0
     in_string: bool = False
     escaped: bool = False
+    #: The canonical bytes still owed at a position whose type the checker has
+    #: already fixed (a `lam` annotation, a `fix` annotation). Empty everywhere
+    #: else. Consumed one byte at a time; a mismatch empties it, so a state
+    #: reached by a byte the pruner would have refused simply stops having an
+    #: opinion rather than going wrong.
+    forced: bytes = b""
+    #: The declared type's bytes while `(def T …)`'s `T` is being written.
+    #: Cleared the moment `T` closes and becomes the term's goal, so it costs
+    #: state distinctness only inside the declared type.
+    captured: bytes = b""
 
     # -- what a pruner reads ---------------------------------------------
 
@@ -220,36 +499,48 @@ class TypeState:
     def depth_unknown(self) -> bool:
         return self.stack[-1].unknown
 
+    @property
+    def capturing(self) -> bool:
+        """True while the bytes being written are `(def T …)`'s declared type."""
+        return (len(self.stack) >= 2 and self.stack[1].kind == "def"
+                and self.stack[1].part == 1)
+
     # -- transitions -----------------------------------------------------
 
     def advance(self, byte: int) -> "TypeState":
         # Hot path: most bytes are atom content, and this runs once per uncached
         # byte of every candidate token, so it builds the successor directly
         # rather than going through `dataclasses.replace`.
+        forced = self.forced
+        if forced:
+            forced = forced[1:] if byte == forced[0] else b""
         if self.in_string:
-            return self._advance_string(byte)
+            return self._advance_string(byte, forced)
         if byte == 0x28:      # (
-            return self._open()
+            return self._open(forced)
         if byte == 0x29:      # )
-            return self._close()
+            return self._close(forced)
         if byte == 0x20:      # space
-            return self._next_part()
+            return self._next_part(forced)
+        captured = self.captured + bytes((byte,)) if self.capturing else self.captured
         if not self.atom and byte == 0x22 and self.stack[-1].part_kind == "string":
-            return TypeState(self.stack, b'"', self.prenex, True, False)
+            return TypeState(self.stack, b'"', self.prenex, True, False, forced, captured)
         return TypeState(
-            self.stack, self.atom + bytes((byte,)), self.prenex, False, False)
+            self.stack, self.atom + bytes((byte,)), self.prenex, False, False,
+            forced, captured)
 
-    def _advance_string(self, byte: int) -> "TypeState":
+    def _advance_string(self, byte: int, forced: bytes) -> "TypeState":
         atom = self.atom + bytes((byte,))
+        captured = self.captured + bytes((byte,)) if self.capturing else self.captured
         if self.escaped:
-            return TypeState(self.stack, atom, self.prenex, True, False)
+            return TypeState(self.stack, atom, self.prenex, True, False, forced, captured)
         if byte == 0x5C:      # backslash
-            return TypeState(self.stack, atom, self.prenex, True, True)
+            return TypeState(self.stack, atom, self.prenex, True, True, forced, captured)
         if byte == 0x22:      # closing quote
-            return TypeState(self.stack, atom, self.prenex, False, False)
-        return TypeState(self.stack, atom, self.prenex, True, False)
+            return TypeState(self.stack, atom, self.prenex, False, False, forced, captured)
+        return TypeState(self.stack, atom, self.prenex, True, False, forced, captured)
 
-    def _open(self) -> "TypeState":
+    def _open(self, forced: bytes = b"") -> "TypeState":
         top = self.stack[-1]
         expected = top.part_kind
         common = {
@@ -258,6 +549,7 @@ class TypeState:
             "base_unknown": top.unknown,
             "expected": expected,
             "eligible": top.prenex_ok,
+            "goal_in": top.goal,
         }
         if expected in HEADED:
             child = Frame(
@@ -265,10 +557,15 @@ class TypeState:
                 term_depth=top.term_depth, type_depth=top.type_depth,
                 unknown=top.unknown, **common)
         elif expected in LIST_ELEMENT:
+            # An arm list and an operation list hand every element the goal the
+            # list itself carries; a term list (`con`/`perform` arguments) and a
+            # type list do not, because those element types come from a
+            # declaration this layer does not consult.
+            element_goal = top.goal if expected in (P_ARM_LIST, P_OP_LIST) else b""
             child = Frame(
                 kind=expected, part=0, part_kind=LIST_ELEMENT[expected],
                 term_depth=top.term_depth, type_depth=top.type_depth,
-                unknown=top.unknown, **common)
+                unknown=top.unknown, goal=element_goal, **common)
         elif expected in (P_ARM, P_OP):
             parts = ARM_PARTS if expected == P_ARM else OP_PARTS
             child = Frame(
@@ -280,36 +577,44 @@ class TypeState:
                 kind=P_UNKNOWN, part=0, part_kind=P_UNKNOWN,
                 term_depth=top.term_depth, type_depth=top.type_depth,
                 unknown=True, **common)
-        return replace(self, stack=self.stack + (child,), atom=b"")
+        captured = self.captured + b"(" if self.capturing else self.captured
+        return replace(self, stack=self.stack + (child,), atom=b"",
+                       forced=forced, captured=captured)
 
-    def _close(self) -> "TypeState":
+    def _close(self, forced: bytes = b"") -> "TypeState":
+        captured = self.captured + b")" if self.capturing else self.captured
         if len(self.stack) <= 1:
             # Only reachable on input the grammar layer has already refused.
-            return replace(self, atom=b"")
-        return replace(self, stack=self.stack[:-1], atom=b"")
+            return replace(self, atom=b"", forced=forced, captured=captured)
+        return replace(self, stack=self.stack[:-1], atom=b"", forced=forced,
+                       captured=captured)
 
-    def _next_part(self) -> "TypeState":
+    def _next_part(self, forced: bytes = b"") -> "TypeState":
         top = self.stack[-1]
         atom, prenex = self.atom, self.prenex
+        captured = self.captured + b" " if self.capturing else self.captured
 
         if top.kind == _PENDING:
             head = atom.decode("utf-8", "replace")
             spec = FORMS.get(head)
             if spec is None:
                 resolved = replace(top, kind=P_UNKNOWN, part=1, part_kind=P_UNKNOWN,
-                                   unknown=True)
-                return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+                                   unknown=True, goal=b"")
+                return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                               forced=forced, captured=captured)
             if head == "forall" and top.eligible:
                 prenex += 1
             resolved = replace(top, kind=head, binders=0)
-            resolved = self._apply_part(resolved, spec, 1, prenex)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"", prenex=prenex)
+            resolved, opened = self._apply_part(resolved, spec, 1, prenex)
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           prenex=prenex, forced=opened or forced, captured=captured)
 
         if top.kind == "lit" and top.part == 1:
             kind = atom.decode("utf-8", "replace")
             payload = LIT_PAYLOAD.get(kind, P_UNKNOWN)
-            resolved = replace(top, part=2, part_kind=payload, lit_kind=kind)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+            resolved = replace(top, part=2, part_kind=payload, lit_kind=kind, goal=b"")
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=forced, captured=captured)
 
         if top.kind == P_ARM and top.part == 1:
             try:
@@ -318,30 +623,48 @@ class TypeState:
                 binders = 0
                 top = replace(top, unknown=True)
             resolved = replace(top, binders=binders)
-            resolved = self._apply_part(resolved, ARM_PARTS, 2, prenex)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+            resolved, opened = self._apply_part(resolved, ARM_PARTS, 2, prenex)
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=opened or forced, captured=captured)
 
         if top.kind in FORMS:
             spec = FORMS[top.kind]
-            resolved = self._apply_part(top, spec, top.part + 1, prenex)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+            # `(def T t)`: `T` has just closed, so the term's goal is knowable
+            # exactly here and nowhere earlier. The captured bytes are dropped
+            # in the same step, so they cost state distinctness only inside `T`.
+            declared = b""
+            if top.kind == "def" and top.part == 1:
+                declared = declared_goal(self.captured)
+                captured = b""
+            resolved, opened = self._apply_part(
+                top, spec, top.part + 1, prenex, declared)
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=opened or forced, captured=captured)
         if top.kind == P_ARM:
-            resolved = self._apply_part(top, ARM_PARTS, top.part + 1, prenex)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+            resolved, opened = self._apply_part(top, ARM_PARTS, top.part + 1, prenex)
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=opened or forced, captured=captured)
         if top.kind == P_OP:
-            resolved = self._apply_part(top, OP_PARTS, top.part + 1, prenex)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
+            resolved, opened = self._apply_part(top, OP_PARTS, top.part + 1, prenex)
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=opened or forced, captured=captured)
         if top.kind in LIST_ELEMENT:
             resolved = replace(top, part=top.part + 1)
-            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"")
-        return replace(self, atom=b"")
+            return replace(self, stack=self.stack[:-1] + (resolved,), atom=b"",
+                           forced=forced, captured=captured)
+        return replace(self, atom=b"", forced=forced, captured=captured)
 
     @staticmethod
-    def _apply_part(frame: Frame, spec: tuple, part: int, prenex: int) -> Frame:
-        """Set `frame`'s current part to `part`, with that part's depths."""
+    def _apply_part(frame: Frame, spec: tuple, part: int, prenex: int,
+                    declared: bytes = b"") -> tuple:
+        """`(frame at part `part`, bytes that part is forced to)`.
+
+        `declared` is `(def T …)`'s quantified `T`, supplied only on the step
+        that opens the definition's term.
+        """
         index = part - 1 if frame.kind in FORMS else part
         if index < 0 or index >= len(spec):
-            return replace(frame, part=part, part_kind=P_NONE)
+            return replace(frame, part=part, part_kind=P_NONE, goal=b""), b""
         kind, term_delta, type_delta = spec[index]
         unknown = frame.base_unknown
         term_depth = frame.base_term
@@ -358,9 +681,14 @@ class TypeState:
             type_depth += type_delta
         prenex_ok = (frame.kind == "def" and part == 1) or (
             frame.kind == "forall" and part == 1 and frame.eligible)
+        if declared:
+            goal, forced = declared, b""
+        else:
+            goal, forced = part_goal(frame.kind, frame.goal_in, part)
         return replace(
             frame, part=part, part_kind=kind, term_depth=term_depth,
-            type_depth=type_depth, unknown=unknown, prenex_ok=prenex_ok)
+            type_depth=type_depth, unknown=unknown, prenex_ok=prenex_ok,
+            goal=goal), forced
 
     def feed(self, data: bytes) -> "TypeState":
         state = self
@@ -478,6 +806,194 @@ class DeBruijnPruner(Pruner):
             if frame.expected in (P_TYPE, P_ROW_ELEM) and HEAD_TYVAR.startswith(candidate):
                 return frame.base_type == 0
         return False
+
+
+class GoalTypePruner(Pruner):
+    """B2's first pruner: the checker's goal type, tracked per byte.
+
+    Phase A's gate put `typecheck` at the top of the failure distribution (590
+    of 1,671 grammar-constrained draws, against parse 523, scope 268 and
+    references 115), localized overwhelmingly at `definition.term` — the term
+    checked against the definition's own declared type. `TypeState` knows that
+    type exactly, because `root ::= "(def " type " " term ")"` finishes it before
+    the term starts, so this pruner is the direct answer to that row.
+
+    Five vetoes, each with its proof. In every one of them the *goal* is a type
+    the checker will demand at that position, computed by `part_goal` from the
+    checker's own checking-mode rules.
+
+    1. **A forced type.** `check` tag 3 fails on `term[1] != expected[1]` and
+       `_check_fix` fails on `annotation != expected`, both immediately and with
+       no subsumption or instantiation path behind them. So a `lam` annotation
+       under a `fn` goal, and a `fix` annotation under any goal, must equal a
+       type already in hand. `transcode.parse_source` refuses a non-canonical
+       surface, so an accepted definition's bytes are the canonical rendering of
+       its IR — which makes those bytes *determined*, and every other byte
+       refusable. This is the aggressive one: a whole type subtree collapses to
+       one string.
+    2. **Head feasibility.** `lam` and `fix` need a `fn` goal, `lit` a base goal,
+       `con` a nominal one (`HEAD_REQUIRES_TAG`). A byte that no feasible head
+       can continue is refused. Every other head reaches its goal through
+       synthesis, which can produce any type, so it is always feasible.
+    3. **A literal's kind word.** `(lit k …)` synthesizes `[0, k]`, so under a
+       base goal the kind word is the goal's own.
+    4. **A constructor's data hash.** `check` tag 6 fails unless
+       `term[1] == expected[1]`, so under a nominal goal the digest is the
+       goal's own.
+    5. **A `ref`'s digest, filtered by goal.** A `ref` synthesizes its resolved
+       type; the checker then needs equality, first-order instantiation of a
+       `forall`, or subsumption — and subsumption's own precondition is that the
+       two types agree once refinements are erased. So a digest whose resolved
+       type is not quantified *and* erases differently from the goal cannot
+       appear here. This is the kind-specialisation B1 left on the table, done
+       by type rather than by kind.
+
+    Comparisons are on §3.2.1 **erasure** wherever a refinement could stand
+    between the two types, which is what keeps every proof above independent of
+    whether a caller supplies `MatchChecker`'s obligation collector.
+    `experiment.evaluate.run_funnel` does not supply one — so subsumption never
+    actually fires in this experiment — but the vetoes do not rely on that, and
+    `test_masker` pins the coupling so a future collector cannot silently
+    invalidate them.
+
+    Abstains — recorded, not forced — wherever the checker synthesizes: `app`'s
+    function and argument, `let`'s bound term and body, a `match` scrutinee,
+    `con`/`perform` field arguments, `hole`'s annotation, and the type of a
+    `var`, which needs a binder-type environment this layer does not carry.
+    """
+
+    name = "goal-type"
+
+    TERMINATORS = frozenset({0x28, 0x29, 0x20})
+
+    def __init__(self, digests=(), reference_type=None) -> None:
+        self._digests = tuple(digests)
+        self._reference_type = reference_type
+        #: `goal surface -> (prefix set, complete set)`, built on first use at
+        #: each distinct goal. A run sees very few distinct goals, so this is a
+        #: handful of tries over a few dozen digests, not a per-step cost.
+        self._ref_cache: dict[bytes, tuple | None] = {}
+
+    # -- veto ------------------------------------------------------------
+
+    def veto(self, state: TypeState, byte: int) -> bool:
+        if state.forced:
+            return byte != state.forced[0]
+        kind = state.atom_kind
+        if kind == P_HEAD:
+            return self._veto_head(state, byte)
+        if kind == P_LIT_KIND:
+            return self._veto_lit_kind(state, byte)
+        if kind == P_HASH:
+            return self._veto_hash(state, byte)
+        return False
+
+    def _veto_head(self, state: TypeState, byte: int) -> bool:
+        frame = state.top
+        if frame.expected != P_TERM:
+            return False
+        info = type_info(frame.goal_in)
+        if info is None:
+            return False
+        atom = state.atom
+        ref_ok = self._ref_possible(frame.goal_in)
+        if byte in self.TERMINATORS:
+            # The head atom is finished. Judge the head itself, and only when it
+            # is a head at all — a word this layer does not recognise is the
+            # grammar's problem, not a proof of anything here.
+            return (atom in ALL_HEAD_BYTES
+                    and atom not in _feasible_heads(info.erased_tag, ref_ok))
+        return atom + bytes((byte,)) not in _head_prefixes(info.erased_tag, ref_ok)
+
+    def _ref_possible(self, goal: bytes) -> bool:
+        """Is there any digest a `(ref …)` at this goal could name?"""
+        sets = self._ref_sets(goal)
+        return sets is None or bool(sets[1])
+
+    def _veto_lit_kind(self, state: TypeState, byte: int) -> bool:
+        info = type_info(state.top.goal)
+        if info is None or info.erased_tag != 0:
+            # A non-base goal already refused the `lit` head; anything else is
+            # an unknown goal, and an unknown goal is an abstention.
+            return False
+        if not 0 <= info.base_kind < len(LIT_KIND_NAMES):
+            return False
+        return self._veto_against(state.atom, byte, LIT_KIND_NAMES[info.base_kind])
+
+    def _veto_hash(self, state: TypeState, byte: int) -> bool:
+        frame = state.top
+        if frame.kind == "con":
+            info = type_info(frame.goal)
+            # `check` tag 6 compares `expected[0] != 1` before anything else, so
+            # only a goal that is *literally* nominal fixes the digest.
+            if info is None or info.tag != 1 or not info.nominal:
+                return False
+            return self._veto_against(state.atom, byte, info.nominal)
+        if frame.kind == "ref":
+            sets = self._ref_sets(frame.goal)
+            if sets is None:
+                return False
+            prefixes, complete = sets
+            atom = state.atom
+            if byte in self.TERMINATORS:
+                return bool(atom) and atom not in complete
+            return atom + bytes((byte,)) not in prefixes
+        return False
+
+    @staticmethod
+    def _veto_against(atom: bytes, byte: int, required: bytes) -> bool:
+        """Refuse any byte that walks off `required`, terminators included."""
+        if byte in GoalTypePruner.TERMINATORS:
+            return bool(atom) and atom != required
+        return not required.startswith(atom + bytes((byte,)))
+
+    # -- the goal-filtered digest universe --------------------------------
+
+    def _ref_sets(self, goal: bytes):
+        try:
+            return self._ref_cache[goal]
+        except KeyError:
+            pass
+        built = self._build_ref_sets(goal)
+        self._ref_cache[goal] = built
+        return built
+
+    def _build_ref_sets(self, goal: bytes):
+        info = type_info(goal)
+        if info is None or self._reference_type is None:
+            return None
+        prefixes: set[bytes] = {b"", b"0"}
+        complete: set[bytes] = set()
+        for digest in self._digests:
+            if not self._compatible(digest, info.erased):
+                continue
+            text = b"0x" + digest.hex().encode("ascii")
+            complete.add(text)
+            for length in range(1, len(text) + 1):
+                prefixes.add(text[:length])
+        return frozenset(prefixes), frozenset(complete)
+
+    def _compatible(self, digest: bytes, erased_goal: tuple) -> bool:
+        """Could a `ref` to `digest` check against a goal erasing to this?
+
+        Anything the layer cannot decide comes back `True`, because keeping a
+        digest is the safe side of R4 and dropping one is not.
+        """
+        try:
+            resolved = self._reference_type(digest)
+        except Exception:       # noqa: BLE001 - an unresolvable ref dies anyway
+            return False
+        if not isinstance(resolved, list) or not resolved:
+            return False
+        if resolved[0] == 6:
+            # §3.1.3 instantiates a quantified type against whatever is
+            # expected; deciding that here would be re-implementing
+            # `_instantiate`, so every polymorphic definition stays in.
+            return True
+        try:
+            return _freeze(_erase_refinements(resolved)) == erased_goal
+        except Exception:       # noqa: BLE001 - an unreadable type stays in
+            return True
 
 
 @dataclass
@@ -865,19 +1381,36 @@ class Masker:
 # Construction helpers
 # --------------------------------------------------------------------------
 
-#: The B1 pruner set, in the order the plan names them.
-PRUNER_NAMES = ("ref-hash", "de-bruijn")
+#: The pruner set, **in Phase A's failure-distribution order** — which is what
+#: B2's gate asked for. Over the 1,671 grammar-constrained draws of conditions 2
+#: and 3: typecheck 590, parse 523, scope 268 (de Bruijn share 0.978),
+#: references 115. So `goal-type` runs first, `de-bruijn` second, `ref-hash`
+#: third. Parse has no pruner and cannot have one — see the plan's B2 decision
+#: on completion pressure.
+#:
+#: The order is not cosmetic. `Masker._veto_layer` credits the *first* layer
+#: that refuses a byte, so running them in profile order makes
+#: `mask_pruned_by_layer` read as "what the dominant checker layer removed",
+#: which is the number R5 wants. It changes attribution between layers, never
+#: the mask itself: a byte any enabled pruner refuses is refused.
+PRUNER_NAMES = ("goal-type", "de-bruijn", "ref-hash")
 
 
 def build_pruners(resolver, names=PRUNER_NAMES) -> list:
     """The named pruners, wired to the experiment resolver's hash universe."""
     digests = tuple(resolver.digests()) if hasattr(resolver, "digests") else tuple(resolver)
+    # A bare digest iterable is accepted for the tests and probes that have no
+    # resolver; the goal pruner's `ref` filter then abstains rather than
+    # guessing at types it cannot look up.
+    reference_type = getattr(resolver, "reference_type", None)
     built = []
     for name in names:
         if name == "ref-hash":
             built.append(ReferenceHashPruner(digests))
         elif name == "de-bruijn":
             built.append(DeBruijnPruner())
+        elif name == "goal-type":
+            built.append(GoalTypePruner(digests, reference_type))
         else:
             raise KeyError(f"unknown pruner {name!r}; known pruners: {', '.join(PRUNER_NAMES)}")
     return built
