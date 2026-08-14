@@ -143,6 +143,20 @@ resource "aws_iam_policy" "scoped" {
         Resource = "*"
       },
       {
+        # G-instance quotas start at 0 vCPUs on accounts that never ran GPUs;
+        # the driver needs to read quotas and request increases.
+        Sid    = "ServiceQuotas"
+        Effect = "Allow"
+        Action = [
+          "servicequotas:GetServiceQuota",
+          "servicequotas:ListServiceQuotas",
+          "servicequotas:RequestServiceQuotaIncrease",
+          "servicequotas:GetRequestedServiceQuotaChange",
+          "servicequotas:ListRequestedServiceQuotaChangeHistoryByQuota"
+        ]
+        Resource = "*"
+      },
+      {
         Sid      = "STSCallerIdentity"
         Effect   = "Allow"
         Action   = ["sts:GetCallerIdentity"]
