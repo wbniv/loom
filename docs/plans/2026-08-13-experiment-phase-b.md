@@ -258,7 +258,7 @@ B2 (gated on Phase A's report):
 - [x] Pruner priority from the failure distribution; enable/extend
   accordingly. `goal-type` built and placed first, ahead of `de-bruijn` and
   `ref-hash`; completion pressure ruled out with reasons. See
-  [the B2 decisions](#the-b2-decisions-2026-08-14) below.
+  [the B2 decisions](#the-b2-decisions) below.
 - [x] Machinery for the R5 comparison and the parent plan's prediction
   scoring, producible from the run report. `runner.r5_comparison`,
   `Config.baseline_summary`, the report's **R5** section and the masking
@@ -270,7 +270,9 @@ B2 (gated on Phase A's report):
   instance is launched from this dispatch). The exact invocation is recorded
   below.
 
-## The B2 decisions (2026‑08‑14)
+## The B2 decisions
+
+Recorded 2026‑08‑14, from Phase A's failure distribution by layer.
 
 Phase A's gate, over the 1,671 grammar-constrained draws of conditions 2–3:
 **typecheck 590, parse 523, scope 268** (de Bruijn share 0.978),
@@ -391,9 +393,10 @@ aggressive". The corpus walk records zero either way.
 
 ## The remote path for condition 4
 
-The condition-4 config alone could not have run: `infrastructure/gcp/modules/
-experiment-runner/startup-script.sh.tftpl` hardcoded `backend = "llama-server"`
-and dropped `model_path`, and `llama-server` exposes no `mask_vocabulary`, so
+The condition-4 config alone could not have run. The GCP runner's
+[startup script](../../infrastructure/gcp/modules/experiment-runner/startup-script.sh.tftpl)
+hardcoded `backend = "llama-server"` and dropped `model_path`, and
+`llama-server` exposes no `mask_vocabulary`, so
 `make_masker` would have refused by name after the instance was already paid
 for. The startup script now reads the transport out of the operator's own
 config: `gbnf+typemask` present means the in-process `llama-cpp` backend with
