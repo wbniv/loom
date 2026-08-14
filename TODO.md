@@ -27,6 +27,13 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T3] **Track P L0: the differential harness** — JSON-lines export of every
+  validator verdict (input, verdict, error class, canonical bytes, identity)
+  over corpus, examples, and every test rejection case; the one prerequisite
+  the Rust port track names. Spec is settled in the
+  [language decision](docs/plans/2026-08-14-production-language-decision.md)
+  §"Track P" (L0); execution spans the test modules, hence T3.
+
 
 
 ## Watch
