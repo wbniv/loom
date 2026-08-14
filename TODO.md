@@ -27,6 +27,12 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T4] **Build store v0: persistent content-addressed objects in Rust**
+  (Track G; trigger M2). Object layout, oracle-gated admission, the
+  experiment-shaped read API (`export-resolver`, `prefix`, `type`), corpus
+  seeding, `StoreResolver` equivalence. First production Rust in the repo —
+  greenfield design judgment plus a new toolchain, hence T4.
+  See [plan](docs/plans/2026-08-14-store-v0.md).
 
 ## Watch
 
@@ -180,4 +186,5 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [verify] **2026-08-14-store-v0** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-14-store-v0.md](docs/plans/2026-08-14-store-v0.md)_  <!-- fp:7061a25e0bedc21d -->
 <!-- END auto-captured-deferrals -->
