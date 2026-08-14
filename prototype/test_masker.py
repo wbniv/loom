@@ -17,7 +17,11 @@ run diverging into exactly the failure that pruner exists to prevent.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -805,6 +809,26 @@ class MaskMemoryTest(unittest.TestCase):
         self.assertEqual(stats["mask_transition_clears"], masker.transition_clears)
         self.assertLessEqual(stats["mask_transition_entries"], 64)
 
+    def test_a_full_mask_cache_evicts_rather_than_freezing(self):
+        """A frozen cache is a cache that stops learning.
+
+        Launch 4 hit the 32,768-entry cap during the first two regimes, so
+        `full_corpus` — the regime carrying R5's bar — would have run against a
+        cache that could no longer take an entry for any position in it.
+        """
+        masker = build_masker(self.vocabulary, self.resolver)
+        masker._mask_cache_size = 8
+        for surface in SURFACES[:4]:
+            masker.reset()
+            for byte in surface.encode("utf-8"):
+                masker.step()
+                masker.accept_bytes(bytes((byte,)))
+                self.assertLessEqual(len(masker._mask_cache), 8)
+        self.assertGreater(masker.mask_cache_clears, 0)
+        # The point of evicting: the cache is still taking entries at the end.
+        self.assertGreater(len(masker._mask_cache), 0)
+        self.assertEqual(masker.stats()["mask_cache_clears"], masker.mask_cache_clears)
+
     def test_eviction_does_not_change_the_mask(self):
         """A cache is only ever a speedup. Same position, same answer."""
         prefix = b"(def (fn Bool () Bool) (lam Bool (if (var 0) "
@@ -812,6 +836,7 @@ class MaskMemoryTest(unittest.TestCase):
         roomy.accept_bytes(prefix)
         cramped = build_masker(self.vocabulary, self.resolver)
         cramped._transition_cache_size = 1
+        cramped._mask_cache_size = 1
         cramped.accept_bytes(prefix)
         self.assertEqual(roomy.step().allowed, cramped.step().allowed)
 
@@ -856,6 +881,156 @@ class MaskMemoryTest(unittest.TestCase):
             masker.accept_token(token)
         self.assertTrue(masker.can_end)
         self.assertEqual(masker.fallbacks, 0)
+
+
+MODELS_DIR = Path(os.environ.get(
+    "LOOM_MODELS_DIR", Path.home() / "loom-tools/models"))
+SMALL_GGUF = MODELS_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+
+class ChunkedPrefillTest(unittest.TestCase):
+    """Prefill longer than one batch, which aborted a live run at 530 draws.
+
+    `llama_decode` carries `GGML_ASSERT(n_tokens_all <= cparams.n_batch)`. That
+    is an abort, not a return code — the process takes SIGABRT and there is
+    nothing to catch — so once `n_batch` stopped tracking `n_ctx`, the first
+    `full_corpus` prompt (~11.9k tokens against a 2048 batch) killed the run.
+    `few_shot`'s ~1.7k prompts had fit, which is why two whole regimes passed
+    first.
+
+    These need the real library and a real GGUF, so they are gated the way the
+    repo gates its other optional-dependency checks. They are cheap: a 1.5B
+    model, a few hundred tokens, and contexts small enough that the interesting
+    ratio (prompt ≫ batch) is reached without a long prompt.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not SMALL_GGUF.is_file():
+            raise unittest.SkipTest(
+                f"no GGUF at {SMALL_GGUF}; set LOOM_MODELS_DIR to run the "
+                "chunked-prefill checks")
+        try:
+            from experiment.llama_ffi import FfiUnavailable, load_library
+        except ImportError as error:      # pragma: no cover - import guard
+            raise unittest.SkipTest(str(error)) from error
+        try:
+            load_library(None)
+        except FfiUnavailable as error:
+            raise unittest.SkipTest(f"libllama.so unavailable: {error}") from error
+
+    @staticmethod
+    def model(**overrides):
+        from experiment.llama_ffi import LlamaModel
+        settings = dict(n_ctx=1024, n_gpu_layers=0)
+        settings.update(overrides)
+        return LlamaModel(str(SMALL_GGUF), **settings)
+
+    PROMPT = "def fibonacci(n):\n    # returns the nth Fibonacci number\n" * 24
+
+    def test_the_effective_batch_is_read_back_not_assumed(self):
+        """llama.cpp clamps `n_batch` to `n_ctx`; the assert uses the clamp."""
+        with self.model(n_ctx=512, n_batch=8192) as model:
+            self.assertLessEqual(model.n_batch, 512)
+            self.assertGreater(model.n_batch, 0)
+            self.assertLessEqual(model.n_ubatch, model.n_batch)
+
+    def test_a_prompt_longer_than_the_batch_decodes(self):
+        """The regression proper, in the shape the crash took.
+
+        Run in a subprocess: a `GGML_ASSERT` aborts the interpreter, so an
+        in-process regression would kill the whole test run and report nothing.
+        Here it comes back as exit 134 and a readable failure.
+        """
+        script = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(HERE)!r})
+            from experiment.llama_ffi import LlamaModel
+            with LlamaModel({str(SMALL_GGUF)!r}, n_ctx=1024, n_batch=64,
+                            n_gpu_layers=0) as model:
+                tokens = model.tokenize({self.PROMPT!r})
+                assert len(tokens) > 4 * model.n_batch, (
+                    "prompt must be several batches long to exercise chunking; "
+                    f"got {{len(tokens)}} tokens against n_batch={{model.n_batch}}")
+                model.decode(tokens)
+                logits = model.logits()
+                assert len(logits) == model.n_vocab
+                print("OK", len(tokens), model.n_batch)
+        """)
+        finished = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=600)
+        self.assertEqual(
+            finished.returncode, 0,
+            f"chunked prefill aborted (exit {finished.returncode}).\n"
+            f"stdout: {finished.stdout}\nstderr: {finished.stderr[-2000:]}")
+        self.assertIn("OK", finished.stdout)
+
+    def test_chunked_prefill_leaves_the_same_context_as_one_batch(self):
+        """Positions and KV across chunks, which a crash would not have caught.
+
+        A position bug does not abort — it silently shifts the whole prompt and
+        corrupts every generation after it, which is worse. So the two paths are
+        compared on the logits they leave at the final prompt position: a
+        misplaced chunk moves those by whole logits, far outside the last-bit
+        differences that reordered reductions produce.
+        """
+        with self.model(n_batch=2048) as whole:
+            tokens = whole.tokenize(self.PROMPT)
+            whole.decode(tokens)
+            reference = list(whole.logits())
+        with self.model(n_batch=64) as chunked:
+            self.assertLess(chunked.n_batch, len(tokens) // 4)
+            chunked.decode(tokens)
+            actual = list(chunked.logits())
+        self.assertEqual(len(reference), len(actual))
+        worst = max(abs(a - b) for a, b in zip(reference, actual))
+        self.assertLess(worst, 0.5, f"chunked prefill diverged by {worst}")
+        self.assertEqual(
+            reference.index(max(reference)), actual.index(max(actual)),
+            "chunked and single-batch prefill disagree on the next token")
+
+    def test_positions_stay_right_across_the_per_draw_context_reset(self):
+        """`reset()` recreates the context once per draw; batch sizes and the
+        position counter have to survive it, or draw 2 decodes into a KV cache
+        that still believes it holds draw 1."""
+        with self.model(n_batch=64) as model:
+            tokens = model.tokenize(self.PROMPT)
+            model.decode(tokens)
+            first = list(model.logits())
+            batch_before = model.n_batch
+            model.reset()
+            self.assertEqual(model.n_batch, batch_before)
+            self.assertEqual(model._position, 0)
+            model.decode(tokens)
+            second = list(model.logits())
+        worst = max(abs(a - b) for a, b in zip(first, second))
+        self.assertLess(worst, 0.5, f"the same prompt after reset diverged by {worst}")
+
+    def test_a_masked_draw_runs_end_to_end_under_a_tiny_batch(self):
+        """The crash path exactly: backend, mask, prompt longer than a batch."""
+        script = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(HERE)!r})
+            from experiment.backends import LlamaCppBackend
+            from experiment.masker import build_masker
+            from experiment.resolver import ExperimentResolver
+            backend = LlamaCppBackend({str(SMALL_GGUF)!r}, n_ctx=1024,
+                                      n_gpu_layers=0)
+            backend.n_batch = 64
+            masker = build_masker(backend.mask_vocabulary(), ExperimentResolver())
+            result = backend.generate_masked(
+                {self.PROMPT!r}, masker=masker, max_tokens=8, seed=1, temperature=0.0)
+            text = result if isinstance(result, str) else result.text
+            assert text.startswith("(def"), text
+            print("OK", repr(text[:40]))
+        """)
+        finished = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=900)
+        self.assertEqual(
+            finished.returncode, 0,
+            f"masked draw aborted (exit {finished.returncode}).\n"
+            f"stdout: {finished.stdout}\nstderr: {finished.stderr[-2000:]}")
+        self.assertIn("OK", finished.stdout)
 
 
 class MaskerApiTest(unittest.TestCase):

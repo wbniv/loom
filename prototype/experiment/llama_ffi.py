@@ -192,6 +192,13 @@ def load_library(path=None) -> ctypes.CDLL:
         ctypes.c_char_p, ctypes.c_int32, ctypes.c_bool, ctypes.c_bool])
     declare("llama_batch_get_one", _Batch, [ctypes.POINTER(ctypes.c_int32), ctypes.c_int32])
     declare("llama_decode", ctypes.c_int32, [ctypes.c_void_p, _Batch])
+    # The *effective* batch sizes, read back rather than assumed: llama.cpp
+    # clamps them at context creation
+    # (`cparams.n_batch = min(n_ctx, params.n_batch)` for causal attention), and
+    # `llama_decode`'s assert compares against the clamped value. Computing it
+    # here instead of asking would be the same class of guess that aborted a run.
+    declare("llama_n_batch", ctypes.c_uint32, [ctypes.c_void_p])
+    declare("llama_n_ubatch", ctypes.c_uint32, [ctypes.c_void_p])
     declare("llama_get_logits_ith", ctypes.POINTER(ctypes.c_float), [
         ctypes.c_void_p, ctypes.c_int32])
 
@@ -299,13 +306,32 @@ class LlamaModel:
         # to construct fresh defaults, which quietly dropped `n_threads` and
         # re-tied the batch to `n_ctx` after the very first draw.
         self._context_params = context_params
-        self.context = self.library.llama_init_from_model(self.model, context_params)
-        if not self.context:
-            self.close()
-            raise FfiUnavailable("llama.cpp could not create a context")
         self.n_ctx = int(n_ctx)
-        self._position = 0
+        self.context = None
+        try:
+            self._bind_context()
+        except FfiUnavailable:
+            self.close()
+            raise
         self._check_tokenizer()
+
+    def _bind_context(self) -> None:
+        """Create the context and read the batch sizes llama.cpp actually chose.
+
+        `cparams.n_batch = min(n_ctx, params.n_batch)` under causal attention, so
+        the effective batch can be smaller than the one requested — and it is the
+        effective one that `llama_decode`'s `GGML_ASSERT(n_tokens_all <=
+        cparams.n_batch)` compares against. Reading it back makes `decode`'s
+        chunking correct by construction rather than by matching arithmetic to a
+        clamping rule that could change under a version bump.
+        """
+        self.context = self.library.llama_init_from_model(
+            self.model, self._context_params)
+        if not self.context:
+            raise FfiUnavailable("llama.cpp could not create a context")
+        self.n_batch = int(self.library.llama_n_batch(self.context))
+        self.n_ubatch = int(self.library.llama_n_ubatch(self.context))
+        self._position = 0
 
     # -- tokenizer -------------------------------------------------------
 
@@ -380,21 +406,45 @@ class LlamaModel:
         """
         if self.context:
             self.library.llama_free(self.context)
-        self.context = self.library.llama_init_from_model(
-            self.model, self._context_params)
-        if not self.context:  # pragma: no cover - only on OOM
-            raise FfiUnavailable("llama.cpp could not recreate the context")
-        self._position = 0
+            self.context = None
+        self._bind_context()
 
     def decode(self, tokens) -> None:
+        """Evaluate `tokens`, in `n_batch`-sized slices.
+
+        `llama_decode` asserts `n_tokens_all <= cparams.n_batch` and **aborts the
+        process** when it does not hold — it is a `GGML_ASSERT`, not a return
+        code, so there is nothing to catch. A full-corpus prompt is ~11.9k tokens
+        against a 2048-token batch, so prefill has to be chunked; tying the batch
+        to `n_ctx` instead would put the compute and logits buffers back at
+        multi-gigabyte size, which is what sizing them down was for.
+
+        Chunking is safe on both of the things that could silently corrupt a
+        generation, and both are read off the pinned build rather than assumed:
+
+        * **Positions.** `llama_batch_get_one` leaves `pos` null, and
+          `llama_batch_allocr::init` then assigns positions from
+          `memory->seq_pos_max(s) + 1` — i.e. continuing from what is already in
+          the KV cache. Sequential calls chain, which is the same property the
+          prompt-then-one-token-at-a-time loop already relied on.
+        * **Logits.** A null `logits` with `output_all` false marks only the
+          final token of each batch for output, so the last chunk's last token is
+          what `llama_get_logits_ith(ctx, -1)` reads. Earlier chunks compute one
+          unused row each, which is the whole cost of chunking.
+        """
         if not tokens:
             return
-        array = (ctypes.c_int32 * len(tokens))(*tokens)
-        batch = self.library.llama_batch_get_one(array, len(tokens))
-        status = self.library.llama_decode(self.context, batch)
-        if status != 0:
-            raise FfiUnavailable(f"llama_decode returned {status}")
-        self._position += len(tokens)
+        size = max(1, self.n_batch)
+        for start in range(0, len(tokens), size):
+            chunk = tokens[start:start + size]
+            array = (ctypes.c_int32 * len(chunk))(*chunk)
+            batch = self.library.llama_batch_get_one(array, len(chunk))
+            status = self.library.llama_decode(self.context, batch)
+            if status != 0:
+                raise FfiUnavailable(
+                    f"llama_decode returned {status} on tokens "
+                    f"{start}..{start + len(chunk)} of {len(tokens)}")
+            self._position += len(chunk)
 
     def logits(self):
         """The last position's logits as a ctypes float array view."""

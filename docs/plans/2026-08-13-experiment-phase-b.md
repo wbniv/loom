@@ -2,9 +2,10 @@
 
 **Date:** 2026-08-13
 **Status:** B1 implemented and verified. B2 implemented and verified locally.
-The live condition-4 matrix was attempted on 2026‑08‑14 and OOM-killed by a
-masker defect that is now found, fixed and guarded; it awaits an operator
-relaunch.
+The live condition-4 matrix has been attempted four times and is not yet
+complete; every failure is diagnosed, fixed and guarded by a test, and launch 4
+reached two full regimes with the memory fix confirmed working live. See the
+[condition-4 run log](#condition-4-run-log). Awaiting an operator relaunch.
 **Parent:** [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) (R2 condition 4, R2.1 Phase B)
 
 ## Objective
@@ -268,10 +269,11 @@ B2 (gated on Phase A's report):
 - [x] A remote condition-4 configuration, ready for an operator to launch.
   `experiment/phase_b.config.json`, plus the transport seam the GCP runner
   needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
-- [ ] **Run condition 4.** Attempt 1 (2026‑08‑14) was OOM-killed by a masker
-  defect that is now found, fixed and guarded — see
-  [the run log](#condition-4-run-log). Awaiting an operator relaunch; not run
-  from this dispatch by rule.
+- [ ] **Run condition 4.** Four launches so far, none complete: an OOM, a
+  capacity stockout, and a batch-size abort, each diagnosed and fixed — see
+  [the run log](#condition-4-run-log). Launch 4 got two full regimes in with the
+  memory fix confirmed working live. Awaiting an operator relaunch; not run from
+  this dispatch by rule.
 
 ## The B2 decisions
 
@@ -678,7 +680,17 @@ this dispatch, by rule. The operator's invocation is recorded below.
 
 ### Condition-4 run log
 
-#### Attempt 1, 2026‑08‑14 — OOM-killed at 14.3 GB. Cause found and fixed.
+| launch | outcome | cause |
+|---|---|---|
+| — | see the operator's log | not recorded here; this plan picks the log up at the first matrix that produced records |
+| 2 | OOM-killed at 14.3 GB after 259 draws | literal payloads retained in the type state; unbounded transition memo |
+| 3 | never started | `us-east1-b` capacity stockout — infrastructure, nothing to fix in the masker |
+| 4 | `GGML_ASSERT` abort after 530 draws | prefill fed as one `llama_decode` call, longer than `n_batch` |
+
+Launch numbering is the operator's. Launch 1 is deliberately left blank rather
+than guessed at: it produced nothing this plan can cite.
+
+#### Launch 2, 2026‑08‑14 — OOM-killed at 14.3 GB. Cause found and fixed.
 
 The run reached 259 records in ~20 min, wrote its last record at 14:58:11,
 then spent **39 minutes inside a single draw** without completing it, and was
@@ -813,6 +825,97 @@ from the second token on, and cached across draws, but a matrix with many
 distinct literal contexts pays it repeatedly. Worth watching in attempt 2's
 `mask_seconds_per_token_uncached`, and the reason that field is reported
 separately.
+
+#### Launch 3 — `us-east1-b` capacity stockout
+
+The instance never started. Nothing in the masker; recorded so the run log
+accounts for every launch rather than skipping the ones with no artefact. The
+relaunch moved to Europe, which is what makes launch 4 "the Europe relaunch".
+
+#### Launch 4, 2026‑08‑14 — `GGML_ASSERT` abort on the first `full_corpus` prompt
+
+**The OOM fix is confirmed working live.** The run completed two whole regimes —
+`none` 330 draws, `few_shot` 200, 530 records — with runner RSS steady at
+~1.0 GB and mask cost far below launch 2's:
+
+| | launch 2 (partial) | launch 4 |
+|---|---|---|
+| mask s/token, mean | 0.01196 | **0.00249** |
+| mask s/token, worst draw | 0.66111 | **0.07632** |
+| transition entries at the end | unbounded, ~14 GB RSS | 86,237 under a 500,000 cap |
+
+Then, on the **first `full_corpus` prompt**:
+
+```
+/opt/loom/llama.cpp/src/llama-context.cpp:1711:
+GGML_ASSERT(n_tokens_all <= cparams.n_batch) failed
+```
+
+SIGABRT, exit 134, through `llama_decode` via ctypes. The startup script's
+`finish` trap worked this time — FAILED marker, logs uploaded, instance
+self-deleted.
+
+**This one is mine, from the previous fix.** Decoupling `n_batch` from `n_ctx`
+(to avoid a multi-gigabyte compute buffer at `n_ctx` 16384) left `decode`
+feeding the whole prompt as a single `llama_decode` call. `few_shot`'s ~1.7k
+prompts fit inside a 2048-token batch; `full_corpus`'s ~11.9k do not. Two
+regimes passed first, which is exactly why it surfaced late.
+
+It is a `GGML_ASSERT`, not a return code — the process aborts and there is
+nothing to catch — so no amount of error handling on this side would have
+softened it.
+
+**The fix: chunked prefill.** `decode` now feeds the prompt in `n_batch`-sized
+slices. Raising `n_batch` back to `n_ctx` was rejected on sight: it undoes the
+buffer sizing that the previous fix existed for, and it would only move the
+ceiling rather than remove it.
+
+Both things that could make chunking *silently* wrong were read off the pinned
+build rather than assumed — the coordinator flagged this seam as escalate-worthy
+and it is the one place in Phase B where a wrong guess corrupts data instead of
+crashing:
+
+- **Positions.** `llama_batch_get_one` leaves `pos` null
+  (`llama-batch.cpp:931`), and `llama_batch_allocr::init` then assigns positions
+  from `memory->seq_pos_max(s) + 1` (`llama-batch.cpp:90-117`) — continuing from
+  what is already in the KV cache. Sequential calls chain, which is the property
+  the prompt-then-one-token-at-a-time loop already depended on.
+- **Logits.** A null `logits` with `output_all` false marks only the final token
+  of each batch (`llama-batch.cpp:120-130`), so the last chunk's last token is
+  what `llama_get_logits_ith(ctx, -1)` reads. Earlier chunks compute one unused
+  row each — the whole cost of chunking.
+
+And the chunk size is now the batch llama.cpp *actually chose*, read back
+through `llama_n_batch`, not the one requested: `cparams.n_batch =
+min(n_ctx, params.n_batch)` under causal attention
+(`llama-context.cpp:245`), and the assert compares against the clamped value.
+Computing it here instead of asking would be the same class of guess that
+aborted the run.
+
+**One more thing launch 4's records exposed**, fixed in the same pass: the mask
+cache reached its 32,768-entry cap during the first two regimes and its policy
+was to *stop inserting*. `full_corpus` — the regime carrying R5's bar — would
+therefore have run against a cache frozen on what `none` and `few_shot` had
+taught it. It now evicts by wholesale clear at the cap, like the transition
+memo, and reports `mask_cache_clears`.
+
+**Regression guard:** `test_masker.ChunkedPrefillTest` — gated on the local
+GGUF the way the repo gates its other optional-dependency checks. It loads the
+1.5B with `n_batch=64` and a prompt several batches long and asserts decode
+completes; asserts the effective batch is read back and clamped; asserts chunked
+prefill leaves the *same logits* at the final prompt position as a single-batch
+prefill (a position bug moves those by whole logits, far outside the last-bit
+differences reordered reductions produce) and picks the same next token; asserts
+positions survive the per-draw `reset()`; and runs a full masked draw end to end
+under a tiny batch. The two abort-prone cases run in a **subprocess**, because a
+`GGML_ASSERT` would otherwise kill the test runner and report nothing — a
+regression now comes back as a clean failure carrying exit 134.
+
+**Verified.** 555 tests pass. The pre-fix path was reproduced locally to prove
+the guard has teeth — same assert, same `llama-context.cpp:1711`, same exit 134,
+same ctypes stack — and the fixed `decode` passes on the identical prompt and
+batch size. Live mask-sanity is byte-for-byte unchanged: 26/26 fixtures, 0
+violations, the same definition reproduced, the same per-layer prune counts.
 
 ### What the operator runs
 

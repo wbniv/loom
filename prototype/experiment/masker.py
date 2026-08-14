@@ -1187,6 +1187,7 @@ class Masker:
         self._mask_cache: dict = {}
         self._mask_cache_size = mask_cache_size
         self._cached_ids = 0
+        self.mask_cache_clears = 0
         self.steps = 0
         self.mask_seconds = 0.0
         self.uncached_steps = 0
@@ -1319,10 +1320,19 @@ class Masker:
                     work.append((child, nxt))
         allowed.sort()
         result = (tuple(allowed), pruned)
-        if (len(self._mask_cache) < self._mask_cache_size
-                and self._cached_ids < self.MASK_CACHE_IDS):
-            self._mask_cache[state] = result
-            self._cached_ids += len(allowed)
+        # Full means *evict*, not freeze. Refusing new entries at the cap sounds
+        # conservative but leaves the cache frozen on whatever it happened to
+        # learn first: launch 4 reached the 32,768-entry cap during `none` and
+        # `few_shot`, so `full_corpus` — the regime carrying R5's bar — would
+        # have run with a cache that could no longer learn anything about it.
+        # Same wholesale clear as the transition memo, same reasoning.
+        if (len(self._mask_cache) >= self._mask_cache_size
+                or self._cached_ids >= self.MASK_CACHE_IDS):
+            self._mask_cache.clear()
+            self._cached_ids = 0
+            self.mask_cache_clears += 1
+        self._mask_cache[state] = result
+        self._cached_ids += len(allowed)
         return result
 
     def step(self) -> MaskStep:
@@ -1425,6 +1435,7 @@ class Masker:
             "mask_transition_entries": len(self._transitions),
             "mask_transition_clears": self.transition_clears,
             "mask_cache_entries": len(self._mask_cache),
+            "mask_cache_clears": self.mask_cache_clears,
             "mask_cached_ids": self._cached_ids,
         }
 
