@@ -32,9 +32,6 @@ Check conformance with `task todo:lint`.
   default proven byte-identical), and the two-arm follow-up config. Judgment
   in the provenance/tier boundaries and the readmission seam, hence T4.
   See [plan](docs/plans/2026-08-14-corpus-loop.md).
-- [wip T2] <!-- agent:ae5bf2871462f56fb --> **Public write-up of the masked-generation experiment** — one article
-  in docs/ from the two result reports plus a README section; bounded,
-  sources fixed, hence T2.
 
 ## Watch
 
@@ -65,6 +62,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-14 — [experiment-writeup] Published the constrained-generation article (12-point number audit) + README results section. See [article](docs/articles/2026-08-14-constrained-generation-results.md).
 - ✅ 2026-08-14 — [store-v0] Built the Rust store: 47 corpus objects seeded, fsck 3-invariant, 172-prompt resolver equivalence proven; first Track G code. See [plan](docs/plans/2026-08-14-store-v0.md).
 - ✅ 2026-08-14 — [phase-b2] Condition-4 matrix complete (773 draws): masking ≥ rejection everywhere, +70% no-example; typecheck 41% survivor. See [plan](docs/plans/2026-08-13-experiment-phase-b.md).
 - ✅ 2026-08-14 — [language-decision] Rust when migration fires (114/130 vs Zig 86,
