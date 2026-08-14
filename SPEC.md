@@ -1586,6 +1586,28 @@ IDE affordances.
    witness. None of these reopens §3.4: the bound is graded, the
    accept/refuse decision against policy stays two-valued.
 
+**The stated endgame — self-iteration.** The design's horizon, recorded as a
+theory rather than a claim: Loom is a substrate on which AI systems can
+iterate on their own code more safely than any human-shaped language permits,
+because the properties such iteration needs are structural here rather than
+procedural. Monotone assurance (§6.3) means a million small self-edits cannot
+quietly erode verification — the store refuses regressions mechanically, with
+no reviewer in the loop to fatigue. Capability discipline (§2.4) turns "what
+could this self-edit do?" from an audit into a type lookup: a regenerated
+definition whose type names no `cap net` cannot exfiltrate however badly it
+was generated. Content addressing (§4) makes every prior self permanently
+addressable, so self-modification is a walkable tree, never a mutation. And
+the corpus loop closes on itself: accepted generations join the corpus, the
+corpus feeds §8.4's few-shot priors, better priors yield more acceptances —
+the judge and the training signal are the same artifact. What the theory
+requires and the evidence does not yet show is that the constraint machinery
+can outweigh prior starvation (problem 1): a model iterates best, today, in
+the languages it was raised on. If the masked-generation experiment's line of
+work closes that gap, the result is not merely faster self-iteration but
+*legible* self-iteration — every step carrying its proof-state, on a platform
+structurally unable to misreport what it has verified. Speed is what everyone
+predicts; auditability is what this design would add.
+
 ---
 
 *Companions:
