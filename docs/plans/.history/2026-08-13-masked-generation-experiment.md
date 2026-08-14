@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/ff5f6ba) | Update plans: GPU attempt log, spot-vs-on-demand lesson, cache status |
 | [2026-08-13](https://github.com/wbniv/loom/commit/1e3d765) | Record GPU-run restoration: 7B model, full seeds |
 | [2026-08-13](https://github.com/wbniv/loom/commit/23bea9d) | Record smoke findings: truncation artifact, amended full-run config |
 | [2026-08-13](https://github.com/wbniv/loom/commit/66edc80) | Record prompt-cache measurement deviation and KV-quant finding |
@@ -10,6 +11,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d3f8789) | Record the masked-generation experiment plan; sequence store after |
 
 <!--history-meta v1
+ff5f6ba	author	Will Norris
+ff5f6ba	added	15
+ff5f6ba	deleted	0
+ff5f6ba	files	1
+ff5f6ba	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 1e3d765	author	Will Norris
 1e3d765	added	7
 1e3d765	deleted	0

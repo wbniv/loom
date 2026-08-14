@@ -1,0 +1,468 @@
+{
+  "cells": {
+    "gbnf+rejection|few_shot": {
+      "accepted": 13,
+      "accepted_per_1k_tokens": 0.326,
+      "attempts": 78,
+      "distinct_accepted_identities": 7,
+      "draws": 203,
+      "funnel": {
+        "accepted": 13,
+        "parse": 77,
+        "references": 20,
+        "scope": 34,
+        "typecheck": 59
+      },
+      "mean_draws_per_attempt": 2.6,
+      "mean_latency_s": 4.5791,
+      "mean_tokens_to_first_success": 337.0,
+      "redraws": 125,
+      "repeated_definition_rate": 0.4615,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0385,
+      "semantic_successes": 3,
+      "tokens": 39936,
+      "total_latency_s": 929.559
+    },
+    "gbnf+rejection|full_corpus": {
+      "accepted": 55,
+      "accepted_per_1k_tokens": 1.377,
+      "attempts": 78,
+      "distinct_accepted_identities": 4,
+      "draws": 199,
+      "funnel": {
+        "accepted": 55,
+        "parse": 78,
+        "references": 4,
+        "scope": 9,
+        "typecheck": 53
+      },
+      "mean_draws_per_attempt": 2.55,
+      "mean_latency_s": 9.0512,
+      "mean_tokens_to_first_success": 28.0,
+      "redraws": 121,
+      "repeated_definition_rate": 0.9273,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0385,
+      "semantic_successes": 3,
+      "tokens": 39936,
+      "total_latency_s": 1801.189
+    },
+    "gbnf+rejection|held_out": {
+      "accepted": 1,
+      "accepted_per_1k_tokens": 0.081,
+      "attempts": 24,
+      "distinct_accepted_identities": 1,
+      "draws": 41,
+      "funnel": {
+        "accepted": 1,
+        "parse": 24,
+        "references": 0,
+        "scope": 0,
+        "typecheck": 16
+      },
+      "mean_draws_per_attempt": 1.71,
+      "mean_latency_s": 11.3052,
+      "mean_tokens_to_first_success": null,
+      "redraws": 17,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 12288,
+      "total_latency_s": 463.513
+    },
+    "gbnf+rejection|none": {
+      "accepted": 20,
+      "accepted_per_1k_tokens": 0.501,
+      "attempts": 78,
+      "distinct_accepted_identities": 11,
+      "draws": 392,
+      "funnel": {
+        "accepted": 20,
+        "parse": 83,
+        "references": 32,
+        "scope": 94,
+        "typecheck": 163
+      },
+      "mean_draws_per_attempt": 5.03,
+      "mean_latency_s": 2.2887,
+      "mean_tokens_to_first_success": null,
+      "redraws": 314,
+      "repeated_definition_rate": 0.45,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 897.185
+    },
+    "gbnf|few_shot": {
+      "accepted": 15,
+      "accepted_per_1k_tokens": 0.376,
+      "attempts": 78,
+      "distinct_accepted_identities": 7,
+      "draws": 199,
+      "funnel": {
+        "accepted": 15,
+        "parse": 78,
+        "references": 28,
+        "scope": 29,
+        "typecheck": 49
+      },
+      "mean_draws_per_attempt": 2.55,
+      "mean_latency_s": 4.6429,
+      "mean_tokens_to_first_success": null,
+      "redraws": 121,
+      "repeated_definition_rate": 0.5333,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 923.942
+    },
+    "gbnf|full_corpus": {
+      "accepted": 58,
+      "accepted_per_1k_tokens": 1.452,
+      "attempts": 78,
+      "distinct_accepted_identities": 7,
+      "draws": 198,
+      "funnel": {
+        "accepted": 58,
+        "parse": 78,
+        "references": 3,
+        "scope": 7,
+        "typecheck": 52
+      },
+      "mean_draws_per_attempt": 2.54,
+      "mean_latency_s": 9.056,
+      "mean_tokens_to_first_success": 120.8,
+      "redraws": 120,
+      "repeated_definition_rate": 0.8793,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0513,
+      "semantic_successes": 4,
+      "tokens": 39936,
+      "total_latency_s": 1793.079
+    },
+    "gbnf|held_out": {
+      "accepted": 0,
+      "accepted_per_1k_tokens": 0.0,
+      "attempts": 24,
+      "distinct_accepted_identities": 0,
+      "draws": 42,
+      "funnel": {
+        "accepted": 0,
+        "parse": 24,
+        "references": 0,
+        "scope": 0,
+        "typecheck": 18
+      },
+      "mean_draws_per_attempt": 1.75,
+      "mean_latency_s": 11.1305,
+      "mean_tokens_to_first_success": null,
+      "redraws": 18,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 12288,
+      "total_latency_s": 467.48
+    },
+    "gbnf|none": {
+      "accepted": 13,
+      "accepted_per_1k_tokens": 0.326,
+      "attempts": 78,
+      "distinct_accepted_identities": 10,
+      "draws": 397,
+      "funnel": {
+        "accepted": 13,
+        "parse": 81,
+        "references": 28,
+        "scope": 95,
+        "typecheck": 180
+      },
+      "mean_draws_per_attempt": 5.09,
+      "mean_latency_s": 2.2484,
+      "mean_tokens_to_first_success": null,
+      "redraws": 319,
+      "repeated_definition_rate": 0.2308,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 892.6
+    },
+    "unconstrained|few_shot": {
+      "accepted": 1,
+      "accepted_per_1k_tokens": 0.025,
+      "attempts": 78,
+      "distinct_accepted_identities": 1,
+      "draws": 153,
+      "funnel": {
+        "accepted": 1,
+        "parse": 135,
+        "references": 6,
+        "scope": 3,
+        "typecheck": 8
+      },
+      "mean_draws_per_attempt": 1.96,
+      "mean_latency_s": 5.82,
+      "mean_tokens_to_first_success": null,
+      "redraws": 75,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 890.458
+    },
+    "unconstrained|full_corpus": {
+      "accepted": 17,
+      "accepted_per_1k_tokens": 0.426,
+      "attempts": 78,
+      "distinct_accepted_identities": 3,
+      "draws": 142,
+      "funnel": {
+        "accepted": 17,
+        "parse": 104,
+        "references": 0,
+        "scope": 2,
+        "typecheck": 19
+      },
+      "mean_draws_per_attempt": 1.82,
+      "mean_latency_s": 10.8123,
+      "mean_tokens_to_first_success": 199.3,
+      "redraws": 64,
+      "repeated_definition_rate": 0.8235,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0385,
+      "semantic_successes": 3,
+      "tokens": 39936,
+      "total_latency_s": 1535.346
+    },
+    "unconstrained|held_out": {
+      "accepted": 0,
+      "accepted_per_1k_tokens": 0.0,
+      "attempts": 24,
+      "distinct_accepted_identities": 0,
+      "draws": 35,
+      "funnel": {
+        "accepted": 0,
+        "parse": 21,
+        "references": 0,
+        "scope": 0,
+        "typecheck": 14
+      },
+      "mean_draws_per_attempt": 1.46,
+      "mean_latency_s": 12.4286,
+      "mean_tokens_to_first_success": null,
+      "redraws": 11,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 12288,
+      "total_latency_s": 435.001
+    },
+    "unconstrained|none": {
+      "accepted": 0,
+      "accepted_per_1k_tokens": 0.0,
+      "attempts": 78,
+      "distinct_accepted_identities": 0,
+      "draws": 334,
+      "funnel": {
+        "accepted": 0,
+        "parse": 334,
+        "references": 0,
+        "scope": 0,
+        "typecheck": 0
+      },
+      "mean_draws_per_attempt": 4.28,
+      "mean_latency_s": 2.4379,
+      "mean_tokens_to_first_success": null,
+      "redraws": 256,
+      "repeated_definition_rate": 0.0,
+      "rubric_pending": 0,
+      "semantic_success_rate": 0.0,
+      "semantic_successes": 0,
+      "tokens": 39936,
+      "total_latency_s": 814.246
+    }
+  },
+  "config": {
+    "backend": "llama-server",
+    "backend_extra": {},
+    "binary": "",
+    "conditions": [
+      "unconstrained",
+      "gbnf",
+      "gbnf+rejection"
+    ],
+    "extra_args": [],
+    "hardware": "g2-standard-4 L4 24GB",
+    "leave_one_out": true,
+    "llama_lib": "",
+    "max_draws_per_task": 32,
+    "max_tokens_per_draw": 512,
+    "model_identity": "Qwen2.5-Coder-7B-Instruct GGUF Q4_K_M (Qwen/Qwen2.5-Coder-7B-Instruct-GGUF @ HF main, 2026-08-13)",
+    "model_path": "",
+    "n_ctx": 4096,
+    "n_threads": 0,
+    "output_dir": "runs/phase-a-full",
+    "pruners": [
+      "ref-hash",
+      "de-bruijn"
+    ],
+    "raw_text_limit": 2000,
+    "regimes": [
+      "none",
+      "few_shot",
+      "full_corpus",
+      "held_out"
+    ],
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "server_url": "http://127.0.0.1:8080",
+    "source_path": "experiment/remote.config.json",
+    "stop_on_semantic_success": false,
+    "stub_masked_outputs": [],
+    "tasks": null,
+    "temperature": 0.8,
+    "timeout": 900.0,
+    "token_budget_per_task": 512
+  },
+  "contract_versions": {
+    "declarations": "1.0",
+    "parser": "1.0",
+    "policies": "1.0",
+    "references": "1.0",
+    "refinements": "1.0",
+    "scope": "1.0",
+    "typecheck": "1.1"
+  },
+  "de_bruijn_share_of_scope_failures": 0.9776,
+  "elapsed_s": 11845.577,
+  "error_paths": {
+    "parse": [],
+    "references": [
+      [
+        "definition.term",
+        30
+      ],
+      [
+        "definition.term.body",
+        26
+      ],
+      [
+        "definition.type",
+        10
+      ],
+      [
+        "definition.term.body.arms[1].body",
+        8
+      ],
+      [
+        "definition.type.domain",
+        8
+      ]
+    ],
+    "scope": [
+      [
+        "definition.type.domain",
+        32
+      ],
+      [
+        "definition.term.parameter-type",
+        23
+      ],
+      [
+        "definition.type.row[1]",
+        17
+      ],
+      [
+        "definition.term.argument",
+        15
+      ],
+      [
+        "definition.term.condition",
+        15
+      ]
+    ],
+    "typecheck": [
+      [
+        "definition.term",
+        330
+      ],
+      [
+        "definition.term.body",
+        45
+      ],
+      [
+        "definition.term.body.condition",
+        37
+      ],
+      [
+        "definition.term.body.arms[0].body",
+        30
+      ],
+      [
+        "definition.term.body.body",
+        30
+      ]
+    ]
+  },
+  "failure_distribution_by_layer": {
+    "by_regime": {
+      "few_shot": {
+        "accepted": 28,
+        "parse": 155,
+        "references": 48,
+        "scope": 63,
+        "typecheck": 108
+      },
+      "full_corpus": {
+        "accepted": 113,
+        "parse": 156,
+        "references": 7,
+        "scope": 16,
+        "typecheck": 105
+      },
+      "held_out": {
+        "accepted": 1,
+        "parse": 48,
+        "references": 0,
+        "scope": 0,
+        "typecheck": 34
+      },
+      "none": {
+        "accepted": 33,
+        "parse": 164,
+        "references": 60,
+        "scope": 189,
+        "typecheck": 343
+      }
+    },
+    "overall": {
+      "accepted": 175,
+      "parse": 523,
+      "references": 115,
+      "scope": 268,
+      "typecheck": 590
+    },
+    "scope_note": "grammar-constrained draws only (conditions 2 and 3)"
+  },
+  "records": 2335,
+  "resolver_objects": {
+    "ability": 8,
+    "data": 4,
+    "definition": 26,
+    "extern": 9
+  },
+  "sampling": {
+    "temperature": 0.8
+  },
+  "started_utc": "2026-08-14T11:14:03Z"
+}

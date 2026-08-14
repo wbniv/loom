@@ -117,6 +117,26 @@ collapsing diversity.
 - Whether hashes and de Bruijn indices damage generation quality.
 - Whether richer projections are needed during prompting.
 
+## Prediction scoring (2026-08-14, from the full L4 run — 2,335 draws)
+
+1. **Partial.** Unconstrained/no-example parse acceptance was 0 % (< 30 % ✓)
+   but GBNF did NOT take parse to ~100 %: 31 % of grammar-constrained draws
+   still died at `parse`, all truncation — the budget bounds completion.
+2. **False, twice over.** References never dominate (115 of 1,671);
+   `typecheck` dominates (590), with scope second only in the no-example
+   regime. The funnel's late layers, not hash-guessing, are the wall.
+3. **True.** De Bruijn share of scope failures: 0.978.
+4. **Bar set, not scored**: rejection sampling adds nothing over plain
+   grammar (1.38 vs 1.45 acc/1k tok) — condition 4 must beat 1.45.
+5. Awaits B2's instrumentation.
+6. **True.** Repeat rate 0.88–0.93 in full-corpus vs ≤ 0.53 elsewhere;
+   all 13 semantic successes are identity-match memorizations.
+
+Headline: full-corpus + grammar = 28.5 % acceptance and 13 byte-identical
+semantically-correct definitions; held-out composition ≈ 0. The corpus is
+the largest single lever measured. Full report:
+[docs/results/2026-08-14-phase-a-report.md](../results/2026-08-14-phase-a-report.md).
+
 ## Predictions (pre-registered)
 
 Written before any run, so surprises are visible as surprises:
