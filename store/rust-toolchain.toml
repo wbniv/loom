@@ -1,0 +1,8 @@
+[toolchain]
+# Pinned exactly, not "stable". The store's whole proposition is that bytes on
+# disk are stable and verifiable for years; a toolchain that moves underneath it
+# is one more input that can change behaviour without anyone deciding to.
+# Verified current stable on 2026-08-14 (channel-rust-stable.toml, date 2026-07-16).
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

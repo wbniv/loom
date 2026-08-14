@@ -13,6 +13,11 @@ prototype/runs/
 .terraform.tfstate.lock.info
 crash.log
 
+# Rust build output and the seeded store. The store is reproducible from the
+# pinned corpus by `task store:seed`, so it is derived data, not a fixture.
+store/target/
+.loom-store/
+
 prototype/experiment/phase_a.local.json
 prototype/experiment/phase_a.smoke.json
 prototype/experiment/phase_a.remote.json
