@@ -5,5 +5,13 @@ docs/transcripts/
 # Experiment run output (records.jsonl / summary.json / report.md). A run that
 # is worth keeping gets its report copied into docs/plans/ deliberately.
 prototype/runs/
+# Terraform working directories and any state that ends up on disk. The
+# provider lock files (.terraform.lock.hcl) are deliberately NOT ignored.
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.tfstate.lock.info
+crash.log
+
 prototype/experiment/phase_a.local.json
 prototype/experiment/phase_a.smoke.json

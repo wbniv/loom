@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Loom masked-generation experiment, Phase A — remote runner.
+#
+# Rendered by Terraform (infrastructure/aws/modules/experiment-runner). Bash
+# variables are written without braces so Terraform's own dollar-brace
+# interpolation does not collide with them; where braces are unavoidable they
+# are escaped by doubling the dollar sign.
+set -euo pipefail
+
+exec > >(tee -a /var/log/loom-experiment.log) 2>&1
+
+BUCKET="${artifacts_bucket}"
+RUN_ID="${run_id}"
+REGION="${region}"
+LLAMA_REPO="${llama_cpp_repo}"
+LLAMA_REV="${llama_cpp_revision}"
+GGUF_FILENAME="${gguf_filename}"
+MODEL_IDENTITY="${model_identity}"
+HARDWARE="${hardware}"
+NGL="${n_gpu_layers}"
+CTX="${context_size}"
+PARALLEL="${parallel_slots}"
+CONFIG_KEY="${remote_config_key}"
+OUTPUT_DIR="${remote_output_dir}"
+
+export AWS_DEFAULT_REGION="$REGION"
+export DEBIAN_FRONTEND=noninteractive
+
+WORK=/opt/loom
+LOG=/var/log/loom-experiment.log
+SERVER_LOG=/var/log/llama-server.log
+STATUS=FAILED
+
+log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+finish() {
+  local code=$?
+  set +e
+  log "finish: exit code $code, status $STATUS"
+
+  # Results first, then the logs, then the marker. The driver only reads the
+  # marker once the objects it names are already in place.
+  if [ -d "$WORK/repo/prototype/$OUTPUT_DIR" ]; then
+    aws s3 sync "$WORK/repo/prototype/$OUTPUT_DIR" "s3://$BUCKET/results/$RUN_ID/runs/" --only-show-errors
+  fi
+  aws s3 cp "$LOG" "s3://$BUCKET/results/$RUN_ID/logs/user-data.log" --only-show-errors
+  if [ -f "$SERVER_LOG" ]; then
+    aws s3 cp "$SERVER_LOG" "s3://$BUCKET/results/$RUN_ID/logs/llama-server.log" --only-show-errors
+  fi
+  printf '%s\n' "$STATUS" | aws s3 cp - "s3://$BUCKET/status/$RUN_ID.txt" --only-show-errors
+
+  # Escape hatch: `aws s3 cp - s3://BUCKET/control/RUN_ID.nohalt` from the
+  # operator's laptop keeps a failing box alive for inspection.
+  if aws s3 ls "s3://$BUCKET/control/$RUN_ID.nohalt" >/dev/null 2>&1; then
+    log "finish: nohalt marker present, leaving the instance running"
+    return
+  fi
+  log "finish: shutting down (instance-initiated-shutdown-behavior=terminate)"
+  shutdown -h now
+}
+trap finish EXIT
+
+log "runner starting: run_id=$RUN_ID bucket=$BUCKET region=$REGION"
+nvidia-smi || log "warning: nvidia-smi failed"
+
+# --- 1. Build dependencies --------------------------------------------------
+# The Deep Learning Base GPU AMI already carries the NVIDIA driver, the CUDA
+# toolkit (nvcc under /usr/local/cuda) and awscli. Only the build tooling is
+# missing.
+log "installing build dependencies"
+apt-get update -y
+apt-get install -y --no-install-recommends \
+  build-essential cmake git ccache pkg-config libcurl4-openssl-dev python3 python3-venv jq
+
+export PATH=/usr/local/cuda/bin:$PATH
+export CUDACXX=/usr/local/cuda/bin/nvcc
+nvcc --version
+
+# --- 2. Repo tarball --------------------------------------------------------
+log "fetching the repo tarball"
+mkdir -p "$WORK/repo"
+aws s3 cp "s3://$BUCKET/repo/repo.tar.gz" /tmp/repo.tar.gz --only-show-errors
+tar -xzf /tmp/repo.tar.gz -C "$WORK/repo"
+
+# --- 3. Models --------------------------------------------------------------
+log "fetching models"
+mkdir -p "$WORK/models"
+aws s3 sync "s3://$BUCKET/models/" "$WORK/models/" --only-show-errors
+
+if [ -n "$GGUF_FILENAME" ]; then
+  MODEL_PATH="$WORK/models/$GGUF_FILENAME"
+else
+  MODEL_PATH="$(find "$WORK/models" -maxdepth 1 -name '*.gguf' | sort | head -n 1)"
+fi
+if [ -z "$MODEL_PATH" ] || [ ! -f "$MODEL_PATH" ]; then
+  log "no GGUF found under $WORK/models — nothing to serve"
+  exit 1
+fi
+log "model: $MODEL_PATH"
+
+# --- 4. llama.cpp at the pinned revision ------------------------------------
+log "building llama.cpp at $LLAMA_REV with CUDA"
+git clone "$LLAMA_REPO" "$WORK/llama.cpp"
+git -C "$WORK/llama.cpp" checkout --detach "$LLAMA_REV"
+cmake -S "$WORK/llama.cpp" -B "$WORK/llama.cpp/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_CUDA=ON \
+  -DLLAMA_CURL=OFF \
+  -DLLAMA_BUILD_TESTS=OFF
+cmake --build "$WORK/llama.cpp/build" --config Release --target llama-server -j "$(nproc)"
+
+SERVER_BIN="$WORK/llama.cpp/build/bin/llama-server"
+test -x "$SERVER_BIN"
+
+# --- 5. llama-server --------------------------------------------------------
+log "starting llama-server"
+"$SERVER_BIN" \
+  --model "$MODEL_PATH" \
+  --host 127.0.0.1 --port 8080 \
+  -ngl "$NGL" -c "$CTX" --parallel "$PARALLEL" \
+  > "$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+
+log "waiting for llama-server health"
+for attempt in $(seq 1 120); do
+  if curl -sf http://127.0.0.1:8080/health >/dev/null; then
+    log "llama-server healthy after $attempt attempts"
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "llama-server died during startup"
+    tail -n 100 "$SERVER_LOG"
+    exit 1
+  fi
+  sleep 5
+done
+curl -sf http://127.0.0.1:8080/health >/dev/null
+
+# --- 6. Remote config -------------------------------------------------------
+# The operator's own Phase A config travels up untouched; only the backend
+# seam, the recorded identity fields and the output directory are rewritten
+# here, so the matrix that runs remotely is the matrix they configured.
+log "patching the run config"
+aws s3 cp "s3://$BUCKET/$CONFIG_KEY" "$WORK/run.config.json" --only-show-errors
+
+MODEL_IDENTITY="$MODEL_IDENTITY" HARDWARE="$HARDWARE" OUTPUT_DIR="$OUTPUT_DIR" \
+  python3 - "$WORK/run.config.json" "$WORK/repo/prototype/experiment/remote.config.json" <<'PY'
+import json
+import os
+import sys
+
+source, target = sys.argv[1], sys.argv[2]
+with open(source, encoding="utf-8") as handle:
+    config = json.load(handle)
+
+config["backend"] = "llama-server"
+config["server_url"] = "http://127.0.0.1:8080"
+config["model_identity"] = os.environ["MODEL_IDENTITY"]
+config["hardware"] = os.environ["HARDWARE"]
+config["output_dir"] = os.environ["OUTPUT_DIR"]
+config.pop("binary", None)
+config.pop("model_path", None)
+
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(config, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+print(json.dumps(config, indent=2, sort_keys=True))
+PY
+
+# --- 7. The run -------------------------------------------------------------
+# `experiment.runner` writes records.jsonl incrementally and resumes from it, so
+# a re-run against a restored output directory picks up where a killed run
+# stopped rather than repeating finished cells.
+log "running the Phase A matrix"
+cd "$WORK/repo/prototype"
+python3 -m experiment.runner --config experiment/remote.config.json
+
+STATUS=SUCCEEDED
+log "run complete"

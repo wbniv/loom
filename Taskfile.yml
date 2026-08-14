@@ -21,6 +21,89 @@ tasks:
     cmds:
       - python3 -m experiment.runner --config "${LOOM_EXPERIMENT_CONFIG:-experiment/phase_a.config.json}" {{.CLI_ARGS}}
 
+  experiment:remote:
+    desc: Run Phase A on a rented g6.xlarge in us-east-2 and bring runs/ back (~$1)
+    cmds:
+      - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
+
+  aws-bootstrap:
+    desc: "One-time: create the loom-terraform IAM profile locally and bootstrap the S3/DynamoDB state backend."
+    cmds:
+      - |
+        set -euo pipefail
+
+        read_masked() {
+          local prompt="$1" result="" char
+          printf "%s" "$prompt" >/dev/tty
+          while IFS= read -r -s -n1 char </dev/tty; do
+            if [[ -z "$char" ]]; then break
+            elif [[ "$char" == $'\x7f' || "$char" == $'\b' ]]; then
+              [[ -n "$result" ]] && { result="${result%?}"; printf "\b \b" >/dev/tty; }
+            else
+              result+="$char"; printf "*" >/dev/tty
+            fi
+          done
+          printf "\n" >/dev/tty
+          printf "%s" "$result"
+        }
+
+        PROFILE="loom-terraform"
+        CREDS=~/.aws/credentials
+        CONFIG=~/.aws/config
+        STATE_BUCKET="loom-terraform-state-353144603271"
+
+        if aws sts get-caller-identity --profile "$PROFILE" &>/dev/null; then
+          echo "✓ AWS profile ${PROFILE} already configured — skipping key entry."
+        else
+          echo ""
+          echo "━━━ Phase A: Create the IAM user (one manual step, ~3 min) ━━━"
+          echo ""
+          echo "1. Create the IAM user:"
+          echo "   https://us-east-1.console.aws.amazon.com/iam/home#/users/create"
+          echo "   Name: loom-terraform  |  No console access"
+          echo ""
+          echo "2. Attach policies on 'Set permissions' → 'Attach policies directly':"
+          echo "   Filter by Type: AWS managed - job function"
+          echo "   Search and check: AdministratorAccess"
+          echo "   Search and check: ReadOnlyAccess"
+          echo "   (both in same category — no filter switch needed)"
+          echo "   Click 'Policies selected' tab to verify both are checked, then create."
+          echo ""
+          echo "3. Security credentials → Create access key → CLI → Description: loom-terraform-$(hostname)"
+          echo ""
+          printf "Paste Access Key ID:     " >/dev/tty
+          read -r KEY_ID </dev/tty
+          KEY_SECRET=$(read_masked "Paste Secret Access Key: ")
+
+          grep -q "^\[loom-terraform\]" "$CREDS" 2>/dev/null \
+            || printf "\n[loom-terraform]\naws_access_key_id = %s\naws_secret_access_key = %s\n" \
+                 "$KEY_ID" "$KEY_SECRET" >> "$CREDS"
+          grep -q "^\[profile loom-terraform\]" "$CONFIG" 2>/dev/null \
+            || printf "\n[profile loom-terraform]\nregion = us-east-2\noutput = json\n" >> "$CONFIG"
+          echo "✓ Profile written."
+        fi
+
+        echo ""
+        echo "Verifying profile…"
+        aws sts get-caller-identity --profile "$PROFILE"
+
+        if aws s3api head-bucket --bucket "$STATE_BUCKET" --profile "$PROFILE" &>/dev/null; then
+          echo "✓ State backend already exists — skipping bootstrap Terraform."
+        else
+          echo ""
+          echo "━━━ Phase B: Bootstrap Terraform state backend ━━━"
+          "$HOME"/python-tui-lib/scripts/tf-safe-apply.sh infrastructure/aws/bootstrap init
+          "$HOME"/python-tui-lib/scripts/tf-safe-apply.sh infrastructure/aws/bootstrap apply -auto-approve
+          echo "✓ State bucket and lock table created."
+        fi
+
+        echo ""
+        echo "━━━ AWS bootstrap complete. ━━━"
+        echo ""
+        echo "Activate cost allocation tags (once, after first tagged resource exists):"
+        echo "  https://us-east-1.console.aws.amazon.com/billing/home#/tags"
+        echo "  → Activate: Project, ManagedBy, Environment"
+
   experiment:mask-sanity:
     desc: Live sanity for Phase B's transport — loads a GGUF in process and walks the mask
     dir: prototype
