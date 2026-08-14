@@ -2,9 +2,10 @@
 
 **Date:** 2026-08-13
 **Status:** B1 implemented and verified. B2 implemented and verified locally.
-The live condition-4 matrix was attempted on 2026‑08‑14 and OOM-killed by a
-masker defect that is now found, fixed and guarded; it awaits an operator
-relaunch.
+The live condition-4 matrix has been attempted four times and is not yet
+complete; every failure is diagnosed, fixed and guarded by a test, and launch 4
+reached two full regimes with the memory fix confirmed working live. See the
+[condition-4 run log](#condition-4-run-log). Awaiting an operator relaunch.
 **Parent:** [Masked-generation experiment](2026-08-13-masked-generation-experiment.md) (R2 condition 4, R2.1 Phase B)
 
 ## Objective
@@ -268,36 +269,28 @@ B2 (gated on Phase A's report):
 - [x] A remote condition-4 configuration, ready for an operator to launch.
   `experiment/phase_b.config.json`, plus the transport seam the GCP runner
   needed to serve it — see [the remote path](#the-remote-path-for-condition-4).
-- [wip] **Run condition 4.** Two launches down, both instructive, third
-  pending:
-  - *Launch 1* (13:38 UTC, run id `20260814T133847Z`): boot to matrix in
-    ~2 minutes — the stricter two-artifact cache test **hit** against the
-    existing tarball (`llama-server` had linked and packed `libllama.so`
-    all along); `n_ctx` raised 4096 → 16384 on pre-launch review
-    (`full_corpus` prompts reach 11,952 tokens). **Killed at 68 records
-    (~42 min): the L4 sat idle while the 7B decoded on 4 vCPUs** —
-    `llama_ffi.LlamaModel` hardcoded `n_gpu_layers = 0` from its
-    CPU-laptop origin, and the instance's `NGL` only ever reached
-    `llama-server`, which a masked run skips. Caught by `nvidia-smi dmon`
-    flat-zero and ~37 s/record vs ~6 s expected; CPU decode would also
-    have poisoned prediction 5. Fixed end-to-end (config →
-    `RunConfig` → `make_backend` → `LlamaCppBackend` → `LlamaModel`,
-    startup script injecting `NGL`); the 68 CPU records were discarded as
-    incomparable.
-  - *Launch 2* (14:33 UTC, run id `20260814T143255Z`): GPU offload
-    confirmed at 99–100 % SM, 2.19 s/record — then **OOM-killed at
-    15:37 UTC after 259 `none`-regime records** (python3 at 14.3 GB
-    anon-rss; systemd killed the whole startup-script unit, so no marker,
-    no upload, no self-delete — salvaged manually to
-    `prototype/runs/phase-b-partial-oom/`). Root cause found by
-    measurement and fixed — see [the run log](#condition-4-run-log).
-  - *Launch 3* (16:27 UTC, from merged post-fix code): **STOCKOUT** —
-    us-east1-b, the zone with capacity all morning, had none by afternoon
-    (`ZONE_RESOURCE_POOL_EXHAUSTED`); clean fail-fast and teardown. A zone
-    hunt now sweeps us-east1-c/d, us-east4-a/c, us-west1-a/b,
-    us-central1-a/b/c in order, running the full matrix in the first zone
-    that takes the instance (us-east1-c: also stocked out, 16:28 UTC).
-    L4 capacity is evidently diurnal; morning launches have fared better.
+- [wip] **Run condition 4.** Four launches so far, none complete — CPU-idle
+  decode, an OOM, a capacity stockout, and a batch-size abort, each diagnosed,
+  fixed and guarded — see [the run log](#condition-4-run-log). Launch 4 got
+  two full regimes in (`none` 330 draws, `few_shot` 200, archived at
+  `prototype/runs/phase-b-partial-batchassert/`) with the memory fix
+  confirmed working live. Launch chronology:
+  - *Launch 1* (13:38 UTC, `20260814T133847Z`): killed at 68 records — the
+    7B decoded on 4 vCPUs with the L4 idle (`llama_ffi` hardcoded
+    `n_gpu_layers = 0`; the instance's `NGL` only ever reached
+    `llama-server`, which a masked run skips). Also the launch that took the
+    `n_ctx` 4096 → 16384 review fix. CPU records discarded as incomparable.
+  - *Launch 2* (14:33 UTC, `20260814T143255Z`): 99–100 % SM confirmed,
+    then OOM-killed at 259 records (masker type-state memo defect; fixed by
+    measurement — run log). Salvaged to `prototype/runs/phase-b-partial-oom/`.
+  - *Launch 3* (16:27 UTC): us-east1-b STOCKOUT; a 13-zone US+EU sweep
+    followed — all nine US zones simultaneously dry; europe-west4-a took
+    the instance on the second pass. L4 capacity is evidently diurnal.
+  - *Launch 4* (16:48 UTC, europe-west4-a): two full regimes, RSS flat at
+    ~1 GB, mask 2.4 ms/token — then `GGML_ASSERT(n_tokens_all <=
+    cparams.n_batch)` on the first 11.9 k-token `full_corpus` prompt.
+    Fixed with chunked prefill (run log). Archived as above.
+  - *Launch 5*: pending, from merged post-fix code.
 
 ## The B2 decisions
 
@@ -704,7 +697,29 @@ this dispatch, by rule. The operator's invocation is recorded below.
 
 ### Condition-4 run log
 
-#### Attempt 1, 2026‑08‑14 — OOM-killed at 14.3 GB. Cause found and fixed.
+| launch | outcome | cause |
+|---|---|---|
+| — | see the operator's log | not recorded here; this plan picks the log up at the first matrix that produced records |
+| 2 | OOM-killed at 14.3 GB after 259 draws | literal payloads retained in the type state; unbounded transition memo |
+| 3 | never started | `us-east1-b` capacity stockout — infrastructure, nothing to fix in the masker |
+| 4 | `GGML_ASSERT` abort after 530 draws | prefill fed as one `llama_decode` call, longer than `n_batch` |
+
+Launch numbering is the operator's.
+
+#### Launch 1, 2026‑08‑14 — the L4 sat idle while the 7B decoded on CPU.
+
+Killed by the operator at 68 records (~42 min). `llama_ffi.LlamaModel`
+hardcoded `n_gpu_layers = 0` from its CPU-laptop origin, and the instance's
+`NGL` metadata only ever reached `llama-server` — which a masked run skips.
+Caught by `nvidia-smi dmon` reading flat-zero and ~37 s/record against a ~6 s
+expectation, with the mask accounting for only ~2 s of it. Fixed end-to-end
+before launch 2 (config `n_gpu_layers` → `RunConfig` → `make_backend` →
+`LlamaCppBackend` → `LlamaModel`, startup script injecting `NGL` on the
+masked path); superseded by this branch's `-1` default in the same seam. The
+68 CPU-decoded records were discarded as incomparable — CPU decode would
+have poisoned prediction 5's denominator.
+
+#### Launch 2, 2026‑08‑14 — OOM-killed at 14.3 GB. Cause found and fixed.
 
 The run reached 259 records in ~20 min, wrote its last record at 14:58:11,
 then spent **39 minutes inside a single draw** without completing it, and was
@@ -839,6 +854,97 @@ from the second token on, and cached across draws, but a matrix with many
 distinct literal contexts pays it repeatedly. Worth watching in attempt 2's
 `mask_seconds_per_token_uncached`, and the reason that field is reported
 separately.
+
+#### Launch 3 — `us-east1-b` capacity stockout
+
+The instance never started. Nothing in the masker; recorded so the run log
+accounts for every launch rather than skipping the ones with no artefact. The
+relaunch moved to Europe, which is what makes launch 4 "the Europe relaunch".
+
+#### Launch 4, 2026‑08‑14 — `GGML_ASSERT` abort on the first `full_corpus` prompt
+
+**The OOM fix is confirmed working live.** The run completed two whole regimes —
+`none` 330 draws, `few_shot` 200, 530 records — with runner RSS steady at
+~1.0 GB and mask cost far below launch 2's:
+
+| | launch 2 (partial) | launch 4 |
+|---|---|---|
+| mask s/token, mean | 0.01196 | **0.00249** |
+| mask s/token, worst draw | 0.66111 | **0.07632** |
+| transition entries at the end | unbounded, ~14 GB RSS | 86,237 under a 500,000 cap |
+
+Then, on the **first `full_corpus` prompt**:
+
+```
+/opt/loom/llama.cpp/src/llama-context.cpp:1711:
+GGML_ASSERT(n_tokens_all <= cparams.n_batch) failed
+```
+
+SIGABRT, exit 134, through `llama_decode` via ctypes. The startup script's
+`finish` trap worked this time — FAILED marker, logs uploaded, instance
+self-deleted.
+
+**This one is mine, from the previous fix.** Decoupling `n_batch` from `n_ctx`
+(to avoid a multi-gigabyte compute buffer at `n_ctx` 16384) left `decode`
+feeding the whole prompt as a single `llama_decode` call. `few_shot`'s ~1.7k
+prompts fit inside a 2048-token batch; `full_corpus`'s ~11.9k do not. Two
+regimes passed first, which is exactly why it surfaced late.
+
+It is a `GGML_ASSERT`, not a return code — the process aborts and there is
+nothing to catch — so no amount of error handling on this side would have
+softened it.
+
+**The fix: chunked prefill.** `decode` now feeds the prompt in `n_batch`-sized
+slices. Raising `n_batch` back to `n_ctx` was rejected on sight: it undoes the
+buffer sizing that the previous fix existed for, and it would only move the
+ceiling rather than remove it.
+
+Both things that could make chunking *silently* wrong were read off the pinned
+build rather than assumed — the coordinator flagged this seam as escalate-worthy
+and it is the one place in Phase B where a wrong guess corrupts data instead of
+crashing:
+
+- **Positions.** `llama_batch_get_one` leaves `pos` null
+  (`llama-batch.cpp:931`), and `llama_batch_allocr::init` then assigns positions
+  from `memory->seq_pos_max(s) + 1` (`llama-batch.cpp:90-117`) — continuing from
+  what is already in the KV cache. Sequential calls chain, which is the property
+  the prompt-then-one-token-at-a-time loop already depended on.
+- **Logits.** A null `logits` with `output_all` false marks only the final token
+  of each batch (`llama-batch.cpp:120-130`), so the last chunk's last token is
+  what `llama_get_logits_ith(ctx, -1)` reads. Earlier chunks compute one unused
+  row each — the whole cost of chunking.
+
+And the chunk size is now the batch llama.cpp *actually chose*, read back
+through `llama_n_batch`, not the one requested: `cparams.n_batch =
+min(n_ctx, params.n_batch)` under causal attention
+(`llama-context.cpp:245`), and the assert compares against the clamped value.
+Computing it here instead of asking would be the same class of guess that
+aborted the run.
+
+**One more thing launch 4's records exposed**, fixed in the same pass: the mask
+cache reached its 32,768-entry cap during the first two regimes and its policy
+was to *stop inserting*. `full_corpus` — the regime carrying R5's bar — would
+therefore have run against a cache frozen on what `none` and `few_shot` had
+taught it. It now evicts by wholesale clear at the cap, like the transition
+memo, and reports `mask_cache_clears`.
+
+**Regression guard:** `test_masker.ChunkedPrefillTest` — gated on the local
+GGUF the way the repo gates its other optional-dependency checks. It loads the
+1.5B with `n_batch=64` and a prompt several batches long and asserts decode
+completes; asserts the effective batch is read back and clamped; asserts chunked
+prefill leaves the *same logits* at the final prompt position as a single-batch
+prefill (a position bug moves those by whole logits, far outside the last-bit
+differences reordered reductions produce) and picks the same next token; asserts
+positions survive the per-draw `reset()`; and runs a full masked draw end to end
+under a tiny batch. The two abort-prone cases run in a **subprocess**, because a
+`GGML_ASSERT` would otherwise kill the test runner and report nothing — a
+regression now comes back as a clean failure carrying exit 134.
+
+**Verified.** 555 tests pass. The pre-fix path was reproduced locally to prove
+the guard has teeth — same assert, same `llama-context.cpp:1711`, same exit 134,
+same ctypes stack — and the fixed `decode` passes on the identical prompt and
+batch size. Live mask-sanity is byte-for-byte unchanged: 26/26 fixtures, 0
+violations, the same definition reproduced, the same per-layer prune counts.
 
 ### What the operator runs
 

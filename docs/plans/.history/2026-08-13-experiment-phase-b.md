@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/de317f2) | Bring plans and the source-code investigation current with Phase B events |
 | [2026-08-14](https://github.com/wbniv/loom/commit/7e68eb7) | Give the masked transport a context and a GPU, and stop it re-tying batch to n_ctx |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a3ebdf3) | Record the condition-4 OOM incident and its fix in the Phase B plan |
 | [2026-08-14](https://github.com/wbniv/loom/commit/a0f7137) | Plumb n_gpu_layers through the in-process transport |
@@ -11,6 +12,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/d9a5368) | Plan experiment Phase B with a B1/B2 split |
 
 <!--history-meta v1
+de317f2	author	Will Norris
+de317f2	added	7
+de317f2	deleted	1
+de317f2	files	1
+de317f2	body	Launch log through the us-east1 stockouts and zone hunt; M1 evidence\ncaveat (salvaged partial's mask numbers are defect symptoms, not the\nmeasurement); Phase A postscript on the english-as-source analysis.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 7e68eb7	author	Will Norris
 7e68eb7	added	35
 7e68eb7	deleted	0
