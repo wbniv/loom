@@ -302,13 +302,20 @@ tf apply -auto-approve "${TF_VARS[@]}" -var "launch_runner=false"
 
 # --- 2. Upload the repo, the config and the models --------------------------
 log "packing the repo"
+# The corpus-loop follow-up's config resolves store_export relative to the
+# config file, landing on <repo>/.loom-store-generated/export-resolver.json.
+# Pack that one derived file when it exists so the path resolves on the
+# instance too; a run that does not use it is unaffected.
+STORE_EXPORT=""
+[ -f "$REPO_ROOT/.loom-store-generated/export-resolver.json" ] \
+    && STORE_EXPORT=".loom-store-generated/export-resolver.json"
 tar -czf "$TARBALL" \
     -C "$REPO_ROOT" \
     --exclude='prototype/runs' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='.git' \
-    prototype Taskfile.yml
+    prototype Taskfile.yml $STORE_EXPORT
 
 log "uploading the repo tarball ($(du -h "$TARBALL" | cut -f1))"
 gsutil -q cp "$TARBALL" "gs://$BUCKET/repo/repo.tar.gz"
