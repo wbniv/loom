@@ -166,6 +166,21 @@ Phase A:
   per-token decode overhead and is unaffected. KV-cache quantization
   (`-ctk/-ctv q8_0`) is NOT used: it cut prompt eval to ~12 tok/s on this CPU.
 
+  **Smoke-run amendment (2026‑08‑13):** the 21-cell smoke produced 57 draws,
+  0 acceptances, and a decisive artifact diagnosis: all 25 grammar-constrained
+  "parse" failures are truncations (2–8 unclosed parens each; zero
+  balanced-but-rejected, so the GBNF is sound against the canonical parser
+  in-sample). The 256-token per-draw cap starves definitions — 64-hex hashes
+  cost ~25–35 tokens each, an early R6 answer: hashes hurt as budget damage.
+  Config amended for the full run: `max_tokens_per_draw` 512 (= the full task
+  budget in one draw), seeds {1} for the first full pass (smoke wall-time
+  extrapolates 3 seeds to ~46 h on this CPU; one seed ≈ 15 h). The dominant
+  *checker* layer among completed drafts is typecheck, then scope
+  (de Bruijn share 1.0) — the Phase B gate signal to carry into B2, along
+  with a new pruner candidate the truncation data suggests:
+  completion-pressure (prune openings that cannot close within the remaining
+  budget).
+
   **Amendment record (history kept, not erased):**
   - The first selection, `Qwen2.5-Coder-7B-Instruct Q4_K_M` (byte-verified
     against HF: sha256 `509287f7…`), is not viable on this hardware: the
