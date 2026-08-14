@@ -1,9 +1,20 @@
 | Date | Change |
 |------|--------|
+| [2026-08-13](https://github.com/wbniv/loom/commit/a19d194) | Close effect-consistency review follow-ups |
+| [2026-08-13](https://github.com/wbniv/loom/commit/7776d05) | Align effect documentation and fixtures |
 | [2026-08-13](https://github.com/wbniv/loom/commit/72736d0) | Add Loom-vs-Lisp doc; ignore session transcripts |
 | [2026-08-12](https://github.com/wbniv/loom/commit/c624690) | Import Loom v0.1 spec and overview from ~/docs |
 
 <!--history-meta v1
+a19d194	author	Will Norris
+a19d194	added	2
+a19d194	deleted	2
+a19d194	files	1
+a19d194	body	Eight doc/test-level fixes from the 2026-08-13 effect-consistency change\nreview plus two later review notes: complete SPEC.md §3.1.2's expected-type\ncontext list, fix SPEC.md's stale status header, add a dedicated pinned test\nfor the direct-application effect rejection, correct the effect-purity\nchange review's resolution note (the rejection test actually already\nexisted, contrary to the later review's finding), document the GBNF\nvalidator build recipe, import the design sketch from outside the repo and\nrepair all broken ../docs/ references, reword §6.1.1's circular confidence\nclause, and record the F64 bitwise-equality design fork. No checker or\ntranslator behavior changed.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
+7776d05	author	Will Norris
+7776d05	added	5
+7776d05	deleted	3
+7776d05	files	1
 72736d0	author	Will Norris
 72736d0	added	3
 72736d0	deleted	0

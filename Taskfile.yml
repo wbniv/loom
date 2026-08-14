@@ -10,10 +10,10 @@ silent: true
 
 tasks:
   prototype:test:
-    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, evaluator, experiment-harness, and mask tests
+    desc: Run parser, identity, scope, declaration, reference, obligation, policy, extern, contract, evaluator, experiment-harness, mask, and store-admission tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker test_store -v
 
   experiment:phase-a:
     desc: Run masked-generation experiment Phase A (conditions 1-3) from a config file
@@ -35,7 +35,7 @@ tasks:
 
 
   setup:
-    desc: "Install pinned project tool dependencies (terraform, gcloud) into ~/.local/bin; verify the rest. Idempotent."
+    desc: "Install pinned project tool dependencies (terraform, gcloud, rust) into ~/.local/bin and ~/.rustup; verify the rest. Idempotent."
     cmds:
       - |
         set -euo pipefail
@@ -64,6 +64,33 @@ tasks:
           ln -sf "$HOME/.local/google-cloud-sdk/bin/gsutil" "$BIN/gsutil"
           echo "✓ installed: $("$BIN/gcloud" version 2>/dev/null | head -1)"
         fi
+        # ── Rust (Track G: the store/ crate) ────────────────────────────────
+        # Pinned exactly, not "stable": the store's own invariant is byte
+        # identity, and a toolchain that moves under it is one more thing that
+        # can change output without anyone asking. rustup lives in ~/.rustup,
+        # cargo in ~/.cargo, both outside the repo.
+        # store/rust-toolchain.toml is the authoritative pin; this only makes
+        # sure the pinned toolchain exists, and never touches `rustup default`
+        # (that is a machine-wide setting other projects may own).
+        RUST_VERSION=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' store/rust-toolchain.toml)
+        export RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"
+        if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
+          echo "Installing rustup → $RUSTUP_HOME (toolchain ${RUST_VERSION})"
+          TMP=$(mktemp -d)
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$TMP/rustup-init.sh" https://sh.rustup.rs
+          sh "$TMP/rustup-init.sh" -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_VERSION" --component clippy --component rustfmt
+          rm -rf "$TMP"
+        elif "$CARGO_HOME/bin/rustup" toolchain list 2>/dev/null | grep -q "^${RUST_VERSION}-"; then
+          echo "✓ rust ${RUST_VERSION} toolchain already installed"
+        else
+          echo "Installing pinned rust toolchain ${RUST_VERSION}"
+          "$CARGO_HOME/bin/rustup" toolchain install "$RUST_VERSION" \
+            --profile minimal --component clippy --component rustfmt
+        fi
+        echo "✓ $("$CARGO_HOME/bin/rustup" run "$RUST_VERSION" rustc --version)"
+        echo "✓ $("$CARGO_HOME/bin/rustup" run "$RUST_VERSION" cargo --version)"
+
         for tool in aws python3 tar unzip curl git; do
           command -v "$tool" >/dev/null && echo "✓ $tool" || { echo "✗ missing: $tool — install it via your package manager"; exit 1; }
         done
@@ -202,6 +229,70 @@ tasks:
         echo "Activate cost allocation tags (once, after first tagged resource exists):"
         echo "  https://us-east-1.console.aws.amazon.com/billing/home#/tags"
         echo "  → Activate: Project, ManagedBy, Environment"
+
+  # ── store/ (Track G: the first production Rust in the repo) ───────────────
+  # Every Rust entry point goes through `cargo` from ~/.cargo, with the
+  # toolchain pinned by store/rust-toolchain.toml. Nothing here assumes cargo
+  # is on the caller's PATH, because `task setup` deliberately installs rustup
+  # with --no-modify-path.
+
+  store:build:
+    desc: Build the loom-store binary (debug)
+    dir: store
+    env: &cargo_env
+      CARGO_HOME: '{{.HOME}}/.cargo'
+      RUSTUP_HOME: '{{.HOME}}/.rustup'
+    cmds:
+      - '{{.HOME}}/.cargo/bin/cargo build {{.CLI_ARGS}}'
+
+  store:test:
+    desc: Run the Rust unit and CLI-level test suites
+    dir: store
+    env: *cargo_env
+    cmds:
+      - '{{.HOME}}/.cargo/bin/cargo test {{.CLI_ARGS}}'
+
+  store:lint:
+    desc: clippy with warnings denied, plus rustfmt --check
+    dir: store
+    env: *cargo_env
+    cmds:
+      - '{{.HOME}}/.cargo/bin/cargo fmt --check'
+      - '{{.HOME}}/.cargo/bin/cargo clippy --all-targets -- -D warnings'
+
+  store:seed:
+    desc: "Seed .loom-store with the pinned corpus (8 abilities, 4 data, 9 externs, 26 definitions), then fsck"
+    deps: [store:build]
+    env:
+      LOOM_STORE: '{{.ROOT_DIR}}/.loom-store'
+      LOOM_PROTOTYPE: '{{.ROOT_DIR}}/prototype'
+    cmds:
+      - store/target/debug/loom-store init --from-oracle
+      - store/target/debug/loom-store admit --corpus
+      - store/target/debug/loom-store fsck
+
+  store:reseed:
+    desc: "Delete and re-seed the store — the byte-identity check the plan's completion criteria name"
+    deps: [store:build]
+    cmds:
+      - rm -rf '{{.ROOT_DIR}}/.loom-store'
+      - task: store:seed
+
+  store:fsck:
+    desc: Re-prove every store invariant
+    deps: [store:build]
+    env:
+      LOOM_STORE: '{{.ROOT_DIR}}/.loom-store'
+    cmds:
+      - store/target/debug/loom-store fsck
+
+  store:export:
+    desc: Write the resolver export the Python harness consumes
+    deps: [store:build]
+    env:
+      LOOM_STORE: '{{.ROOT_DIR}}/.loom-store'
+    cmds:
+      - store/target/debug/loom-store export-resolver --out '{{.ROOT_DIR}}/.loom-store/export-resolver.json'
 
   experiment:mask-sanity:
     desc: Live sanity for Phase B's transport — loads a GGUF in process and walks the mask

@@ -1,0 +1,31 @@
+[package]
+name = "loom-store"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97.1"
+description = "Loom's persistent content-addressed object store (SPEC §5), v0"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "loom-store"
+path = "src/main.rs"
+
+[lib]
+name = "loom_store"
+path = "src/lib.rs"
+
+# Dependencies are capped by docs/plans/2026-08-14-store-v0.md R6. No CBOR
+# crate (object bytes are opaque in v0), no async runtime, no embedded
+# database. Adding to this list is a plan change, not a build change.
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
