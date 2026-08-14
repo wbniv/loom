@@ -26,6 +26,55 @@ tasks:
     cmds:
       - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
 
+
+  aws-narrow:
+    desc: "One-time, after aws-bootstrap: apply the self-narrowing IAM policy, verify it suffices, detach the broad policies."
+    cmds:
+      - |
+        set -euo pipefail
+        PROFILE=loom-terraform
+        ACCOUNT=353144603271
+        TFDIR=infrastructure/aws/iam-self
+        SAFE="$HOME/python-tui-lib/scripts/tf-safe-apply.sh"
+
+        echo "━━━ Phase C: scoped policy ━━━"
+        "$SAFE" "$TFDIR" init
+        "$SAFE" "$TFDIR" apply -auto-approve
+
+        echo ""
+        echo "━━━ Phase D: verify the scoped policy suffices ━━━"
+        RESULT=$(AWS_PROFILE=$PROFILE aws iam simulate-principal-policy \
+          --policy-source-arn arn:aws:iam::$ACCOUNT:user/loom-terraform \
+          --action-names s3:CreateBucket s3:PutObject dynamodb:CreateTable \
+            iam:CreateRole iam:PassRole ec2:RunInstances ec2:TerminateInstances \
+            iam:CreateInstanceProfile sts:GetCallerIdentity \
+          --query 'EvaluationResults[?EvalDecision!=`allowed`].[EvalActionName,EvalDecision]' \
+          --output text || true)
+        if [ -n "$RESULT" ]; then
+          echo "✗ Scoped policy is missing permissions — NOT detaching broad policies:"
+          echo "$RESULT"
+          echo "Widen infrastructure/aws/iam-self/policy.tf and re-run task aws-narrow."
+          exit 1
+        fi
+        echo "✓ All simulated actions allowed under the scoped policy."
+
+        echo ""
+        echo "━━━ Phase D: detach AdministratorAccess and ReadOnlyAccess ━━━"
+        cd "$TFDIR"
+        terraform state show aws_iam_user_policy_attachment.admin >/dev/null 2>&1 || \
+          terraform import aws_iam_user_policy_attachment.admin \
+            'loom-terraform/arn:aws:iam::aws:policy/AdministratorAccess' || true
+        terraform state show aws_iam_user_policy_attachment.readonly >/dev/null 2>&1 || \
+          terraform import aws_iam_user_policy_attachment.readonly \
+            'loom-terraform/arn:aws:iam::aws:policy/ReadOnlyAccess' || true
+        cd - >/dev/null
+        "$SAFE" "$TFDIR" apply -auto-approve
+
+        echo ""
+        echo "━━━ End state ━━━"
+        AWS_PROFILE=$PROFILE aws iam list-attached-user-policies --user-name loom-terraform --output table
+        echo "Must show ONLY loom-terraform-scoped. Next: task experiment:remote"
+
   aws-bootstrap:
     desc: "One-time: create the loom-terraform IAM profile locally and bootstrap the S3/DynamoDB state backend."
     cmds:
