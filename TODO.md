@@ -33,11 +33,6 @@ Check conformance with `task todo:lint`.
   read the marker dir for the next candidate instead. Pre-existing in
   fences, mirrored by seq claims, flagged in the namespaces plan addendum.
 
-- [wip T2] <!-- agent:a1ff51fd31cef1882 --> **SML FFI generator spike** — batch 2's cheapest experiment: a
-  build-time tool deriving llama struct offsets from the pinned header
-  (static_asserts + generated SML), converting the contested FFI=3 from
-  scored hypothetical to measured fact; verdict recorded back into the
-  [batch-2 study](docs/investigations/2026-08-14-language-eval-batch-2.md).
 
 
 
@@ -75,6 +70,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-15 — [ffi-spike] Built the offset generator: 60/60 fields match ctypes, MLton smoke test links real libllama; FFI=3 measured. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md) A3.
 - ✅ 2026-08-15 — [seq-claims] Concurrent same-holder binds prevented via O_EXCL seq markers; fsck invariant relaxed to strictly-increasing per SPEC's own wording. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-14 — [track-p-l0] Built the differential harness: 3,681 cases via transparent entry-point instrumentation, byte-reproducible, zero test changes. See [language plan](docs/plans/2026-08-14-production-language-decision.md) Track P.
 - ✅ 2026-08-14 — [language-batch-2] Scored SML/Haskell/Clojure/Perl/Ruby on the fixed rubric: Haskell 94 nearest, none approach Rust's 114; decision stands. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md).
