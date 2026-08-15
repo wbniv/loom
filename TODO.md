@@ -27,6 +27,12 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T2] **SML FFI generator spike** — batch 2's cheapest experiment: a
+  build-time tool deriving llama struct offsets from the pinned header
+  (static_asserts + generated SML), converting the contested FFI=3 from
+  scored hypothetical to measured fact; verdict recorded back into the
+  [batch-2 study](docs/investigations/2026-08-14-language-eval-batch-2.md).
+
 - [wip T2] <!-- agent:a967cb3b83f89bfed --> **Prevent concurrent same-holder binds: O_EXCL seq claims** — extend
   the fence-claim discipline to binding seq numbers in `store/src/state.rs`,
   turning the fsck-detectable duplicate-seq race into a prevented one; the
