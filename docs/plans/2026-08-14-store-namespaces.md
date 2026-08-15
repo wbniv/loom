@@ -104,8 +104,12 @@ $0 — local only.
   leases/<ns>.jsonl      append-only lease events
   fences/<ns>/<fence>    an empty marker per issued fence
   current/<ns>.json      derived: the fold of the lease log
-  bindings/<ns>.jsonl    append-only binding records, seq from 1, no gaps
+  bindings/<ns>.jsonl    append-only binding records, seq strictly increasing
+  seqs/<ns>/<seq>        an empty marker per claimed binding seq
 ```
+
+(`seqs/` was added by the seq-claim hardening addendum at the end of this
+file; `bindings/<ns>.jsonl`'s row was "seq from 1, no gaps" until then.)
 
 `<ns>` is the namespace percent-encoded into one filename stem (`%` → `%25`,
 `/` → `%2F`, root → `%`), so one namespace is one file, enumeration is one
@@ -445,3 +449,116 @@ Also asserted in Python by
 `store_admit.default_policy_pair`, which refuses to emit anything else.
 
 **PASS.**
+
+## Addendum 2026-08-14 — claiming binding seq the same way as a fence
+
+The gap this closes: `bind` computed `seq = records.len() + 1` by reading the
+binding log, same as `lease_acquire` used to compute a fence from the fold
+before the fence-claim marker existed. Two `bind` calls under one held
+fence — the same holder, two threads or processes, nothing exotic — can both
+read the log before either has appended and both propose the same `seq`.
+`fsck`'s old `binding_seq_gap` check found the resulting duplicate after the
+fact; it never stopped it from landing.
+
+**The fix** mirrors `state::claim_fence` exactly: `state::claim_binding_seq`
+issues a `seq` by `open(…, O_CREAT|O_EXCL)` on `state/seqs/<ns>/<seq>`, and
+`Store::bind` (`store/src/store.rs`) claims it right before appending — after
+the oracle has admitted the proposal and the fence has been re-checked, so a
+refused or fence-losing proposal never burns a `seq`. A claim that loses the
+race makes `bind` re-read the log and retry, up to `MAX_BIND_ATTEMPTS` (16,
+the same bound `lease_acquire` uses and for the same reason).
+
+**The tension, and the choice.** R2 above already says binding `seq` is
+"strictly increasing" — it never said "no gaps". The "seq from 1, no gaps"
+wording lived only in the state stratum's own ASCII diagram and doc comments
+and in `fsck`'s `binding_seq_gap` check, which enforced contiguity R2 never
+asked for. §5.3 itself says a rebind is "a new binding record with a higher
+seq" — again "higher", not "next" — and nothing in §5.3 or §5.3.2 ties a
+binding's admissibility, its resolution, or its ordering to the *count* of
+prior bindings; `resolve`, `history`, and `--at-seq` all key off the `seq`
+value itself, not off log position, so a store that skips a burned number
+loses nothing SPEC promises. This is choice **(a)**: relax the
+implementation (docs, module comments, and `fsck`) to match what R2 already
+required, rather than choice (b) (making the claim-and-append atomic enough
+that no number is ever burned). (b) was also considered and rejected for the
+same reason an advisory lock was rejected for fences in the "Decisions taken"
+section above: making claim-then-append atomic across a possible crash needs
+either a cross-process transaction the filesystem does not give for free, or
+recovery/rollback logic (delete an orphaned claim marker, but only if we can
+prove the claimant is really dead) that the design does not otherwise need
+anywhere else in this store. (a) costs nothing SPEC asks for; (b) would add
+real machinery to buy back a guarantee no one requires.
+
+`fsck` (`store/src/state.rs::check`) now runs the same two checks on binding
+`seq` that it already ran on fences: `binding_seq_regression` (a record's
+`seq` does not exceed the running highest — catches a duplicate or a
+backward jump) and `binding_seq_unissued` (a record's `seq` has no claim
+marker behind it — catches a hand-edited or otherwise never-claimed value).
+`binding_seq_gap` is gone; a gap alone is no longer a problem.
+`store/tests/namespaces.rs::fsck_catches_a_binding_whose_def_hash_is_absent_an_unissued_seq_and_a_seq_regression`
+replaces the old gap-detection test with one hand-edit that trips
+`binding_seq_unissued` (a renumbering to a `seq` never claimed) and a second
+that trips `binding_seq_regression` (a renumbering that repeats an already-
+claimed `seq`), and confirms neither check fires on the other's fixture.
+
+**The concurrent-bind test.**
+`store/tests/namespaces.rs::concurrent_binds_under_one_fence_never_share_a_seq`
+acquires one namespace, then binds four different names under that one fence
+from four threads at once. All four are expected to succeed (nothing about
+this scenario is refusable — four first-time bindings under the default
+policy), and the test asserts their returned `seq` values are exactly `{1,
+2, 3, 4}` with no duplicates, then that `fsck` is clean afterward.
+Non-vacuity, proved the way the fence test proved it: with the
+`claim_binding_seq` call in `Store::bind` short-circuited to never claim
+(`if false { continue; }` in place of the real check), the same test run
+produces all four binds landing at `seq: 1` — `left: [1, 1, 1, 1], right:
+[1, 2, 3, 4]` — confirming the claim is load-bearing, not decorative.
+
+**Verification**, folded into the existing steps rather than re-run as new
+numbered ones (nothing above them changed):
+
+```
+running 17 tests
+...
+test concurrent_binds_under_one_fence_never_share_a_seq ... ok
+test fsck_catches_a_binding_whose_def_hash_is_absent_an_unissued_seq_and_a_seq_regression ... ok
+...
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.49s
+```
+
+`task store:test`: 77 Rust tests total (39 lib + 21 integration + 17
+namespaces, up from 73), 0 failures. `task store:lint`: `cargo fmt --check`
+clean, `cargo clippy --all-targets -- -D warnings` clean. `task
+prototype:test`: 693 tests, `OK (skipped=3)` — the oracle is untouched by
+this addendum, run anyway per the brief. `task todo:lint`: `TODO.md: clean`.
+`git diff --check`: clean.
+
+**PASS.**
+
+**Least-certain call.** Whether `binding_seq_regression` can ever have a real
+false positive under legitimate concurrency — i.e., whether two records
+could ever land in the log out of `seq` order without any tampering, which
+would make the regression check itself the bug. Reasoned through rather than
+directly tested: `bind`'s candidate is always `records.len() + 1` at the
+moment of a fresh log read, and a claim for candidate `n+1` cannot be
+attempted until a read observes `n` records — which requires record `n`'s
+append to already be durably on disk. So no `bind` can ever land a record
+behind one that had not yet been appended when it computed its own
+candidate; file order and `seq` order coincide by construction, for
+successfully appended records, with or without contention. What this
+argument does *not* cover is the same liveness question the fence claim
+already carries and that this addendum deliberately leaves alone: a crash
+between claiming a `seq` and appending its record permanently blocks that
+exact number from ever being reused, and since the next candidate is always
+`records.len() + 1` (not the highest *claimed* number), a namespace whose
+last bind crashed mid-claim would retry the identical burned `seq` forever
+rather than skipping past it. `lease_acquire`'s fence claim has this same
+shape (`fence = held.fence + 1`, not `max(claimed) + 1`) and was accepted
+that way; this addendum mirrors it rather than silently fixing a
+pre-existing, out-of-scope liveness question for fences too. A real crash
+mid-claim is colder than the races these tests exercise, and recovering
+from it — deciding a claimant is truly dead rather than merely slow, and
+only then treating its marker as reusable — is exactly the "recovery logic
+the design does not otherwise need" that made choice (b) not worth its cost
+above. Flagged here rather than fixed, for a future increment to pick up if
+it turns out to matter in practice.

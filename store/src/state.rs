@@ -12,7 +12,8 @@
 //!   leases/<ns>.jsonl     append-only lease events, one JSON object per line
 //!   fences/<ns>/<fence>   an empty marker per issued fence — see below
 //!   current/<ns>.json     derived: the fold of the lease log
-//!   bindings/<ns>.jsonl   append-only binding records, `seq` from 1, no gaps
+//!   bindings/<ns>.jsonl   append-only binding records, `seq` strictly increasing
+//!   seqs/<ns>/<seq>       an empty marker per claimed binding seq — see below
 //! ```
 //!
 //! `<ns>` is [`crate::names::encode`]'s stem, so one namespace is one file and
@@ -29,6 +30,23 @@
 //! and appending burns a fence number, which is harmless — §5.3.3 requires
 //! fences to increase strictly, not contiguously — and `fsck` therefore treats
 //! a marker with no acquire as normal and an acquire with no marker as a
+//! tampered log.
+//!
+//! ## Why the same discipline applies to binding seq
+//!
+//! §5.3 says a rebind is "a new binding record with a higher seq" and the
+//! namespaces plan's R2 says binding `seq` is "strictly increasing" — neither
+//! says contiguous, which is what makes this the same shape as a fence rather
+//! than a new problem. `bind` reads the log's length to propose the next
+//! `seq`, and two `bind` calls racing under one held fence (the same holder,
+//! two threads or processes) can both read the same length and both propose
+//! the same `seq`. The marker closes that exactly as the fence marker does: a
+//! `seq` is *issued* by `open(…, O_CREAT|O_EXCL)` on `seqs/<ns>/<n>`, only the
+//! winner appends, and a loser re-reads the log and proposes again. A crash
+//! between claiming and appending burns a `seq`, which is harmless for the
+//! same reason a burned fence is — nothing in §5.3 or §5.3.3 promises
+//! contiguity, only strict increase — so `fsck` treats a marker with no
+//! binding behind it as normal and a binding whose `seq` no marker backs as a
 //! tampered log.
 //!
 //! ## Why the cache is derived rather than authoritative
@@ -170,6 +188,7 @@ pub const LEASES_DIR: &str = "state/leases";
 pub const FENCES_DIR: &str = "state/fences";
 pub const CURRENT_DIR: &str = "state/current";
 pub const BINDINGS_DIR: &str = "state/bindings";
+pub const SEQS_DIR: &str = "state/seqs";
 
 pub fn lease_log(layout: &Layout, namespace: &str) -> PathBuf {
     layout
@@ -197,6 +216,10 @@ pub fn binding_log(layout: &Layout, namespace: &str) -> PathBuf {
         .root()
         .join(BINDINGS_DIR)
         .join(format!("{}.jsonl", names::encode(namespace)))
+}
+
+pub fn seq_dir(layout: &Layout, namespace: &str) -> PathBuf {
+    layout.root().join(SEQS_DIR).join(names::encode(namespace))
 }
 
 /// Every namespace with a log of the given kind, sorted, decoded back from the
@@ -388,6 +411,42 @@ pub fn claimed_fences(layout: &Layout, namespace: &str) -> Result<Vec<u64>> {
     Ok(found)
 }
 
+/// Issue a binding `seq` by creating its marker, or report that someone else
+/// has it. The same mechanism as [`claim_fence`], for the same reason: see
+/// the module docstring.
+pub fn claim_binding_seq(layout: &Layout, namespace: &str, seq: u64) -> Result<bool> {
+    let directory = seq_dir(layout, namespace);
+    fs::create_dir_all(&directory).map_err(|error| StoreError::io(&directory, error))?;
+    let path = directory.join(seq.to_string());
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(StoreError::io(&path, error)),
+    }
+}
+
+pub fn claimed_binding_seqs(layout: &Layout, namespace: &str) -> Result<Vec<u64>> {
+    let directory = seq_dir(layout, namespace);
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(StoreError::io(&directory, error)),
+    };
+    let mut found = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| StoreError::io(&directory, error))?;
+        if let Ok(seq) = entry.file_name().to_string_lossy().parse::<u64>() {
+            found.push(seq);
+        }
+    }
+    found.sort_unstable();
+    Ok(found)
+}
+
 pub fn append_lease_event(layout: &Layout, namespace: &str, event: &LeaseEvent) -> Result<()> {
     append_line(&lease_log(layout, namespace), event)
 }
@@ -447,9 +506,11 @@ fn problem(kind: &'static str, namespace: &str, detail: impl Into<String>) -> St
 
 /// §5.3.3's integrity check: every log parses, fences increase strictly, and
 /// any cached current-lease state equals the fold. Plus what the namespaces
-/// plan adds for bindings: `seq` from 1 with no gaps, every record in the log
-/// its own namespace names, and every record's fence one this namespace
-/// actually issued.
+/// plan adds for bindings: `seq` increases strictly and every claimed `seq`
+/// a record uses was actually issued (the same two checks the fence gets, for
+/// the same reason — see the module docstring), every record in the log its
+/// own namespace names, and every record's fence one this namespace actually
+/// issued.
 ///
 /// Object presence and object kind are *not* checked here — they need the
 /// object store, so [`crate::store::Store::fsck`] does them where it has it.
@@ -544,17 +605,32 @@ pub fn check(layout: &Layout) -> Result<Vec<StateProblem>> {
                 continue;
             }
         };
-        let issued = claimed_fences(layout, &namespace)?;
+        let issued_fences = claimed_fences(layout, &namespace)?;
+        let issued_seqs = claimed_binding_seqs(layout, &namespace)?;
+        // `bind` only ever proposes the log's current length + 1 (see
+        // `claim_binding_seq`'s call site), so a legitimate log can never
+        // present two records out of increasing order — a later `seq` cannot
+        // be claimed until the record before it is durably appended. A
+        // regression here is therefore tampering, exactly like a fence
+        // regression.
+        let mut highest = 0u64;
         for (index, record) in records.iter().enumerate() {
-            let expected = index as u64 + 1;
-            if record.seq != expected {
+            let seq = record.seq;
+            if seq <= highest {
                 problems.push(problem(
-                    "binding_seq_gap",
+                    "binding_seq_regression",
+                    &namespace,
+                    format!("record {index} has seq {seq}, which does not exceed {highest}"),
+                ));
+            }
+            highest = highest.max(seq);
+            if !issued_seqs.contains(&seq) {
+                problems.push(problem(
+                    "binding_seq_unissued",
                     &namespace,
                     format!(
-                        "record {index} has seq {} where the log's {expected}th record must have \
-                         seq {expected}",
-                        record.seq
+                        "{} was bound at seq {seq}, which this namespace never claimed",
+                        record.name_path
                     ),
                 ));
             }
@@ -575,7 +651,7 @@ pub fn check(layout: &Layout) -> Result<Vec<StateProblem>> {
                     error.to_string(),
                 )),
             }
-            if !issued.contains(&record.fence) {
+            if !issued_fences.contains(&record.fence) {
                 problems.push(problem(
                     "binding_fence_unissued",
                     &namespace,
@@ -677,6 +753,19 @@ mod tests {
         assert_eq!(claimed_fences(&layout, "stats").unwrap(), vec![1, 2]);
         // A different namespace has its own fence space.
         assert!(claim_fence(&layout, "other", 1).unwrap());
+    }
+
+    #[test]
+    fn a_binding_seq_is_issued_to_exactly_one_claimant() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::new(root.path());
+        layout.init(serde_json::Map::new()).unwrap();
+        assert!(claim_binding_seq(&layout, "stats", 1).unwrap());
+        assert!(!claim_binding_seq(&layout, "stats", 1).unwrap());
+        assert!(claim_binding_seq(&layout, "stats", 2).unwrap());
+        assert_eq!(claimed_binding_seqs(&layout, "stats").unwrap(), vec![1, 2]);
+        // A different namespace has its own seq space.
+        assert!(claim_binding_seq(&layout, "other", 1).unwrap());
     }
 
     #[test]
