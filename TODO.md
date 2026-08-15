@@ -27,18 +27,18 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T2] **Claim-marker liveness: candidate = max(claimed)+1** — a crash
+  between claim and append burns a fence/seq number that log-fold+1
+  candidate selection then retries forever (livelock on that namespace);
+  read the marker dir for the next candidate instead. Pre-existing in
+  fences, mirrored by seq claims, flagged in the namespaces plan addendum.
+
 - [wip T2] <!-- agent:a1ff51fd31cef1882 --> **SML FFI generator spike** — batch 2's cheapest experiment: a
   build-time tool deriving llama struct offsets from the pinned header
   (static_asserts + generated SML), converting the contested FFI=3 from
   scored hypothetical to measured fact; verdict recorded back into the
   [batch-2 study](docs/investigations/2026-08-14-language-eval-batch-2.md).
 
-- [wip T2] <!-- agent:a967cb3b83f89bfed --> **Prevent concurrent same-holder binds: O_EXCL seq claims** — extend
-  the fence-claim discipline to binding seq numbers in `store/src/state.rs`,
-  turning the fsck-detectable duplicate-seq race into a prevented one; the
-  namespaces run log names the trade (burned seq after crash = false alarm,
-  acceptable). Bounded to one module + tests, hence T2.
-  See [plan](docs/plans/2026-08-14-store-namespaces.md) residual risk.
 
 
 
@@ -75,6 +75,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-15 — [seq-claims] Concurrent same-holder binds prevented via O_EXCL seq markers; fsck invariant relaxed to strictly-increasing per SPEC's own wording. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-14 — [track-p-l0] Built the differential harness: 3,681 cases via transparent entry-point instrumentation, byte-reproducible, zero test changes. See [language plan](docs/plans/2026-08-14-production-language-decision.md) Track P.
 - ✅ 2026-08-14 — [language-batch-2] Scored SML/Haskell/Clojure/Perl/Ruby on the fixed rubric: Haskell 94 nearest, none approach Rust's 114; decision stands. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md).
 - ✅ 2026-08-14 — [store-namespaces] Built bindings+leases per §5.3.3: O_EXCL fences (race-proven), oracle-owned policy admission, rules enforced-or-refused. See [plan](docs/plans/2026-08-14-store-namespaces.md).
