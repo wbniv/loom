@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Prevent concurrent same-holder binds: O_EXCL seq claims** — extend
+- [wip T2] <!-- agent:a967cb3b83f89bfed --> **Prevent concurrent same-holder binds: O_EXCL seq claims** — extend
   the fence-claim discipline to binding seq numbers in `store/src/state.rs`,
   turning the fsck-detectable duplicate-seq race into a prevented one; the
   namespaces run log names the trade (burned seq after crash = false alarm,
