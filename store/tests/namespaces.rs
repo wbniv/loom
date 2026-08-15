@@ -248,6 +248,48 @@ fn simultaneous_acquisitions_of_a_free_namespace_produce_exactly_one_holder() {
 }
 
 #[test]
+fn acquire_skips_a_fence_a_crash_burned_instead_of_livelocking() {
+    // A crash between claiming a fence and appending its Acquire event
+    // leaves the marker behind with no event to match it, forever — the
+    // fold never advances past a burn without an append. Naively
+    // recomputing `fold-fence + 1` on every retry would recompute the same
+    // permanently-unclaimable fence on all `MAX_ACQUIRE_ATTEMPTS` attempts
+    // and report contention — and every future call would hit exactly the
+    // same wall, forever, since nothing about the situation ever changes.
+    // `state::next_after_claims`'s last-attempt escalation is what closes
+    // that: this namespace was never even acquired, so fence 1 is what a
+    // real first acquisition would compute, and it is fence 1's marker we
+    // plant here with nothing behind it.
+    let (root, _definition) = store_with_a_definition();
+    let root = root.path();
+    plant_burned_marker(&fence_dir(root, "stats"), 1);
+
+    let (code, granted) = acquire(root, "stats", ALICE, 60_000);
+    assert_eq!(
+        code,
+        exit::OK,
+        "a single call must skip the burned fence rather than exhaust its attempts: {granted}"
+    );
+    assert_eq!(
+        granted["fence"], 2,
+        "fence 1 is burned forever; the first fence anyone can still claim is 2"
+    );
+
+    // The log carries exactly the one real acquisition, at fence 2 — the gap
+    // at 1 is the strictly-increasing-not-contiguous trade already accepted
+    // for fences (§5.3.3) — and fsck is clean: fence 1's marker has no event
+    // behind it, which is the *accepted* shape (a crash's harmless residue),
+    // not the `lease_fence_unissued` shape (an event with no marker behind
+    // it, which is the tampered one). Two markers exist (1, burned; 2,
+    // used) and only the second is ever referenced by the log; fsck's
+    // marker-to-event checks only run in that direction, never the reverse.
+    let text = fs::read_to_string(lease_log(root, "stats")).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    assert!(text.contains("\"fence\":2"), "{text}");
+    assert_eq!(cli(root, &["fsck"]).0, exit::OK);
+}
+
+#[test]
 fn concurrent_binds_under_one_fence_never_share_a_seq() {
     // The fence answers "who may write"; it says nothing about "one at a
     // time". A single holder is free to run several `bind` calls in
@@ -307,6 +349,40 @@ fn concurrent_binds_under_one_fence_never_share_a_seq() {
     let text = fs::read_to_string(binding_log(&root, "stats")).unwrap();
     assert_eq!(text.lines().count(), 4, "one line per bind, no duplicates");
     assert_eq!(cli(&root, &["fsck"]).0, exit::OK);
+}
+
+#[test]
+fn bind_skips_a_seq_a_crash_burned_instead_of_livelocking() {
+    // The binding-side twin of `acquire_skips_a_fence_a_crash_burned…`: a
+    // crash between claiming a binding `seq` and appending its record burns
+    // that `seq` forever, and `bind` must skip it rather than recompute and
+    // fail against the identical number on every one of its attempts.
+    let (root, definition) = store_with_a_definition();
+    let root = root.path();
+    assert_eq!(acquire(root, "stats", ALICE, 60_000).0, exit::OK);
+    plant_burned_marker(&seq_dir(root, "stats"), 1);
+
+    let (code, bound) = bind(root, "stats/a", &definition, DEFAULT_POLICY, 1);
+    assert_eq!(
+        code,
+        exit::OK,
+        "a single call must skip the burned seq rather than exhaust its attempts: {bound}"
+    );
+    assert_eq!(
+        bound["seq"], 2,
+        "seq 1 is burned forever; the first seq anyone can still claim is 2"
+    );
+
+    // Same shape as the fence case: one real record at seq 2, the gap at 1
+    // is the accepted strictly-increasing-not-contiguous trade, and fsck is
+    // clean — the burned, unreferenced marker at 1 is not what
+    // `binding_seq_unissued` looks for (that check runs record → marker, a
+    // record naming a seq with no marker; a marker with no record is the
+    // ordinary crash residue and is never inspected in that direction).
+    let text = fs::read_to_string(binding_log(root, "stats")).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    assert!(text.contains("\"seq\":2"), "{text}");
+    assert_eq!(cli(root, &["fsck"]).0, exit::OK);
 }
 
 #[test]
@@ -680,6 +756,34 @@ fn binding_log(root: &Path, namespace: &str) -> PathBuf {
         namespace.replace('%', "%25").replace('/', "%2F")
     };
     root.join("state/bindings").join(format!("{stem}.jsonl"))
+}
+
+fn fence_dir(root: &Path, namespace: &str) -> PathBuf {
+    let stem = if namespace.is_empty() {
+        "%".to_string()
+    } else {
+        namespace.replace('%', "%25").replace('/', "%2F")
+    };
+    root.join("state/fences").join(stem)
+}
+
+fn seq_dir(root: &Path, namespace: &str) -> PathBuf {
+    let stem = if namespace.is_empty() {
+        "%".to_string()
+    } else {
+        namespace.replace('%', "%25").replace('/', "%2F")
+    };
+    root.join("state/seqs").join(stem)
+}
+
+/// Plant a claim marker with nothing behind it — exactly what a crash
+/// between `claim_fence`/`claim_binding_seq` and the append that should
+/// follow leaves behind. `claim_fence`/`claim_binding_seq` themselves create
+/// an empty file via `O_CREAT|O_EXCL`; this reproduces that shape directly
+/// rather than by actually crashing a process mid-claim.
+fn plant_burned_marker(dir: &Path, number: u64) {
+    fs::create_dir_all(dir).unwrap();
+    fs::write(dir.join(number.to_string()), b"").unwrap();
 }
 
 fn fsck_problem_kinds(root: &Path) -> (i32, Vec<String>) {

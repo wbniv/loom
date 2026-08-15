@@ -25,12 +25,19 @@ use crate::state;
 /// How many times `acquire` will re-fold and re-claim before reporting
 /// contention. Each attempt is a handful of filesystem calls and no sleep; the
 /// loop only ever runs again because *another* acquisition won the fence and
-/// has not appended yet, so a bound this small is generous.
+/// has not appended yet, so a bound this small is generous. The *last*
+/// attempt is special — see `lease_acquire` — and escalates to the
+/// claim-marker directory rather than retrying the same fold-based fence
+/// again, so a fence burned by a crash is skipped rather than retried
+/// forever.
 const MAX_ACQUIRE_ATTEMPTS: usize = 16;
 
 /// The same bound as `MAX_ACQUIRE_ATTEMPTS`, for `bind`'s seq claim, for the
 /// same reason: a retry only happens because another `bind` under the same
-/// fence won the race for that `seq` and has not appended yet.
+/// fence won the race for that `seq` and has not appended yet. Unlike
+/// `lease_acquire`, `bind` escalates to the claim-marker directory on *every*
+/// attempt, not just the last — see `bind`'s own docs for why that is safe
+/// here and is not for a fence.
 const MAX_BIND_ATTEMPTS: usize = 16;
 
 /// The store's own clock, which §5.3.3 makes the only clock that matters:
@@ -639,7 +646,7 @@ impl Store {
         }
         let policy_ref = self.clear_lease(oracle, namespace, principal, ttl_millis)?;
 
-        for _ in 0..MAX_ACQUIRE_ATTEMPTS {
+        for attempt in 0..MAX_ACQUIRE_ATTEMPTS {
             let events = state::lease_events(&self.layout, namespace)?;
             let held = state::fold(namespace, &events);
             let now = now_millis();
@@ -661,12 +668,44 @@ impl Store {
                     }),
                 });
             }
-            let fence = held.as_ref().map_or(0, |lease| lease.fence) + 1;
+            let committed = held.as_ref().map_or(0, |lease| lease.fence);
+            // Ordinarily the next fence is exactly one past what the log has
+            // committed — see `state.rs`'s "why a burned marker does not
+            // block forever". Escalating (consulting the claim-marker
+            // directory to skip a burn) is reserved for the *last* attempt:
+            // a live claimant for `committed + 1` finishes within a couple
+            // of local filesystem calls, so it has every earlier attempt to
+            // show up in the fold and correctly refuse us with `held`.
+            // Escalating any earlier would risk leapfrogging a still-live
+            // claimant to a *different* fence, and — unlike `bind`, where
+            // several winners are fine — §5.3.3 requires exactly one.
+            let last_attempt = attempt + 1 == MAX_ACQUIRE_ATTEMPTS;
+            let fence = if last_attempt {
+                state::next_after_claims(
+                    &state::claimed_fences(&self.layout, namespace)?,
+                    committed,
+                )
+            } else {
+                committed + 1
+            };
             // The claim, not the fold, is what makes a fence unique: exactly one
             // process can create this file, so exactly one can append this
             // acquisition. See `state.rs`.
             if !state::claim_fence(&self.layout, namespace, fence)? {
                 continue;
+            }
+            if fence != committed + 1 {
+                // We escalated past what we believed was a burn. Re-verify
+                // immediately before making this durable: if the log has
+                // grown since we read it above, someone we thought was
+                // burned has actually just finished, and appending now could
+                // land our fence out of order relative to theirs. Abandon
+                // this claim (burned, same harmless trade as a crash) rather
+                // than risk it.
+                let recheck = state::lease_events(&self.layout, namespace)?;
+                if recheck.len() != events.len() {
+                    continue;
+                }
             }
             let event = state::LeaseEvent::Acquire {
                 fence,
@@ -851,14 +890,26 @@ impl Store {
     /// objects named are here, and their kinds are the ones §5.3.2 requires —
     /// and hands everything semantic to the oracle. It never reads a policy.
     ///
-    /// `seq` is proposed from the log's current length, same as it always
-    /// was, but it is now *claimed* before anything durable happens — see
-    /// [`state::claim_binding_seq`] and the module docstring on
-    /// `state.rs` — because two `bind` calls racing under one held fence (the
-    /// same holder, two threads or processes) would otherwise both read the
-    /// same length and both propose the same `seq`. A lost claim means
-    /// someone else's record landed first; this method re-reads the log and
-    /// tries again rather than risk two records sharing a `seq`.
+    /// `seq` is proposed from [`state::next_after_claims`] and *claimed*
+    /// before anything durable happens — see [`state::claim_binding_seq`] and
+    /// the module docstring on `state.rs` — because two `bind` calls racing
+    /// under one held fence (the same holder, two threads or processes) would
+    /// otherwise both read the same log length and both propose the same
+    /// `seq`. A lost claim means someone else's record landed first; this
+    /// method re-reads the log and tries again rather than risk two records
+    /// sharing a `seq`.
+    ///
+    /// Every attempt consults the claim-marker directory, not just a last
+    /// resort as `lease_acquire`'s fence does: a `seq` a crash burned would
+    /// otherwise be retried, and re-read, forever, since the log's own length
+    /// never advances past a burn without an append. `bind` can escalate
+    /// eagerly where `lease_acquire` cannot, because nothing about a binding
+    /// needs exactly one caller to win — several proposals racing ahead of
+    /// each other's not-yet-durable claims is fine, since every successful
+    /// claim still yields a distinct `seq`. What it costs is the log's file
+    /// order no longer implying `seq` order under contention, which is why
+    /// [`state::heads`] (and `resolve`/`history` below) answer by `seq` value
+    /// rather than by position in the log.
     pub fn bind(
         &self,
         oracle: &Oracle,
@@ -910,7 +961,8 @@ impl Store {
 
         for _ in 0..MAX_BIND_ATTEMPTS {
             let records = state::bindings(&self.layout, &namespace)?;
-            let seq = records.len() as u64 + 1;
+            let claimed = state::claimed_binding_seqs(&self.layout, &namespace)?;
+            let seq = state::next_after_claims(&claimed, records.len() as u64);
             let previous = state::heads(&records).get(name_path).cloned();
             let previous_body = match previous.as_ref() {
                 None => Value::Null,
@@ -988,14 +1040,20 @@ impl Store {
         })
     }
 
-    /// The current binding of a name, or the one in force at `at_seq`.
+    /// The current binding of a name, or the one in force at `at_seq`. Picked
+    /// by the highest eligible `seq` value, not by file position — `bind`
+    /// can land records out of `seq` order under contention (see `bind`'s
+    /// own docs), so "current"/"in force at" has to mean "highest matching
+    /// `seq`" and not "last in the log".
     pub fn resolve(&self, name_path: &str, at_seq: Option<u64>) -> Result<state::BindingRecord> {
         let path = names::NamePath::parse(name_path)?;
         let records = state::bindings(&self.layout, path.namespace())?;
         records
             .into_iter()
-            .filter(|record| record.name_path == name_path)
-            .rfind(|record| at_seq.is_none_or(|seq| record.seq <= seq))
+            .filter(|record| {
+                record.name_path == name_path && at_seq.is_none_or(|seq| record.seq <= seq)
+            })
+            .max_by_key(|record| record.seq)
             .ok_or_else(|| StoreError::NameNotFound {
                 name: name_path.to_string(),
                 detail: match at_seq {
@@ -1006,10 +1064,12 @@ impl Store {
     }
 
     /// Every binding of a name, oldest first. §5.3's "every previous state of
-    /// every namespace remains addressable", as a list.
+    /// every namespace remains addressable", as a list. Sorted by `seq`
+    /// rather than trusting log order, for the same reason `resolve` does
+    /// not use file position either.
     pub fn history(&self, name_path: &str) -> Result<Vec<state::BindingRecord>> {
         let path = names::NamePath::parse(name_path)?;
-        let found: Vec<_> = state::bindings(&self.layout, path.namespace())?
+        let mut found: Vec<_> = state::bindings(&self.layout, path.namespace())?
             .into_iter()
             .filter(|record| record.name_path == name_path)
             .collect();
@@ -1019,6 +1079,7 @@ impl Store {
                 detail: "no binding of that name".to_string(),
             });
         }
+        found.sort_by_key(|record| record.seq);
         Ok(found)
     }
 

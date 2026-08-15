@@ -562,3 +562,122 @@ only then treating its marker as reusable — is exactly the "recovery logic
 the design does not otherwise need" that made choice (b) not worth its cost
 above. Flagged here rather than fixed, for a future increment to pick up if
 it turns out to matter in practice.
+
+## Addendum 2026-08-14 (2) — the flagged livelock is closed, both kinds
+
+The previous addendum's "least-certain call" is closed for fences and for
+binding `seq`. Both had the identical shape: `committed + 1` (the fold's
+fence, or the binding log's length, plus one) is recomputed fresh on every
+retry, so a crash-burned number — claimed, never appended — is retried
+identically forever, in every future call, not just within one call's
+attempt budget. `state::next_after_claims` (`store/src/state.rs`) is the
+fix: it proposes past whatever the claim-marker directory shows already
+claimed, not just past what the log has committed, so a burn is skipped
+instead of retried.
+
+**The naive version of this — always consult the claim directory, on every
+attempt, for both kinds — was tried and rejected**, not on style grounds but
+because it reintroduces exactly the bug the fence claim exists to prevent.
+The claim-marker directory can be *ahead* of the log: a marker exists the
+instant `claim_fence`/`claim_binding_seq` returns, before the matching event
+or record is appended. Proposing from it is therefore a guess about state
+that has not landed yet, and for a fence that guess is unsafe: a caller who
+has failed several rounds against a **live** (not burned) claimant for
+`committed + 1` could leapfrog to a *different*, unclaimed fence while that
+claimant is still mid-flight between its own claim and its own append. Both
+would then successfully append distinct `Acquire` events — two holders,
+which is precisely "can never admit two writers" (§5.3.3) violated. This is
+not a corner of the design that was already fragile; it is the one property
+the fence claim was built to guarantee, and it was reproducible on demand in
+manual testing of the naive version (two threads racing a free namespace,
+the second computing its candidate from the first's not-yet-appended
+marker) before this addendum's version replaced it.
+
+**Binding `seq` does not have this hazard**, because nothing about a binding
+requires exactly one caller to win — `concurrent_binds_under_one_fence_never_share_a_seq`
+(the earlier addendum) exists precisely because several concurrent binds
+under one fence are *all* supposed to succeed. So `bind` escalates on
+**every** attempt (`store/src/store.rs::bind`), fixing the livelock
+immediately rather than only as a last resort. What this costs is the log's
+file order no longer implying `seq` order under contention — two records can
+land with the higher `seq` first — which would have broken
+`state::heads`/`Store::resolve`/`Store::history`, all of which used to take
+"last in the log" as "current". They now compare `seq` values directly
+(`state::heads` is highest-`seq`-per-name-path; `resolve` is `max_by_key`
+over eligible records; `history` sorts by `seq` before returning), so which
+record the log happens to put last no longer matters to any of them.
+
+**`lease_acquire` keeps the ordinary fold-based candidate for every attempt
+but the last** (`store/src/store.rs::lease_acquire`), escalating to
+`next_after_claims` only once the normal path has had every other attempt to
+resolve on its own — which a live claimant, whose entire remaining work is
+one JSON line and an `fsync`, essentially always does well inside that
+budget. Immediately before appending an escalated (non-`committed + 1`)
+fence, `lease_acquire` re-reads the lease log one more time and abandons the
+attempt (burning its own claim, the same accepted trade a crash makes) if
+the log has grown since its first read — the cheapest available guard
+against exactly the leapfrog scenario above. `state::fold` also now treats a
+higher fence as more authoritative than a lower one regardless of which line
+the log puts first (with `Renew`/`Release` applying only when their fence
+matches the one currently folded), as a second, independent layer: even if
+the residual window below is ever hit, `fold` will not let a lower,
+late-arriving fence look current over a higher one already folded.
+
+**Tests** (`store/tests/namespaces.rs`):
+`acquire_skips_a_fence_a_crash_burned_instead_of_livelocking` plants a
+claimed-but-unappended fence-1 marker on a namespace that was never
+acquired (exactly what a crash between claim and append leaves) and asserts
+a single `acquire` call succeeds at fence 2, rather than exhausting
+`MAX_ACQUIRE_ATTEMPTS` and returning `lease_refused`.
+`bind_skips_a_seq_a_crash_burned_instead_of_livelocking` is its binding-seq
+twin. Both also assert `fsck` is clean afterward — the burned, unreferenced
+marker is the accepted crash residue, not the shape `lease_fence_unissued`/
+`binding_seq_unissued` look for (those check *records naming an unclaimed
+number*, never the reverse — a claim with no record is never inspected, by
+construction, so this is not a special case carved out for the test, it
+falls out of what the checks already do). Non-vacuity, proved the same way
+as every other test in this file: reverting `lease_acquire`'s escalation to
+the naive `committed + 1` makes `acquire_skips_a_fence_…` fail by exhausting
+all 16 attempts and returning `lease_refused`/`held`; reverting `bind`'s
+escalation the same way makes `bind_skips_a_seq_…` fail by exhausting all 16
+and returning `lease_refused`/`contention`. Both reverts were run and both
+failed exactly that way before being restored.
+`simultaneous_acquisitions_of_a_free_namespace_produce_exactly_one_holder`
+(the free-namespace race, unmodified) was re-run 15 times after this change
+with no flake, as the check that escalation's last-attempt gating had not
+quietly reopened the two-holder risk it exists to close.
+
+```
+running 19 tests
+...
+test acquire_skips_a_fence_a_crash_burned_instead_of_livelocking ... ok
+test bind_skips_a_seq_a_crash_burned_instead_of_livelocking ... ok
+...
+test simultaneous_acquisitions_of_a_free_namespace_produce_exactly_one_holder ... ok
+...
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in ~5-6s
+```
+
+`task store:test`: 82 Rust tests total (39 lib + 21 integration + 17
+namespaces at the previous addendum, now 42 lib + 21 integration + 19
+namespaces = 82), 0 failures. `task store:lint`: `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` both clean. `task
+prototype:test`: 693 tests, `OK (skipped=3)` — unaffected, run anyway per
+the brief. `task todo:lint`: `TODO.md: clean`. `git diff --check`: clean.
+
+**PASS.**
+
+**Least-certain call (updated).** The re-verify guard on `lease_acquire`'s
+escalated path narrows the window in which two `Acquire`s could still land
+out of order, but does not close it to zero: between the guard's read and
+the actual `append_lease_event` write, a live claimant could still complete.
+This residual is the same *order of magnitude* as the base claim-then-append
+gap the whole design already accepts (a couple of local filesystem calls),
+not a new, larger exposure — but it is not nothing, and `fold`'s
+higher-fence-wins tie-break (above) is what keeps that rare outcome from
+reading as two holders rather than preventing the outcome itself. Whether
+this residual is worth closing fully — e.g., by having the escalated append
+itself re-verify *and* claim atomically somehow, which is close to
+reinventing the transaction this addendum's first version rejected —
+is left for a future increment to judge against how often it is actually
+observed, rather than solved speculatively here.
