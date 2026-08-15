@@ -773,6 +773,23 @@ new capability. [Report](../results/2026-08-15-loop-turn2-report.md).
 - *Curated arm* (`20260815T034950Z`): **4/96 accepted, 0.081 acc/1k tok —
   identical to the 24-attempt rate to the third decimal.** The baseline is
   stable. [Report](../results/2026-08-15-heldout12-curated-report.md).
-- *Generated arm*: running; turn 1's rate projects ~12/96 (0.244) — the
-  gap between that projection and the landing decides whether the A/B's
-  held-out signal was real. Recorded here when home.
+- *Generated arm* (`20260815T042717Z`,
+  [report](../results/2026-08-15-heldout12-generated-report.md)): **7/96
+  accepted, 0.142 acc/1k tok, 5 distinct** — above the curated 4/96 in
+  every column but **short of turn 1's 0.244 projection and not
+  statistically decisive** (7 vs 4 at n = 96, Fisher p ≈ 0.35). The
+  held-out acceptance advantage is directional, real-looking, unproven.
+- **The first held-out mechanical-floor semantic success — hand-scored
+  FAIL.** `heldout/list/reverseThen` seed 4 draw 0 passed checked-tier +
+  exact type, and the R3 rubric (spec: "the first list in reverse order,
+  with the second following") reveals `λa. λb. let c = b in b` — a
+  type-correct function that ignores its first argument and reverses
+  nothing. Hand-scored semantic: **0**. Composition remains unachieved,
+  and the partly-human metric caught the mechanical floor's first false
+  positive exactly as its pre-registration intended.
+
+**Loop verdict, final for this cycle:** the corpus loop reliably buys
+recall (+31 % per token, stable across two turns) and buys no measured
+composition. Its held-out acceptance advantage (≈1.75×) needs a larger
+sample or a diversity-seeking harvest (turn 2 showed self-reproductions
+plateau) to become a claim.

@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/cf9b047) | Record turn 2 (plateau) and the stable 12-seed curated baseline |
 | [2026-08-14](https://github.com/wbniv/loom/commit/040d2d9) | Promote store namespaces v1 to Done |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ed66194) | Promote the corpus loop to Done |
 | [2026-08-14](https://github.com/wbniv/loom/commit/9fc2be7) | Plan store namespaces v1 against the approved lease protocol |
@@ -47,6 +48,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+cf9b047	author	Will Norris
+cf9b047	added	1
+cf9b047	deleted	1
+cf9b047	files	1
+cf9b047	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 040d2d9	author	Will Norris
 040d2d9	added	1
 040d2d9	deleted	1

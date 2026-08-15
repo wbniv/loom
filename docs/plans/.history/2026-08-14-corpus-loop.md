@@ -1,11 +1,17 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/cf9b047) | Record turn 2 (plateau) and the stable 12-seed curated baseline |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ed2b6d7) | Record the A/B verdict: generated corpus lifts acceptance 31%, 3x held-out |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4b907cf) | Make the corpus-loop A/B differ in what the model sees |
 | [2026-08-14](https://github.com/wbniv/loom/commit/705cda2) | Close the corpus loop: harvest accepted draws into the store |
 | [2026-08-14](https://github.com/wbniv/loom/commit/8977f57) | Plan the corpus loop; queue it and the experiment write-up |
 
 <!--history-meta v1
+cf9b047	author	Will Norris
+cf9b047	added	18
+cf9b047	deleted	0
+cf9b047	files	1
+cf9b047	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 ed2b6d7	author	Will Norris
 ed2b6d7	added	39
 ed2b6d7	deleted	2
