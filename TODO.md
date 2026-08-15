@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **Claim-marker liveness: candidate = max(claimed)+1** — a crash
+- [wip T2] <!-- agent:a967cb3b83f89bfed --> **Claim-marker liveness: candidate = max(claimed)+1** — a crash
   between claim and append burns a fence/seq number that log-fold+1
   candidate selection then retries forever (livelock on that namespace);
   read the marker dir for the next candidate instead. Pre-existing in
