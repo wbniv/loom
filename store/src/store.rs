@@ -28,6 +28,11 @@ use crate::state;
 /// has not appended yet, so a bound this small is generous.
 const MAX_ACQUIRE_ATTEMPTS: usize = 16;
 
+/// The same bound as `MAX_ACQUIRE_ATTEMPTS`, for `bind`'s seq claim, for the
+/// same reason: a retry only happens because another `bind` under the same
+/// fence won the race for that `seq` and has not appended yet.
+const MAX_BIND_ATTEMPTS: usize = 16;
+
 /// The store's own clock, which §5.3.3 makes the only clock that matters:
 /// "expiry is judged by the store's clock at admission time", so writer-side
 /// skew is harmless and this is the single arbiter.
@@ -420,10 +425,11 @@ impl Store {
     ///
     /// [`state::check`] owns everything decidable from the logs alone — they
     /// parse, fences increase strictly and were each issued once, the cache
-    /// equals the fold, `seq` runs from 1 without gaps. What it cannot do is
-    /// look an object up, so the two checks that need the object store live
-    /// here: every `def-hash` and every `policy-ref` a binding names is present,
-    /// and is of the kind §5.3.2 requires for that leaf.
+    /// equals the fold, `seq` increases strictly and was each issued once.
+    /// What it cannot do is look an object up, so the two checks that need
+    /// the object store live here: every `def-hash` and every `policy-ref` a
+    /// binding names is present, and is of the kind §5.3.2 requires for that
+    /// leaf.
     fn fsck_state(&self) -> Result<Vec<Problem>> {
         let mut problems: Vec<Problem> = state::check(&self.layout)?
             .into_iter()
@@ -844,6 +850,15 @@ impl Store {
     /// current and unexpired, `seq` continues the namespace's sequence, the
     /// objects named are here, and their kinds are the ones §5.3.2 requires —
     /// and hands everything semantic to the oracle. It never reads a policy.
+    ///
+    /// `seq` is proposed from the log's current length, same as it always
+    /// was, but it is now *claimed* before anything durable happens — see
+    /// [`state::claim_binding_seq`] and the module docstring on
+    /// `state.rs` — because two `bind` calls racing under one held fence (the
+    /// same holder, two threads or processes) would otherwise both read the
+    /// same length and both propose the same `seq`. A lost claim means
+    /// someone else's record landed first; this method re-reads the log and
+    /// tries again rather than risk two records sharing a `seq`.
     pub fn bind(
         &self,
         oracle: &Oracle,
@@ -893,66 +908,84 @@ impl Store {
             });
         }
 
-        let records = state::bindings(&self.layout, &namespace)?;
-        let seq = records.len() as u64 + 1;
-        let previous = state::heads(&records).get(name_path).cloned();
-        let previous_body = match previous.as_ref() {
-            None => Value::Null,
-            Some(record) => {
-                let object = if path.is_policy() {
-                    self.sidecar(&ObjectHash::parse(&record.def_hash)?)?
-                        .0
-                        .object
-                } else {
-                    None
-                };
-                json!({
-                    "def_hash": record.def_hash,
-                    "evidence": record.evidence,
-                    "policy_ref": record.policy_ref,
-                    "seq": record.seq,
-                    "object": object,
-                })
+        for _ in 0..MAX_BIND_ATTEMPTS {
+            let records = state::bindings(&self.layout, &namespace)?;
+            let seq = records.len() as u64 + 1;
+            let previous = state::heads(&records).get(name_path).cloned();
+            let previous_body = match previous.as_ref() {
+                None => Value::Null,
+                Some(record) => {
+                    let object = if path.is_policy() {
+                        self.sidecar(&ObjectHash::parse(&record.def_hash)?)?
+                            .0
+                            .object
+                    } else {
+                        None
+                    };
+                    json!({
+                        "def_hash": record.def_hash,
+                        "evidence": record.evidence,
+                        "policy_ref": record.policy_ref,
+                        "seq": record.seq,
+                        "object": object,
+                    })
+                }
+            };
+
+            let request = self.write_request(
+                "bind-request",
+                &json!({
+                    "schema": 1,
+                    "binding": {
+                        "name_path": name_path,
+                        "def_hash": def_hash,
+                        "evidence": evidence,
+                        "policy_ref": policy_ref,
+                        "seq": seq,
+                        "object": if path.is_policy() { def_sidecar.object.clone() } else { None },
+                    },
+                    "policy_bindings": self.policy_chain(&namespace)?,
+                    "previous": previous_body,
+                }),
+            )?;
+            let admission = oracle.bind(&request);
+            let _ = fs::remove_file(&request);
+            let admission = admission?;
+
+            // Expiry is judged at admission time, and the oracle call sits inside
+            // that window. Re-checking here is what stops a lease that expired
+            // *during* validation from landing a binding after a second writer has
+            // already taken the namespace.
+            let current = self.expect_lease(&namespace)?;
+            self.require_fence(&namespace, &current, fence, now_millis())?;
+
+            // Claim `seq` now, right before it becomes durable. If another
+            // `bind` claimed it first — it raced us between our read of the
+            // log above and this point — retry from a fresh read instead of
+            // appending a duplicate.
+            if !state::claim_binding_seq(&self.layout, &namespace, seq)? {
+                continue;
             }
-        };
 
-        let request = self.write_request(
-            "bind-request",
-            &json!({
-                "schema": 1,
-                "binding": {
-                    "name_path": name_path,
-                    "def_hash": def_hash,
-                    "evidence": evidence,
-                    "policy_ref": policy_ref,
-                    "seq": seq,
-                    "object": if path.is_policy() { def_sidecar.object.clone() } else { None },
-                },
-                "policy_bindings": self.policy_chain(&namespace)?,
-                "previous": previous_body,
-            }),
-        )?;
-        let admission = oracle.bind(&request);
-        let _ = fs::remove_file(&request);
-        let admission = admission?;
-
-        // Expiry is judged at admission time, and the oracle call sits inside
-        // that window. Re-checking here is what stops a lease that expired
-        // *during* validation from landing a binding after a second writer has
-        // already taken the namespace.
-        let current = self.expect_lease(&namespace)?;
-        self.require_fence(&namespace, &current, fence, now_millis())?;
-
-        let record = state::BindingRecord {
-            seq,
-            name_path: name_path.to_string(),
-            def_hash: def_hash.to_string(),
-            evidence,
-            policy_ref: policy_ref.to_string(),
-            fence,
-        };
-        state::append_binding(&self.layout, &namespace, &record)?;
-        Ok((record, admission))
+            let record = state::BindingRecord {
+                seq,
+                name_path: name_path.to_string(),
+                def_hash: def_hash.to_string(),
+                evidence,
+                policy_ref: policy_ref.to_string(),
+                fence,
+            };
+            state::append_binding(&self.layout, &namespace, &record)?;
+            return Ok((record, admission));
+        }
+        Err(StoreError::Lease {
+            reason: "contention".to_string(),
+            detail: format!(
+                "another bind in {} is in flight; contention is poll-based, so retry",
+                namespace_label(&namespace)
+            ),
+            context: json!({ "namespace": namespace, "attempts": MAX_BIND_ATTEMPTS }),
+        })
     }
 
     /// The current binding of a name, or the one in force at `at_seq`.

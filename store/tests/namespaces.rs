@@ -248,6 +248,68 @@ fn simultaneous_acquisitions_of_a_free_namespace_produce_exactly_one_holder() {
 }
 
 #[test]
+fn concurrent_binds_under_one_fence_never_share_a_seq() {
+    // The fence answers "who may write"; it says nothing about "one at a
+    // time". A single holder is free to run several `bind` calls in
+    // parallel — different threads of the same agent, say — and each one
+    // reads the log's current length before any of them has appended. Left
+    // alone, all four would read length 0 and all four would propose seq 1:
+    // the duplicate `binding_seq_gap` fsck used to merely *detect*. `bind`
+    // now claims its `seq` via `O_CREAT|O_EXCL` before appending (mirroring
+    // `state::claim_fence`), so this is the test that the race is actually
+    // *prevented*, not just diagnosable after the fact.
+    let (root, definition) = store_with_a_definition();
+    let root = root.path().to_path_buf();
+
+    assert_eq!(acquire(&root, "stats", ALICE, 60_000).0, exit::OK);
+
+    // Four different names under the one held fence, so nothing here also
+    // exercises rule 5 (monotone assurance against a previous binding) —
+    // this test is isolated to the seq claim.
+    let names = ["stats/w", "stats/x", "stats/y", "stats/z"];
+    let results: Vec<(i32, Value)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = names
+            .into_iter()
+            .map(|name| {
+                let root = root.clone();
+                let definition = definition.clone();
+                scope.spawn(move || bind(&root, name, &definition, DEFAULT_POLICY, 1))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+
+    for (code, body) in &results {
+        assert_eq!(
+            *code,
+            exit::OK,
+            "every bind under a valid, unexpired fence \
+            held by its own caller should be admitted: {body}"
+        );
+    }
+
+    let mut seqs: Vec<u64> = results
+        .iter()
+        .map(|(_, body)| body["seq"].as_u64().unwrap())
+        .collect();
+    seqs.sort_unstable();
+    assert_eq!(
+        seqs,
+        vec![1, 2, 3, 4],
+        "four successful binds must claim exactly the four seqs 1..4, once each, got {seqs:?}"
+    );
+
+    // The log itself agrees: four lines, four distinct seqs, and fsck's
+    // seq-regression and seq-unissued checks both pass over it.
+    let text = fs::read_to_string(binding_log(&root, "stats")).unwrap();
+    assert_eq!(text.lines().count(), 4, "one line per bind, no duplicates");
+    assert_eq!(cli(&root, &["fsck"]).0, exit::OK);
+}
+
+#[test]
 fn a_released_or_expired_holder_cannot_renew_or_bind_but_the_log_still_shows_it() {
     let (root, definition) = store_with_a_definition();
     let root = root.path();
@@ -665,7 +727,15 @@ fn fsck_catches_a_tampered_lease_log() {
 }
 
 #[test]
-fn fsck_catches_a_binding_whose_def_hash_is_absent_and_a_seq_gap() {
+fn fsck_catches_a_binding_whose_def_hash_is_absent_an_unissued_seq_and_a_seq_regression() {
+    // Binding `seq` is strictly increasing per namespace (§5.3, R2), not
+    // contiguous — the same shape as a fence (§5.3.3) and for the same
+    // reason: a `seq` is claimed via `O_CREAT|O_EXCL` before it is appended,
+    // so a crash between claiming and appending burns a number rather than
+    // blocking the log. `fsck` therefore no longer flags a numbering gap by
+    // itself; what it still catches is a `seq` that repeats or goes backward,
+    // and a `seq` that was never actually claimed — both are signs of a
+    // hand-edited log, not of an ordinary burned claim.
     let (root, definition) = store_with_a_definition();
     let root = root.path();
     assert_eq!(acquire(root, "stats", ALICE, 60_000).0, exit::OK);
@@ -691,16 +761,32 @@ fn fsck_catches_a_binding_whose_def_hash_is_absent_and_a_seq_gap() {
         "expected a missing object, got {kinds:?}"
     );
 
-    // (b) a seq gap — the log's second record numbered 3.
+    // (b) an unissued seq — the log's second record renumbered to 3, which
+    //     this namespace never claimed (only 1 and 2 were ever claimed).
     fs::write(&path, original.replace("\"seq\":2", "\"seq\":3")).unwrap();
     let (code, kinds) = fsck_problem_kinds(root);
     assert_eq!(code, exit::INTEGRITY);
     assert!(
-        kinds.contains(&"binding_seq_gap".to_string()),
-        "expected a seq gap, got {kinds:?}"
+        kinds.contains(&"binding_seq_unissued".to_string()),
+        "expected an unissued seq, got {kinds:?}"
     );
 
-    // (c) restored, everything is clean again — so the checks above are not
+    // (c) a seq regression — the log's second record renumbered to repeat
+    //     the first's seq. 1 *was* claimed, so this is not (b); it fails
+    //     because it does not exceed the running highest.
+    fs::write(&path, original.replace("\"seq\":2", "\"seq\":1")).unwrap();
+    let (code, kinds) = fsck_problem_kinds(root);
+    assert_eq!(code, exit::INTEGRITY);
+    assert!(
+        kinds.contains(&"binding_seq_regression".to_string()),
+        "expected a seq regression, got {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&"binding_seq_unissued".to_string()),
+        "seq 1 was legitimately claimed, so this must not also read as unissued: {kinds:?}"
+    );
+
+    // (d) restored, everything is clean again — so the checks above are not
     //     firing on something the fixture always had wrong.
     fs::write(&path, &original).unwrap();
     assert_eq!(cli(root, &["fsck"]).0, exit::OK);

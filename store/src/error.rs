@@ -43,7 +43,10 @@ pub mod exit {
     /// A lease verb was refused: the namespace is held, the principal is not a
     /// writer, the TTL is over-bound, or the fence is stale. Contention is
     /// poll-based (§5.3.3), so this is a routine answer and not a fault — it
-    /// simply has to be distinguishable from success by a shell.
+    /// simply has to be distinguishable from success by a shell. `bind`
+    /// reuses this code for the same reason when its `seq` claim loses a
+    /// race too many times in a row (see `store::MAX_BIND_ATTEMPTS`): it is
+    /// the same "poll-based, routine, retry" shape as a stale fence.
     pub const LEASE: i32 = 7;
 }
 
@@ -86,10 +89,11 @@ pub enum StoreError {
     BadHash { text: String, detail: String },
     /// A name-path or namespace that is not one (§5.3, `names.rs`).
     BadName { text: String, detail: String },
-    /// A lease verb was refused. `reason` is the §5.3.3 vocabulary — `held`,
-    /// `writer`, `bound`, `fence` — and `context` carries whatever the caller
-    /// needs to retry: the holder and its expiry, the bound that was exceeded,
-    /// the fence actually in force.
+    /// A lease verb was refused, or `bind`'s `seq` claim lost a race too many
+    /// times in a row. `reason` is the §5.3.3 vocabulary — `held`, `writer`,
+    /// `bound`, `fence` — plus `contention` for the `bind` case, and
+    /// `context` carries whatever the caller needs to retry: the holder and
+    /// its expiry, the bound that was exceeded, the fence actually in force.
     Lease {
         reason: String,
         detail: String,
