@@ -4,7 +4,7 @@
 |---|---|---|
 | 2026-08-14 | [Store namespaces v1](2026-08-14-store-namespaces.md) | Implemented; PASS (steps 1–7 recorded) |
 | 2026-08-14 | [The namespace lease protocol](2026-08-14-lease-protocol.md) | Approved (D1–D4 + revoke amendment); SPEC §5.3.3 carries it |
-| 2026-08-14 | [Closing the corpus loop](2026-08-14-corpus-loop.md) | Implemented; PASS — A/B awaits operator launch |
+| 2026-08-14 | [Closing the corpus loop](2026-08-14-corpus-loop.md) | Complete; A/B positive (+31 %), turn 2 plateaus, 12-seed sample closing |
 | 2026-08-14 | [Store v0: persistent content-addressed objects in Rust](2026-08-14-store-v0.md) | Built and verified; 47 objects seeded, `fsck` clean, prompt equivalence proven |
 | 2026-08-14 | [The production implementation language](2026-08-14-production-language-decision.md) | Decided — Rust; migration deferred behind triggers M1–M4 |
 | 2026-08-14 | [GPU build cache](2026-08-14-gpu-build-cache.md) | Complete; hit proven on two consecutive runs |

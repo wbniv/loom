@@ -758,3 +758,21 @@ larger-sample held-out arm are the obvious follow-ups, neither dispatched.
 Reports preserved:
 [curated](../results/2026-08-14-followup-curated-report.md) ·
 [generated](../results/2026-08-14-followup-generated-report.md).
+
+
+## Turn 2 and the 12-seed sample (2026‑08‑15)
+
+**Turn 2** (run id `20260815T025412Z`; harvest of turn 1 added 7 new
+definitions, store at 41 generated): full_corpus **1.728** acc/1k tok
+(69/206) vs turn 1's 1.803 — the gain **holds but does not compound**;
+held_out fell back to 1 accepted. Reading: the loop banks its recall
+improvement in one turn; further self-reproductions add context bytes, not
+new capability. [Report](../results/2026-08-15-loop-turn2-report.md).
+
+**12-seed held-out sample** (96 attempts per arm, 4× the original):
+- *Curated arm* (`20260815T034950Z`): **4/96 accepted, 0.081 acc/1k tok —
+  identical to the 24-attempt rate to the third decimal.** The baseline is
+  stable. [Report](../results/2026-08-15-heldout12-curated-report.md).
+- *Generated arm*: running; turn 1's rate projects ~12/96 (0.244) — the
+  gap between that projection and the landing decides whether the A/B's
+  held-out signal was real. Recorded here when home.

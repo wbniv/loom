@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/ed2b6d7) | Record the A/B verdict: generated corpus lifts acceptance 31%, 3x held-out |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4b907cf) | Make the corpus-loop A/B differ in what the model sees |
 | [2026-08-14](https://github.com/wbniv/loom/commit/705cda2) | Close the corpus loop: harvest accepted draws into the store |
 | [2026-08-14](https://github.com/wbniv/loom/commit/8977f57) | Plan the corpus loop; queue it and the experiment write-up |
 
 <!--history-meta v1
+ed2b6d7	author	Will Norris
+ed2b6d7	added	39
+ed2b6d7	deleted	2
+ed2b6d7	files	1
+ed2b6d7	body	Curated arm exactly replicated phase-b; generated arm hit 1.803\nacc/1k tok (highest in the experiment, above gbnf's 1.452 bar) and\nmoved held_out for the first time (3 distinct accepted vs 1).\nHeld-out semantic remains 0 - recall improved, synthesis did not.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 4b907cf	author	Will Norris
 4b907cf	added	202
 4b907cf	deleted	48
