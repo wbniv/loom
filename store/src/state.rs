@@ -56,6 +56,42 @@
 //! written after the log, so a crash between the two leaves a stale cache that
 //! `fsck` reports and `reindex` repairs — exactly the shape `index/types.jsonl`
 //! already has, and for the same reason.
+//!
+//! ## Why a burned marker does not block forever
+//!
+//! Naively, `acquire`/`bind` would propose exactly `committed + 1` — the
+//! fold's fence, or the binding log's length, plus one. A crash burns that
+//! *specific* number's marker forever, and `committed` never advances without
+//! an append, so every future proposal recomputes the identical burned number
+//! and fails identically: not a bounded retry but a permanent block. See
+//! [`next_after_claims`], which instead looks at what has actually been
+//! *claimed* (via [`claimed_fences`]/[`claimed_binding_seqs`]) so a burn is
+//! skipped rather than retried.
+//!
+//! This has to be used carefully, because the claim-marker directory can be
+//! *ahead* of the log (a marker exists the moment `claim_fence`/
+//! `claim_binding_seq` returns, before the corresponding event is appended),
+//! so a proposal built from it is a guess about state that has not landed
+//! yet. `bind` uses it on every attempt: nothing about a binding requires
+//! exactly one caller to win, so several proposals racing ahead of each
+//! other's not-yet-durable claims is fine — every successful claim still
+//! yields a distinct `seq`, and [`heads`]/[`Store::resolve`]/[`Store::history`]
+//! answer by `seq` value rather than by log position, so it does not matter
+//! if two records land out of `seq` order. `lease_acquire` cannot be this
+//! free with it: §5.3.3's whole point is that *at most one* acquisition may
+//! land, which the fold-based `held` check enforces only against what is
+//! already durable. Escalating on every attempt would let a caller who has
+//! failed several rounds against a live (not burned) claimant leapfrog to a
+//! *different*, unclaimed fence while that claimant is still mid-flight,
+//! producing two holders — exactly what the fence claim exists to prevent.
+//! `lease_acquire` therefore only escalates on its *last* attempt, after the
+//! ordinary fold-based candidate has had every other attempt to resolve
+//! normally (which a live claimant, appending within a couple of local
+//! filesystem calls, essentially always does well within that budget), and
+//! re-verifies nothing durable changed underneath it immediately before
+//! appending. `fold` also treats a higher fence as more authoritative than a
+//! lower one regardless of which line the log puts first, as a second layer
+//! against the same narrow window — see `fold`'s own docs.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -286,6 +322,20 @@ pub fn bindings(layout: &Layout, namespace: &str) -> Result<Vec<BindingRecord>> 
 /// The fold §5.3.3 calls the current lease: last event wins, and a `release`
 /// leaves the fence in place so a released holder's late proposal still fails
 /// the fence check rather than resolving against nothing.
+///
+/// "Last event wins" is "last by *fence*", not "last by file position", for
+/// `Acquire`: an `Acquire` never overwrites a higher fence already folded,
+/// even if it appears later in the log. In ordinary operation these always
+/// coincide (an `Acquire` for fence `n+1` cannot be appended before fence
+/// `n`'s own — see `lease_acquire`), so this only matters in the narrow
+/// window `lease_acquire`'s last-attempt escalation leaves open (module
+/// docstring, "why a burned marker does not block forever"): a second layer
+/// that keeps the fold answering with whichever fence is actually
+/// authoritative even if two `Acquire`s ever did land out of order. `Renew`
+/// and `Release` only apply if their own fence matches the fence currently
+/// folded — a mismatch means they belong to a fence some other `Acquire` has
+/// since superseded, so applying them would silently misattribute a renewal
+/// or release to the wrong holder.
 pub fn fold(namespace: &str, events: &[LeaseEvent]) -> Option<LeaseState> {
     let mut state: Option<LeaseState> = None;
     for event in events {
@@ -298,30 +348,37 @@ pub fn fold(namespace: &str, events: &[LeaseEvent]) -> Option<LeaseState> {
                 expires_millis,
                 ..
             } => {
-                state = Some(LeaseState {
-                    schema: STATE_SCHEMA,
-                    namespace: namespace.to_string(),
-                    fence: *fence,
-                    principal: principal.clone(),
-                    policy_ref: policy_ref.clone(),
-                    acquired_millis: *at_millis,
-                    expires_millis: *expires_millis,
-                    released: false,
-                });
+                if state.as_ref().is_none_or(|current| *fence > current.fence) {
+                    state = Some(LeaseState {
+                        schema: STATE_SCHEMA,
+                        namespace: namespace.to_string(),
+                        fence: *fence,
+                        principal: principal.clone(),
+                        policy_ref: policy_ref.clone(),
+                        acquired_millis: *at_millis,
+                        expires_millis: *expires_millis,
+                        released: false,
+                    });
+                }
             }
             LeaseEvent::Renew {
+                fence,
                 policy_ref,
                 expires_millis,
                 ..
             } => {
                 if let Some(current) = state.as_mut() {
-                    current.policy_ref = policy_ref.clone();
-                    current.expires_millis = *expires_millis;
+                    if *fence == current.fence {
+                        current.policy_ref = policy_ref.clone();
+                        current.expires_millis = *expires_millis;
+                    }
                 }
             }
-            LeaseEvent::Release { .. } => {
+            LeaseEvent::Release { fence, .. } => {
                 if let Some(current) = state.as_mut() {
-                    current.released = true;
+                    if *fence == current.fence {
+                        current.released = true;
+                    }
                 }
             }
         }
@@ -341,13 +398,24 @@ pub fn current(layout: &Layout, namespace: &str) -> Result<Option<LeaseState>> {
         .map_err(|error| StoreError::malformed(&path, error.to_string()))
 }
 
-/// The current binding of every name in a namespace: the fold of the binding
-/// log, last record per name-path winning. `BTreeMap` so enumeration is sorted
-/// and never depends on log order.
+/// The current binding of every name in a namespace: the highest `seq` per
+/// name-path, not the last record in file order. `bind`'s seq claim (see the
+/// module docstring) lets two records land out of `seq` order under
+/// contention — every claimed `seq` is still unique, but file position no
+/// longer implies recency — so "current" is answered by comparing `seq`
+/// values directly rather than by assuming the log agrees with them.
+/// `BTreeMap` so enumeration is sorted and never depends on log order either.
 pub fn heads(records: &[BindingRecord]) -> BTreeMap<String, BindingRecord> {
-    let mut found = BTreeMap::new();
+    let mut found: BTreeMap<String, BindingRecord> = BTreeMap::new();
     for record in records {
-        found.insert(record.name_path.clone(), record.clone());
+        found
+            .entry(record.name_path.clone())
+            .and_modify(|current| {
+                if record.seq > current.seq {
+                    *current = record.clone();
+                }
+            })
+            .or_insert_with(|| record.clone());
     }
     found
 }
@@ -445,6 +513,24 @@ pub fn claimed_binding_seqs(layout: &Layout, namespace: &str) -> Result<Vec<u64>
     }
     found.sort_unstable();
     Ok(found)
+}
+
+/// The next number to propose after `committed` (what the log itself has
+/// already durably recorded), skipping past anything already `claimed` —
+/// see the module docstring's "why a burned marker does not block forever".
+/// Never proposes at or below `committed`: the log is always the floor, even
+/// if the claim directory happens to be behind it (nothing has claimed
+/// `committed`'s own successor yet) or ahead of it (something has, but has
+/// not appended). An empty `claimed` falls back to `committed + 1` exactly
+/// as the naive computation always did.
+pub fn next_after_claims(claimed: &[u64], committed: u64) -> u64 {
+    claimed
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(committed)
+        .max(committed)
+        + 1
 }
 
 pub fn append_lease_event(layout: &Layout, namespace: &str, event: &LeaseEvent) -> Result<()> {
@@ -720,6 +806,53 @@ mod tests {
     }
 
     #[test]
+    fn a_higher_fence_wins_the_fold_even_if_it_is_not_last_in_the_log() {
+        // The escalation window (module docstring, "why a burned marker does
+        // not block forever") can — rarely — let a higher fence's `Acquire`
+        // land before a lower, still-in-flight one's. The fold must not let
+        // the lower one, merely by arriving later in the file, look current.
+        let events = vec![acquire(2, 500), acquire(1, 100)];
+        let state = fold("stats", &events).unwrap();
+        assert_eq!(
+            state.fence, 2,
+            "the higher fence must win regardless of file order"
+        );
+
+        // A renew or release for a fence the fold no longer holds — because
+        // a higher `Acquire` has since superseded it — must not silently
+        // misattribute itself to the wrong holder.
+        let events = vec![
+            acquire(2, 500),
+            LeaseEvent::Renew {
+                fence: 1,
+                policy_ref: "bb".repeat(32),
+                at_millis: 10,
+                expires_millis: 999,
+                ttl_millis: 989,
+            },
+        ];
+        let state = fold("stats", &events).unwrap();
+        assert_eq!(state.fence, 2);
+        assert_eq!(
+            state.expires_millis, 500,
+            "a renew naming a superseded fence must not touch the current lease"
+        );
+    }
+
+    #[test]
+    fn next_after_claims_skips_a_burn_but_never_proposes_below_the_log() {
+        // Nothing claimed yet: falls back to the log's own next number.
+        assert_eq!(next_after_claims(&[], 0), 1);
+        assert_eq!(next_after_claims(&[], 5), 6);
+        // A burn ahead of the log (claimed, never appended) is skipped.
+        assert_eq!(next_after_claims(&[1, 2, 3], 0), 4);
+        // The claim directory can also be *behind* the log's own fold in
+        // principle (nothing has claimed the log's own successor yet); the
+        // log is always the floor.
+        assert_eq!(next_after_claims(&[1], 5), 6);
+    }
+
+    #[test]
     fn a_binding_line_mirrors_the_spec_array_it_stands_for() {
         let record = BindingRecord {
             seq: 7,
@@ -753,6 +886,31 @@ mod tests {
         assert_eq!(claimed_fences(&layout, "stats").unwrap(), vec![1, 2]);
         // A different namespace has its own fence space.
         assert!(claim_fence(&layout, "other", 1).unwrap());
+    }
+
+    #[test]
+    fn heads_answers_by_seq_value_not_by_file_position() {
+        // The same escalation window, on the binding side: two records for
+        // one name can land with the higher `seq` first in the file. `heads`
+        // must still report the higher-`seq` record as current.
+        let earlier = BindingRecord {
+            seq: 3,
+            name_path: "stats/median".into(),
+            def_hash: "aa".repeat(32),
+            evidence: vec![],
+            policy_ref: "bb".repeat(32),
+            fence: 1,
+        };
+        let later = BindingRecord {
+            seq: 2,
+            ..earlier.clone()
+        };
+        // `later` (seq 2) appears second in the file despite being the
+        // *older* binding by seq — exactly the divergence next_after_claims
+        // makes possible.
+        let found = heads(&[earlier.clone(), later]);
+        assert_eq!(found["stats/median"].seq, 3, "the higher seq must win");
+        assert_eq!(found["stats/median"], earlier);
     }
 
     #[test]
