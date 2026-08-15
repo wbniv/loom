@@ -27,11 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:a967cb3b83f89bfed --> **Claim-marker liveness: candidate = max(claimed)+1** — a crash
-  between claim and append burns a fence/seq number that log-fold+1
-  candidate selection then retries forever (livelock on that namespace);
-  read the marker dir for the next candidate instead. Pre-existing in
-  fences, mirrored by seq claims, flagged in the namespaces plan addendum.
 
 
 
@@ -70,6 +65,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-15 — [claim-liveness] Burned fence/seq markers skipped, not retried forever; asymmetric escalation (bind free, lease last-attempt+guard) after the agent proved uniform escalation unsafe. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-15 — [ffi-spike] Built the offset generator: 60/60 fields match ctypes, MLton smoke test links real libllama; FFI=3 measured. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md) A3.
 - ✅ 2026-08-15 — [seq-claims] Concurrent same-holder binds prevented via O_EXCL seq markers; fsck invariant relaxed to strictly-increasing per SPEC's own wording. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-14 — [track-p-l0] Built the differential harness: 3,681 cases via transparent entry-point instrumentation, byte-reproducible, zero test changes. See [language plan](docs/plans/2026-08-14-production-language-decision.md) Track P.
