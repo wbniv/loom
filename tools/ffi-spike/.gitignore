@@ -1,0 +1,6 @@
+# Derived from the pinned llama.h at generation time (see generate.py's
+# docstring). Reproduced byte-for-byte by `task ffi-spike` / `run.sh`, so
+# the generator is what is version-controlled, not its output -- same
+# convention as prototype/'s differential:export.
+generated/
+ffi_spike

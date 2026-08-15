@@ -26,6 +26,12 @@ Net effect: **Haskell and SML are now tied at 90**, and SML is never behind Hask
 any of the four weightings. Rust's 114 is untouched by both amendments, and no batch‑1
 number changed.
 
+**A third addendum, same day, changes no number.** [Addendum A3](#sml-ffi-generator-spike-addendum-a3)
+is the spike A2 called for — the layout generator, actually written and run against the
+real pinned `llama.h` and a real MLton toolchain — and it *confirms* SML FFI = 3 rather than
+revising it. It is recorded as an addendum, not a third amendment, because nothing in the
+matrix moves.
+
 No visible surface, so this investigation carries no mockups.
 
 ---
@@ -527,6 +533,105 @@ frozen, but the lens would have touched two of them:
 
 Neither remark changes any ordering in either batch.
 
+## SML FFI generator spike (addendum A3)
+
+Verification, not a score change — see the verdict at the end of this section.
+
+Batch 2's SML FFI = 3 (amendment A2) rested on a claim nobody had tested: writing the
+layout generator *"is a day's work, and it is the cheapest experiment in this document"*
+([Scores I would defend least, #4](#scores-i-would-defend-least)). This addendum is that
+experiment, run the same day: [`tools/ffi-spike/`](../../tools/ffi-spike/), `task ffi-spike`.
+
+**What it built.** A build-time generator
+([`generate.py`](../../tools/ffi-spike/generate.py)) that (1) compiles and runs a small C
+probe against the REAL pinned `llama.h` (llama.cpp @ `1f368f354d9e`, the revision this
+migration study is pinned to throughout), measuring `offsetof`/`sizeof` for every field
+`prototype/experiment/llama_ffi.py`'s hand-mirrored `ctypes` shim declares; (2) emits those
+measurements as `offsets.json`; (3) emits a second C file (`offsets_check.c`) pinning the
+same numbers as `_Static_assert`s against the header, compiled standalone as the drift gate;
+(4) emits a generated SML file (`llama_ffi_generated.sml`) with offset/size constants, typed
+accessor functions over `MLton.Pointer.t`, and MLton-FFI-style `_import` declarations for
+every scalar-only entry point.
+
+**Offset generation and the drift gate, measured, not asserted:**
+
+| | Result |
+|---|---|
+| Fields measured | **60** across the three structs (16 + 37 + 7), matching `llama_ffi.py`'s field count exactly |
+| `llama_batch`, by name | `sizeof = 56`. `n_tokens`@0 (4B), `token`@8 (8B), `embd`@16 (8B), `pos`@24 (8B), `n_seq_id`@32 (8B), `seq_id`@40 (8B), `logits`@48 (8B) |
+| C probe: compile + run | 0.08–0.14 s |
+| `offsets_check.c` (the drift gate): compile | clean, 0.04–0.07 s, standalone from the probe |
+| Cross-check vs `ctypes` | **60/60 fields match exactly** — offset, size and field set, all three structs, zero mismatches |
+
+The zero-mismatch cross-check is itself a finding, reported as instructed rather than
+folded away: it means `llama_ffi.py`'s hand-mirrored shim is, on this machine, against this
+pinned revision, byte-exact — no drift to report against the Python side. The drift-gate
+mechanism is real, not hypothetical: `offsets_check.c` compiling today is trivially true
+(its numbers were just measured from this same header); its value is that it is the
+artifact left in the tree, and *re*-compiling it unchanged after a future `llama.cpp` bump
+is what turns a moved or resized field into a build failure instead of a corrupted struct.
+That mechanism now exists and compiles; before this spike it was a claim.
+
+**MLton: obtained, and the generated SML compiles and runs against the real `.so`.**
+MLton **20241230** — the same version the SML profile already cites — fetched from
+[github.com/MLton/mlton/releases/…/mlton-20241230-1.amd64-linux.ubuntu-24.04_static.tgz](https://github.com/MLton/mlton/releases/download/on-20241230-release/mlton-20241230-1.amd64-linux.ubuntu-24.04_static.tgz)
+(the official static x86-64 Linux tarball, 22.1 MB), into `~/.local/opt`, no sudo. Two real
+toolchain frictions surfaced and are recorded rather than smoothed over:
+
+1. MLton's launcher script resolves its `lib/` directory via `dirname "$0"`, which does not
+   follow symlinks — a plain `ln -s` into `~/.local/bin` breaks it. `run.sh` uses a one-line
+   `exec` wrapper instead. Trivial once diagnosed, not obvious from the release tarball alone.
+2. MLton needs `gmp.h`/`libgmp` at compile time (`IntInf`, the Basis Library arbitrary-precision
+   type the CBOR criterion already credited SML a point for, is GMP-backed), and this box has
+   the runtime `libgmp10` but not the `-dev` headers. No sudo available, so `run.sh` fetches
+   the matching `libgmp-dev` `.deb` via `apt-get download` and extracts it locally with
+   `dpkg -x` (342 KB, no root, no system-wide install). A machine that already has
+   `libgmp-dev` skips this step entirely.
+
+Neither friction is specific to the FFI row — both are one-time environment setup, not a
+property of the generated binding — and both are now automated in `run.sh`, so a future run
+pays neither cost. With those in place, `mlton ffi_spike.mlb` compiles the generated
+bindings **plus a hand-written smoke test** clean, and the result genuinely links against
+`libllama.so.0` (confirmed via `ldd`, not asserted). Running it calls
+`llama_backend_init`/`llama_backend_free` — real `_import`-declared calls into the real
+pinned library — and round-trips `n_gpu_layers` through the generated accessor over a live
+`malloc`'d buffer. Total wall-clock for the whole pipeline (generate → drift gate →
+cross-check → fetch MLton and `libgmp-dev` from nothing → compile → run) is **~12.6 s**
+cold, **~5–6 s** warm. Hands-on-keyboard time to build the spike was a small fraction of the
+day the original write-up allowed for.
+
+**What it does not reach, and why this matters more than the original write-up credited.**
+MLton's `_import` has no struct-by-value marshalling at all — MLton's own FFI types
+documentation is explicit that only `bool`/`char`/`int`/`real`/`word`/`MLton.Pointer.t` and
+arrays/vectors thereof may cross the boundary, and structs are excluded by the same rule
+that excludes tuples. Six of the twenty-two entry points `llama_ffi.py` declares pass or
+return one of the three structs **by value**: `llama_model_default_params`,
+`llama_context_default_params`, `llama_model_load_from_file`, `llama_init_from_model`,
+`llama_batch_get_one`, and — the one that matters most — **`llama_decode` itself, the
+function called every token on the hot path**. None of the six can be `_import`'d directly;
+each needs a small hand-written (or, symmetrically, generated) C shim taking/returning the
+struct by pointer instead. The original write-up's deduction from Rust's 4 named "untyped
+`MLton.Pointer` peek/poke at the use site" and "the project owns the generator" — both
+confirmed true by this spike — but did not name this third, structural one: even a perfect
+generator cannot make MLton's `_import` primitive itself accept a struct argument. This is a
+genuine SML/MLton-specific gap — Rust's `bindgen` and (per the Haskell profile) GHC's FFI
+both support struct-by-value more directly than MLton's `_import` does.
+
+**Verdict: FFI = 3 stands, now measured rather than argued.** Every load-bearing claim the
+amendment made is confirmed: the generator is real, cheap (well under a day), and produces
+a genuine compile-time drift gate; the `_import`-declared calls are real compiled direct
+calls with no runtime lock, confirmed by actually linking and running against the pinned
+`.so`; the cross-check found no drift on this machine. The one new finding — struct-by-value
+is unreachable through `_import`, full stop, so the hot-path `llama_decode` call needs a
+hand-written shim beyond what the generator alone supplies — is a *third* reason the score
+sits below Rust's 4, not a reason to drop it toward OCaml's 1: the shim is small (a handful
+of lines, the same shape as the six trivial wrapper functions any binding of this API would
+need regardless of language), and it does not reintroduce the runtime-lock or
+moving-GC-around-foreign-pointers problems that actually earned OCaml its 1.
+
+**Net: 90 stands. No arithmetic below this line moves.** This closes out defend-least item
+#4, which is updated in place below rather than left stale.
+
 ## R4′ — The matrix
 
 Scores 0–5 per criterion; weighted total out of 130. **Rust and Python columns are batch 1's,
@@ -745,14 +850,21 @@ matter more than they did, because they are what decides the #2/#3 ordering.
    92, **ahead of Haskell**. I held it at 1 because criterion 5's first‑named requirement,
    embedding a runtime, is entirely absent in SML. Anyone who weights the compile‑to half
    more heavily should reverse ranks 2 and 3.
-4. **SML FFI = 3** (amendment A2). The generator route is sound and has decades of prior art,
-   but I am scoring a binding **nobody has written** — unlike Haskell's `hsc2hs`, Clojure's
-   `jextract` or Rust's `bindgen`, which exist and are maintained by others. Scoring a
-   language for what a competent team *could* build is a different standard from scoring it
-   for what ships, and I have applied the first here and the second elsewhere. A 2 (as
-   originally scored) is still defensible on that inconsistency alone; it would put SML back
-   at 88 and restore Haskell to a clear second. **What would confirm it:** writing the
-   generator — it is a day's work, and it is the cheapest experiment in this document.
+4. ~~**SML FFI = 3** (amendment A2). The generator route is sound and has decades of prior
+   art, but I am scoring a binding **nobody has written**… **What would confirm it:** writing
+   the generator — it is a day's work, and it is the cheapest experiment in this document.~~
+   **Resolved by [addendum A3](#sml-ffi-generator-spike-addendum-a3):**
+   the generator is written
+   ([`tools/ffi-spike/`](../../tools/ffi-spike/)), it compiles, the drift gate is real, and
+   the generated SML compiles under MLton and links+runs against the real pinned
+   `libllama.so`. The "nobody has written it" inconsistency this item flagged no longer
+   applies — this project now has, same as Haskell's `hsc2hs` and Clojure's `jextract`, a
+   generator that exists rather than one that could hypothetically be built. What the spike
+   added instead is a *different*, previously uncredited deduction: MLton's `_import` cannot
+   pass or return a struct by value at all, so the hot-path `llama_decode` call needs a small
+   hand-written shim beyond the generator's output. That keeps SML below Rust's 4 for a
+   sharper reason than before, but does not move it toward OCaml's 1 — see the addendum for
+   why. **90 stands.**
 5. **Ruby closed IR types = 2.** Everything rests on Sorbet's `sealed!` + `T.absurd` being
    a real static exhaustiveness check rather than a runtime one. It is — but it is opt‑in,
    sigil‑scoped, and has open exhaustiveness bugs. A 1 (matching Go and Python) is

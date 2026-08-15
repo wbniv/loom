@@ -38,6 +38,14 @@ tasks:
     cmds:
       - python3 -m experiment.runner --config "${LOOM_EXPERIMENT_CONFIG:-experiment/phase_a.config.json}" {{.CLI_ARGS}}
 
+  # ── Batch-2 SML FFI generator spike (docs/investigations/2026-08-14-language-eval-batch-2.md) ──
+
+  ffi-spike:
+    desc: "Derive llama.cpp struct layouts from the real pinned llama.h; cross-check vs ctypes; compile+run against MLton if available"
+    dir: tools/ffi-spike
+    cmds:
+      - ./run.sh {{.CLI_ARGS}}
+
   experiment:remote:
     desc: Run Phase A on a rented g6.xlarge in us-east-2 and bring runs/ back (~$1)
     deps: [setup]
