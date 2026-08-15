@@ -1,0 +1,10 @@
+(* MLton project file: brings in the basis explicitly (required once you use
+   .mlb-based multi-file builds instead of a single bare .sml), then the
+   generated bindings, then the hand-written smoke test that exercises them
+   against the real libllama.so. *)
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/basis/mlton.mlb
+ann "allowFFI true" in
+  generated/llama_ffi_generated.sml
+  smoke_test.sml
+end
