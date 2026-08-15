@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] **SML FFI generator spike** — batch 2's cheapest experiment: a
+- [wip T2] <!-- agent:a1ff51fd31cef1882 --> **SML FFI generator spike** — batch 2's cheapest experiment: a
   build-time tool deriving llama struct offsets from the pinned header
   (static_asserts + generated SML), converting the contested FFI=3 from
   scored hypothetical to measured fact; verdict recorded back into the
