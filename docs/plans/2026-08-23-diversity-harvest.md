@@ -378,6 +378,223 @@ challenged.
    every held-out draw that met the mechanical floor.
 8. `task todo:lint`; `git diff --check`.
 
+## Recorded verification
+
+Steps 1–6 and 8 run 2026‑08‑23 on branch `diversity-harvest` (worktree
+`/home/will/loom-wt-diversity`). The numbered steps are the plan's own,
+unchanged; raw output follows each. **Step 7 is the GPU run and is
+outstanding** — see the note under it.
+
+### 1. `task prototype:test` green, including the new selection tests; the existing `test_harvest.py` passes **unmodified** — the default policy did not move a byte
+
+```
+----------------------------------------------------------------------
+Ran 737 tests in 79.790s
+
+OK (skipped=2)
+```
+
+`test_harvest.py` on its own, and untouched by this branch:
+
+```
+$ python3 -m unittest test_harvest
+................................................
+----------------------------------------------------------------------
+Ran 48 tests in 1.742s
+
+OK
+
+$ git diff main -- prototype/test_harvest.py
+(no output: the file is untouched by this branch)
+```
+
+New tests: 29 in `test_harvest_select`, 14 in `test_diversity_arms`.
+
+**PASS.**
+
+### 2. `--select all` over `phase-b` alone reproduces the corpus-loop plan's recorded counts exactly: 773 records, 109 accepted, 38 distinct identities, 34 admitted, 75 exists, 0 refused
+
+```
+$ python3 harvest.py --records .../runs/phase-b/records.jsonl --dry-run \
+      --resolver .../.loom-store/export-resolver.json
+{
+ "accepted": 109, "admitted": 34, "distinct_identities": 38, "dry_run": true,
+ "exists": 75, "not_selected": 0, "records": 773, "refusals": [],
+ "refused_on_readmission": 0,
+ "selection": {"policy": "all", "pool": 38, "rejected_by_gate": {},
+               "selected": 38,
+               "stages": [{"stage": "pool", "surviving": 38},
+                          {"stage": "selected", "surviving": 38}]},
+ "status": "harvested"
+}
+```
+
+Every number matches the corpus-loop plan's recorded line. `not_selected: 0`
+and an empty `rejected_by_gate` are the new fields saying, in the report itself,
+that the default policy turned nothing away.
+
+**PASS.**
+
+### 3. The `diverse` store's generated half, read back from its own `export-resolver.json` and re-analysed independently of the selector: 15 definitions, none constant-valued, none ignoring a parameter, all in distinct structural classes, none sharing a class with a curated definition
+
+The build, over the pooled runs:
+
+```
+$ task store:diverse
+skip phase-a-full-attempt1: no summary.json (no recorded model identity)
+skip phase-b-partial-batchassert: no summary.json (no recorded model identity)
+skip phase-b-partial-oom: no summary.json (no recorded model identity)
+pooling 8 run(s) under policy 'distinct-shape'
+{"accepted": 514, "admitted": 15, "distinct_identities": 62, "exists": 41,
+ "not_selected": 458, "records": 4296, "refused_on_readmission": 0,
+ "selection": {"policy": "distinct-shape", "pool": 62,
+   "rejected_by_gate": {"constant": 29, "excluded-task": 4,
+                        "redundant-shape": 7, "unused-parameter": 7},
+   "selected": 15,
+   "stages": [{"stage": "pool", "surviving": 62},
+              {"stage": "task-filter", "surviving": 58},
+              {"stage": "g1-non-constant", "surviving": 29},
+              {"stage": "g2-parameters-used", "surviving": 22},
+              {"stage": "g3-novel-shape", "surviving": 15}]}}
+{"ok": true, "rows": 63}
+```
+
+`15 + 41 + 458 = 514`, so the widened count invariant holds. `rows: 63` is
+48 store objects + 15 generated.
+
+Re-analysed from the store's own export rather than from the report
+(`test_diversity_arms.ArmStoreTest`, and the same numbers printed directly):
+
+| arm | generated defs | constant | ignores a parameter | distinct classes | clashing with curated | surface chars |
+|---|---:|---:|---:|---:|---:|---:|
+| `diverse` | 15 | **0** | **0** | **15 of 15** | **0** | 4,015 |
+| `sizematch` | 15 | 10 | 1 | 10 of 15 | 0 | 1,998 |
+| `generated` (recorded, for reference) | 41 | 20 | 6 | 26 of 41 | 2 | 7,916 |
+
+**PASS.**
+
+### 4. The `sizematch` store: 15 generated definitions, drawn from the same pool, with its vacuity composition reported as a number
+
+```
+$ task store:sizematch
+pooling 8 run(s) under policy 'size-match:15'
+{"accepted": 514, "admitted": 15, "distinct_identities": 62, "exists": 26,
+ "not_selected": 473, "records": 4296,
+ "selection": {"policy": "size-match:15", "pool": 62,
+   "rejected_by_gate": {"already-held": 4, "excluded-task": 4, "over-budget": 39},
+   "selected": 15,
+   "stages": [{"stage": "pool", "surviving": 62},
+              {"stage": "task-filter", "surviving": 58},
+              {"stage": "not-already-held", "surviving": 54},
+              {"stage": "selected", "surviving": 15}]}}
+{"ok": true, "rows": 63}
+```
+
+Vacuity composition: **10 of 15 constant-valued, 1 ignoring a parameter,
+10 distinct structural classes** — against `diverse`'s 0, 0 and 15. The
+manipulation is real and in the intended direction. Overlap: `diverse` and
+`sizematch` share 5 of their 15 objects, so the arms are neither disjoint nor
+near-identical.
+
+`already-held: 4` is the finding from the first build attempt, now visible on
+the line: four pool identities are byte-identical to curated corpus objects and
+would dedupe away, so they no longer consume budget. Before that fix this arm
+asked for 15 and landed 13.
+
+**PASS.**
+
+### 5. `fsck` exit 0 on both new stores; every arm's prompts under `include_generated: false` byte-identical to the curated arm's
+
+`fsck` is the `{"ok": true, "rows": 63}` line in steps 3 and 4 — exit 0 on both,
+63 objects and 63 index rows each.
+
+The byte-identity half is proven by `test_harvest.OriginFilterTest`, untouched
+by this branch, which builds `34 tasks × 4 regimes × 2 leave-one-out = 272`
+prompt pairs through a harvested export and asserts byte equality on every one.
+This branch adds no code between the origin filter and `build_prompt`:
+
+```
+$ git diff main --stat -- prototype/experiment/prompts.py \
+                          prototype/experiment/store_resolver.py
+(no output: neither file is touched by this branch)
+```
+
+**PASS.**
+
+### 6. All three arm configs run end-to-end on the stub backend, with each arm's longest prompt and its `context_required` reported against `n_ctx`
+
+All *four* configs, since the reserve arm ships too:
+
+```
+$ python3 -m experiment.diversity_stub_check
+arm                    defs  digests  gen  required   n_ctx   head  recs  stub prompt tokens
+diverse_followup         41       62   15     15331   32768  2.14x     4  [5506, 5506, 5553, 5553]
+sizematch_followup       41       62   15     13987   32768  2.34x     4  [5001, 5001, 5049, 5049]
+diverse_heldout12        41       62   15     15331   32768  2.14x     2  [5553, 5553]
+sizematch_heldout12      41       62   15     13987   32768  2.34x     2  [5049, 5049]
+
+diverse vs sizematch prompt tokens : [5506, 5506, 5553, 5553] vs [5001, 5001, 5049, 5049]
+context required                   : 15331 vs 13987
+OK: the arms differ in what the model is shown
+```
+
+Every arm resolves 26 curated + 15 generated definitions; every arm clears its
+own longest prompt with more than 2× headroom at the baselines' `n_ctx` of
+32,768; and the arms differ in **what the model is shown**, not only in what
+resolves — the escalation the corpus-loop plan raised, restated for these arms
+and asserted rather than hoped.
+
+The 15,331 vs 13,987 gap is the byte asymmetry named above, as a number:
+1,344 tokens, about 9 % of the smaller requirement.
+
+**PASS.**
+
+### 7. Runs 1–3 complete; the metrics table against the recorded baselines, every pre-registered prediction scored, and the hand-scoring rubric applied to every held-out draw that met the mechanical floor
+
+**OUTSTANDING — not run.** GPU quota in the project is one accelerator and the
+powered held-out A/B has priority on it, so no arm of this plan has been
+launched. Everything the runs depend on is built and verified above, and every
+prediction in this document was written before any of them.
+
+One infrastructure finding came out of the attempt, recorded because it is a
+finding and not a detour. Launching against the shared Terraform root while
+another run held the same state **overwrote that run's `results_prefix` and
+`status_key` outputs**. Nothing was destroyed — no instance existed yet — but
+two roots that share a state prefix are one lock and one set of outputs however
+carefully their variables differ, and a minute later there would have been two
+drivers contending for one `loom-experiment-runner` name and one GPU.
+`infrastructure/gcp/experiment-diversity` now gives these arms their own
+backend prefix, instance suffix and artifacts bucket; the driver's EXIT-trap
+teardown defaults to instance-only rather than a blanket destroy; and a new
+preflight refuses to start while a runner that is not this invocation's is
+standing. See step 8's `infra:validate`.
+
+### 8. `task todo:lint`; `git diff --check`
+
+```
+$ task todo:lint
+TODO.md: clean
+todo:lint exit=0
+
+$ git diff --check
+(no output)
+```
+
+Not one of the numbered steps, recorded because this branch adds a Terraform
+root and `fmt`/`validate` is the cheapest evidence it is not broken:
+
+```
+$ task infra:validate
+── infrastructure/gcp/experiment
+Success! The configuration is valid.
+── infrastructure/gcp/experiment-pair
+Success! The configuration is valid.
+── infrastructure/gcp/experiment-diversity
+Success! The configuration is valid.
+```
+
+**PASS.**
+
 ## Completion criteria
 
 - The selection is reproducible: the same pool and policy yield the same store,

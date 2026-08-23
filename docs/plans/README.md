@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-23 | [A diversity-seeking harvest](2026-08-23-diversity-harvest.md) | Built and stub-verified; three structural gates cut 58 candidates to 15, GPU arms pending |
 | 2026-08-14 | [Store namespaces v1](2026-08-14-store-namespaces.md) | Implemented; PASS (steps 1–7 recorded) |
 | 2026-08-14 | [The namespace lease protocol](2026-08-14-lease-protocol.md) | Approved (D1–D4 + revoke amendment); SPEC §5.3.3 carries it |
 | 2026-08-14 | [Closing the corpus loop](2026-08-14-corpus-loop.md) | Complete; recall +31 % stable, composition 0 after hand-scored rubric |
