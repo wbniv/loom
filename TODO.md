@@ -27,8 +27,16 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [wip T4] [diversity-harvest] Design + implement a diversity-seeking harvest for the
+  corpus loop — turn 2 proved self-reproduction plateaus (1.728 vs 1.803, no
+  compounding), so change *what* gets harvested/fed back; the only proposed lever on
+  composition. Plan: docs/plans/2026-08-23-diversity-harvest.md (agent writes it).
+  <!-- agent:ada19433a56bb0053 -->
 
-
+- [wip T2] [heldout-powered] Scale the held-out A/B to a pre-registered powered sample
+  (7/96 vs 4/96, Fisher p ≈ 0.35 today) on the frozen store; decide the ≈1.75×
+  acceptance advantage either way. Existing harness, config-only changes, GCP spot.
+  <!-- agent:ac8d33d226a857606 -->
 
 
 
