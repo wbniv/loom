@@ -28,6 +28,14 @@ GCP_ZONE="${LOOM_GCP_ZONE:-us-central1-a}"
 TF_DIR="$REPO_ROOT/infrastructure/gcp/experiment"
 BUCKET="loom-experiment-artifacts-19b81040"
 STATE_BUCKET="loom-tfstate-19b81040"
+INSTANCE_SUFFIX=""
+# Whether teardown may destroy the whole root, or only take the instance away.
+# Default: instance-only. A blanket destroy is opt-in because this script's
+# EXIT trap fires on any failure, including a driver killed mid-run, and a root
+# that another run shares would then lose its bucket. Isolated roots
+# (infrastructure/gcp/experiment-diversity) can be destroyed outright, but the
+# safe default is the one that cannot cost somebody else a run.
+TEARDOWN_SCOPE="instance"
 
 MODELS_DIR="${LOOM_MODELS_DIR:-$HOME/loom-tools/models}"
 CONFIG_PATH="$REPO_ROOT/prototype/experiment/phase_a.config.json"
@@ -91,9 +99,26 @@ Options:
                           Default: "g2-standard-4 L4 24GB"
   --on-demand             Use a standard VM rather than Spot (about 3.4x the
                           price, but not preemptible).
-  --keep-bucket           Leave the artifacts bucket standing on teardown, so
-                          the next run does not re-upload the models. Its
-                          objects expire after 7 days regardless.
+  --keep-bucket           Deprecated spelling of the default teardown scope
+                          (--teardown-scope instance). Accepted so existing
+                          invocations keep working.
+  --tf-dir DIR            Terraform root to apply. Each root has its own
+                          backend prefix, so this also chooses which state is
+                          locked. Default: infrastructure/gcp/experiment.
+                          Use infrastructure/gcp/experiment-diversity for a
+                          run that must not contend with anything.
+  --bucket NAME           Artifacts bucket. Must match the chosen root's
+                          artifacts_bucket default, since the root manages it.
+  --instance-suffix S     Distinguishes this run's instance from every other
+                          runner in the project. Required whenever another run
+                          may be in flight — two states managing one instance
+                          name is the collision this option exists to stop.
+  --teardown-scope WHICH  instance (default) removes only the GPU, leaving the
+                          bucket and IAM standing; its objects expire after 7
+                          days regardless. all destroys the whole root — only
+                          safe on a root that shares no resource with another
+                          run, and never the default, because this script's
+                          EXIT trap fires on any failure including a kill.
   --poll-seconds N        Status poll interval. Default: 60
   --timeout-seconds N     Give up waiting after this long. Default: 14400 (4 h)
   --skip-quota-check      Skip the GPU quota preflight.
@@ -119,7 +144,16 @@ while [ $# -gt 0 ]; do
         --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
         --hardware) HARDWARE="$2"; shift 2 ;;
         --on-demand) USE_SPOT=false; shift ;;
-        --keep-bucket) KEEP_BUCKET=true; shift ;;
+        --keep-bucket) KEEP_BUCKET=true; TEARDOWN_SCOPE="instance"; shift ;;
+        --tf-dir) TF_DIR="$2"; shift 2 ;;
+        --bucket) BUCKET="$2"; shift 2 ;;
+        --instance-suffix) INSTANCE_SUFFIX="$2"; shift 2 ;;
+        --teardown-scope)
+            case "$2" in
+                instance|all) TEARDOWN_SCOPE="$2" ;;
+                *) echo "--teardown-scope takes 'instance' or 'all', got '$2'" >&2; exit 2 ;;
+            esac
+            shift 2 ;;
         --poll-seconds) POLL_SECONDS="$2"; shift 2 ;;
         --timeout-seconds) TIMEOUT_SECONDS="$2"; shift 2 ;;
         --skip-quota-check) SKIP_QUOTA_CHECK=true; shift ;;
@@ -165,6 +199,14 @@ TF_VARS=(
     -var "use_spot=$USE_SPOT"
     -var "remote_output_dir=$REMOTE_OUTPUT_DIR"
 )
+
+# `instance_suffix` exists only on the roots that support concurrent runners
+# (experiment-diversity, experiment-pair). Passing an undeclared variable is an
+# error, so it is appended only when asked for, which keeps a plain
+# ../experiment invocation byte-identical to what it was.
+if [ -n "$INSTANCE_SUFFIX" ]; then
+    TF_VARS+=(-var "instance_suffix=$INSTANCE_SUFFIX")
+fi
 
 # --- terraform with a token that is never more than a moment old -------------
 # There is no tf-safe-apply.sh path here: that wrapper's lock diagnosis is
@@ -271,6 +313,31 @@ else
 fi
 ensure_state_bucket
 
+# --- Somebody else's runner is already up ------------------------------------
+# GPU quota in this project is one accelerator, and every root here names its
+# instance loom-experiment-runner[-suffix]. On 2026-08-23 two drivers started
+# minutes apart against the same Terraform state; nothing was destroyed only
+# because the second had not reached its launch apply yet. This is the check
+# that would have stopped it at the preflight instead of at the apply: if a
+# runner that is not this invocation's is already standing, abort before
+# touching any state.
+preflight_no_foreign_runner() {
+    local ours="loom-experiment-runner"
+    [ -n "$INSTANCE_SUFFIX" ] && ours="loom-experiment-runner-$INSTANCE_SUFFIX"
+    local standing
+    standing="$(gcloud compute instances list \
+        --filter="name~^loom-experiment-runner AND name!=$ours" \
+        --format='value(name,zone,status)' 2>/dev/null || true)"
+    if [ -n "$standing" ]; then
+        die "another experiment runner is already up:
+$standing
+GPU quota here is 1, and a second run would contend for it. Wait for that run
+to finish, or pass a --instance-suffix and confirm quota has been raised."
+    fi
+    log "no foreign runner standing (ours would be $ours)"
+}
+preflight_no_foreign_runner
+
 # --- Cleanup, LIFO ----------------------------------------------------------
 # Registered before the first apply so a Ctrl-C between apply and poll still
 # tears the instance down. cleanup-stack owns the single EXIT trap; handlers run
@@ -282,13 +349,25 @@ TARBALL="$(mktemp -t loom-repo-XXXXXX.tar.gz)"
 push_cleanup "rm -f '$TARBALL'"
 
 teardown() {
-    log "teardown: destroying the experiment stack"
-    if [ "$KEEP_BUCKET" = true ]; then
-        # launch_runner=false keeps the bucket and the IAM bindings, and takes
-        # the instance (the only meaningful cost) away.
-        tf apply -auto-approve "${TF_VARS[@]}" -var "launch_runner=false"
-    else
+    # Scoped on purpose. This trap fires on *any* exit — a failed apply, a
+    # Ctrl-C, a driver killed while another run is in flight — so what it is
+    # allowed to reach matters more than what it usually reaches.
+    #
+    # `instance` (the default) applies launch_runner=false, which removes the
+    # GPU (the only meaningful cost) and leaves the bucket and IAM bindings
+    # standing. Bucket objects expire after 7 days by lifecycle rule, so the
+    # residue is bounded without this trap having to be destructive.
+    #
+    # `all` is a full `terraform destroy` of the root and is only correct when
+    # the root shares no resource with another run — see
+    # infrastructure/gcp/experiment-diversity, which owns its bucket outright
+    # for exactly this reason.
+    if [ "$TEARDOWN_SCOPE" = "all" ]; then
+        log "teardown: destroying the whole root ($TF_DIR)"
         tf destroy -auto-approve "${TF_VARS[@]}"
+    else
+        log "teardown: removing the runner instance, leaving the bucket standing"
+        tf apply -auto-approve "${TF_VARS[@]}" -var "launch_runner=false"
     fi
 }
 push_cleanup teardown
@@ -297,7 +376,12 @@ push_cleanup teardown
 # The driver has to upload before the instance boots, so the bucket is applied
 # on its own first.
 log "apply 1/2: artifacts bucket and IAM bindings"
-tf init -input=false
+# -reconfigure, not a plain init: each root pins its own backend prefix in its
+# own backend.tf, and a .terraform/ left behind by a different root in the same
+# directory tree would otherwise have terraform offer to *migrate* one run's
+# state into another's prefix. Reconfiguring discards the cached backend and
+# takes the one the root actually declares.
+tf init -input=false -reconfigure
 tf apply -auto-approve "${TF_VARS[@]}" -var "launch_runner=false"
 
 # --- 2. Upload the repo, the config and the models --------------------------
