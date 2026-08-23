@@ -205,4 +205,5 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [verify] **2026-08-23-diversity-harvest** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-23-diversity-harvest.md](docs/plans/2026-08-23-diversity-harvest.md)_  <!-- fp:43b9198449518f51 -->
 <!-- END auto-captured-deferrals -->

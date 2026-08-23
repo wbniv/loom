@@ -302,20 +302,28 @@ tf apply -auto-approve "${TF_VARS[@]}" -var "launch_runner=false"
 
 # --- 2. Upload the repo, the config and the models --------------------------
 log "packing the repo"
-# The corpus-loop follow-up's config resolves store_export relative to the
-# config file, landing on <repo>/.loom-store-generated/export-resolver.json.
-# Pack that one derived file when it exists so the path resolves on the
-# instance too; a run that does not use it is unaffected.
-STORE_EXPORT=""
-[ -f "$REPO_ROOT/.loom-store-generated/export-resolver.json" ] \
-    && STORE_EXPORT=".loom-store-generated/export-resolver.json"
+# An arm's config resolves store_export relative to the config file, landing on
+# <repo>/<some .loom-store*>/export-resolver.json. Pack *every* store variant's
+# export that exists, so the path resolves on the instance whichever arm is
+# being run: the diversity-harvest plan alone builds three of them
+# (.loom-store-generated, -diverse, -sizematch) and a fourth is one config file
+# away. Naming one path here is what made a new arm need a driver edit.
+# Only the derived JSON travels — never a whole store directory.
+STORE_EXPORTS=()
+while IFS= read -r export_path; do
+    STORE_EXPORTS+=("${export_path#"$REPO_ROOT/"}")
+done < <(find "$REPO_ROOT" -maxdepth 2 -path "$REPO_ROOT/.loom-store*" \
+             -name export-resolver.json | sort)
+if [ ${#STORE_EXPORTS[@]} -gt 0 ]; then
+    log "  packing ${#STORE_EXPORTS[@]} store export(s): ${STORE_EXPORTS[*]}"
+fi
 tar -czf "$TARBALL" \
     -C "$REPO_ROOT" \
     --exclude='prototype/runs' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='.git' \
-    prototype Taskfile.yml $STORE_EXPORT
+    prototype Taskfile.yml ${STORE_EXPORTS+"${STORE_EXPORTS[@]}"}
 
 log "uploading the repo tarball ($(du -h "$TARBALL" | cut -f1))"
 gsutil -q cp "$TARBALL" "gs://$BUCKET/repo/repo.tar.gz"

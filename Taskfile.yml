@@ -13,7 +13,7 @@ tasks:
     desc: Run parser, identity, scope, declaration, reference, obligation, policy, binding-admission, extern, contract, evaluator, experiment-harness, mask, and store-admission tests
     dir: prototype
     cmds:
-      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_bindings test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker test_store test_harvest test_differential -v
+      - python3 -m unittest test_roundtrip test_scope test_references test_prelude test_matches test_effects test_fix_ref test_refinements test_obligations test_subsumption test_policies test_bindings test_externs test_corpus test_instantiation test_contracts test_interp test_experiment test_masker test_store test_harvest test_harvest_select test_differential -v
 
   # ── L0, the differential harness (Track P prerequisite) ──────────────────
   # docs/plans/2026-08-14-production-language-decision.md, R7 / Track P. The

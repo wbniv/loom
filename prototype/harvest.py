@@ -70,8 +70,10 @@ import json
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
+import harvest_select
 import store_admit
 from definition_types import DefinitionTypeRegistry
 from experiment.store_resolver import POLICY_ALL, StoreResolver
@@ -118,6 +120,26 @@ LAYER_IDENTITY = "identity"
 
 class HarvestError(RuntimeError):
     """The harvest cannot proceed, and says why on one line."""
+
+
+@dataclass(frozen=True)
+class RunSource:
+    """One run's records, with the run block every object from it will carry.
+
+    The harvest used to take exactly one records file, so the run block was a
+    property of the whole pass. A diversity-seeking selection needs a *pool* —
+    the same structural class may be produced first in one run and best in
+    another — so a pass now carries several, and each record's provenance comes
+    from the run it was actually drawn in.
+
+    `label` is `source_label`'s machine-independent path suffix, and it is also
+    the sort key: sources are ordered by label, never by the order the operator
+    typed them, so the output is a function of the *set* of runs harvested.
+    """
+
+    label: str
+    run: dict
+    records: tuple[dict, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +338,7 @@ class Harvest:
         self.admitted = 0
         self.exists = 0
         self.refused = 0
+        self.not_selected = 0
         self.refusals: dict[str, dict] = {}
         self.objects: list[dict] = []
         self._sequence: dict[str, int] = {}
@@ -354,8 +377,22 @@ class Harvest:
         else:
             found["records"] += 1
 
-    def admit(self, record: dict, position: int) -> tuple[bytes, dict] | None:
-        """Re-validate one accepted record. `None` means it was refused."""
+    def admit(
+        self,
+        record: dict,
+        position: int,
+        run: dict | None = None,
+        source: str | None = None,
+    ) -> tuple[bytes, dict] | None:
+        """Re-validate one accepted record. `None` means it was refused.
+
+        `run` and `source` default to the pass's own, which is what a
+        single-run harvest wants; a pooled harvest passes the run block of the
+        run the record was actually drawn in, so provenance never inherits a
+        neighbouring run's model identity.
+        """
+        run = self.run if run is None else run
+        source = self.source if source is None else source
         surface = (record.get("source") or "").rstrip("\n")
         claimed = record.get("identity") or ""
         sequence = self.sequence_for(claimed, position)
@@ -367,8 +404,8 @@ class Harvest:
                 name=self.name_for(record, claimed),
                 spec=None,
                 origin=store_admit.ORIGIN_GENERATED,
-                provenance_source=self.source,
-                provenance_extra=provenance_for(record, self.run, self.source),
+                provenance_source=source,
+                provenance_extra=provenance_for(record, run, source),
             )
         except store_admit.AdmissionRefused as refused:
             self.refuse(record, refused.layer, refused.error_class, refused.message)
@@ -442,15 +479,64 @@ class StoreCli:
 # ---------------------------------------------------------------------------
 
 
+def sources_from(
+    records_paths: list[Path],
+    summaries: dict[Path, dict],
+    run_overrides: dict[Path, dict] | None = None,
+) -> list[RunSource]:
+    """Read every records file and sort the runs by their machine-independent label."""
+    overrides = run_overrides or {}
+    sources = [
+        RunSource(
+            label=source_label(path),
+            run=overrides.get(path) or run_identity(summaries.get(path) or {}, path),
+            records=tuple(read_records(path)),
+        )
+        for path in records_paths
+    ]
+    labels = [source.label for source in sources]
+    if len(set(labels)) != len(labels):
+        raise HarvestError(
+            "two records files share the machine-independent source label "
+            f"{sorted(label for label in labels if labels.count(label) > 1)[0]!r}; "
+            "provenance could not tell their objects apart"
+        )
+    return sorted(sources, key=lambda source: source.label)
+
+
+def candidates_from(sources: list[RunSource]) -> list[harvest_select.Candidate]:
+    """One candidate per distinct accepted identity, at the record that first produced it.
+
+    Pool order is the canonical order R2 pins: sources by label, records within
+    a source in the order the run wrote them. `distinct-shape`'s first-of-a-class
+    rule therefore resolves the same way on every machine.
+    """
+    seen: dict[str, harvest_select.Candidate] = {}
+    for source in sources:
+        for record in accepted_records(list(source.records)):
+            identity = record.get("identity") or ""
+            if identity in seen:
+                continue
+            seen[identity] = harvest_select.Candidate(
+                identity=identity,
+                task=record.get("task", "") or "",
+                surface=(record.get("source") or "").rstrip("\n"),
+            )
+    return list(seen.values())
+
+
 def harvest(
     *,
-    records_path: Path,
-    summary: dict,
+    records_path: Path | None = None,
+    summary: dict | None = None,
     document: dict,
     store: StoreCli | None,
     workspace: Path | None = None,
     run_override: dict | None = None,
     sink=None,
+    sources: list[RunSource] | None = None,
+    policy: str = harvest_select.POLICY_ALL,
+    exclude_task_prefixes: tuple[str, ...] = (),
 ) -> dict:
     """Re-admit every accepted draw and report the counts. One dict, one line.
 
@@ -466,61 +552,107 @@ def harvest(
     export document without a Rust toolchain — gets them without this function
     having to grow a second return value nobody else wants.
     """
-    records = read_records(records_path)
-    accepted = accepted_records(records)
-    run = run_override or run_identity(summary, records_path)
-    source = source_label(records_path)
+    if sources is None:
+        if records_path is None:
+            raise HarvestError("harvest needs either records_path or sources")
+        sources = [
+            RunSource(
+                label=source_label(records_path),
+                run=run_override or run_identity(summary or {}, records_path),
+                records=tuple(read_records(records_path)),
+            )
+        ]
 
     base = StoreResolver(document, origins=POLICY_ALL)
     already = {sidecar["hash"] for sidecar in document.get("objects", [])}
-    pass_ = Harvest(AdmissionContext(base), run, source)
+    context = AdmissionContext(base)
 
-    for position, record in enumerate(accepted):
-        result = pass_.admit(record, position)
-        if result is None:
-            continue
-        obj, sidecar = result
-        digest = sidecar["hash"]
-        if store is None:
-            status = EXISTS if digest in already else WRITTEN
-        else:
-            stem = workspace / digest
-            stem.with_suffix(".bin").write_bytes(obj)
-            stem.with_suffix(".json").write_bytes(store_admit.sidecar_bytes(sidecar))
-            status = store.put(stem.with_suffix(".bin"), stem.with_suffix(".json"))
-        if sink is not None:
-            sink(obj, sidecar, status)
-        if status == WRITTEN:
-            pass_.admitted += 1
-            pass_.objects.append(
-                {"hash": digest, "name": sidecar["name"], "sequence": sidecar["sequence"]}
-            )
-        else:
-            pass_.exists += 1
-        already.add(digest)
+    # Selection runs over the whole pool before anything is admitted, because
+    # `size-match` orders by identity and `distinct-shape` compares a candidate
+    # against every class already taken — neither is a decision a streaming pass
+    # could make. `all` short-circuits to "every candidate", which is what keeps
+    # the default byte-identical to the pre-selection harvest.
+    candidates = candidates_from(sources)
+    selection = harvest_select.select(
+        policy,
+        candidates,
+        occupied=harvest_select.curated_classes(document, context.operation_arity),
+        already_held=frozenset(already),
+        exclude_task_prefixes=tuple(exclude_task_prefixes),
+        operation_arity=context.operation_arity,
+    )
+    chosen = selection.identities
 
-    counted = pass_.admitted + pass_.exists + pass_.refused
-    if counted != len(accepted):
+    pass_ = Harvest(context, sources[0].run, sources[0].label)
+
+    total_records = 0
+    total_accepted = 0
+    distinct: set[str] = set()
+    position = 0
+    for source in sources:
+        total_records += len(source.records)
+        accepted = accepted_records(list(source.records))
+        total_accepted += len(accepted)
+        for record in accepted:
+            distinct.add(record.get("identity"))
+            here = position
+            position += 1
+            if record.get("identity") not in chosen:
+                pass_.not_selected += 1
+                continue
+            result = pass_.admit(record, here, source.run, source.label)
+            if result is None:
+                continue
+            obj, sidecar = result
+            digest = sidecar["hash"]
+            if store is None:
+                status = EXISTS if digest in already else WRITTEN
+            else:
+                stem = workspace / digest
+                stem.with_suffix(".bin").write_bytes(obj)
+                stem.with_suffix(".json").write_bytes(store_admit.sidecar_bytes(sidecar))
+                status = store.put(stem.with_suffix(".bin"), stem.with_suffix(".json"))
+            if sink is not None:
+                sink(obj, sidecar, status)
+            if status == WRITTEN:
+                pass_.admitted += 1
+                pass_.objects.append(
+                    {"hash": digest, "name": sidecar["name"], "sequence": sidecar["sequence"]}
+                )
+            else:
+                pass_.exists += 1
+            already.add(digest)
+
+    counted = pass_.admitted + pass_.exists + pass_.refused + pass_.not_selected
+    if counted != total_accepted:
         raise HarvestError(
             f"count invariant broken: admitted {pass_.admitted} + exists "
-            f"{pass_.exists} + refused {pass_.refused} = {counted}, but "
-            f"{len(accepted)} records were accepted"
+            f"{pass_.exists} + refused {pass_.refused} + not_selected "
+            f"{pass_.not_selected} = {counted}, but "
+            f"{total_accepted} records were accepted"
         )
 
-    return {
+    report = {
         "status": "harvested",
-        "records": len(records),
-        "accepted": len(accepted),
+        "records": total_records,
+        "accepted": total_accepted,
         "admitted": pass_.admitted,
         "exists": pass_.exists,
         "refused_on_readmission": pass_.refused,
-        "distinct_identities": len({record.get("identity") for record in accepted}),
+        "not_selected": pass_.not_selected,
+        "distinct_identities": len(distinct),
         "refusals": sorted(pass_.refusals.values(), key=lambda entry: entry["identity"]),
         "objects": pass_.objects,
-        "run": run,
-        "source": source,
+        "selection": selection.report(),
+        "runs": [{"source": source.label, "run": source.run} for source in sources],
         "dry_run": store is None,
     }
+    if len(sources) == 1:
+        # The single-run shape the corpus-loop plan's recorded line has, kept
+        # verbatim so a consumer of that line does not have to learn a new one.
+        report["run"] = sources[0].run
+        report["source"] = sources[0].label
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -542,12 +674,34 @@ def main(argv=None) -> int:
         prog="harvest",
         description="Admit a run's accepted draws into the store as origin=generated.",
     )
-    parser.add_argument("--records", required=True, type=Path, help="a run's records.jsonl")
+    parser.add_argument(
+        "--records",
+        required=True,
+        type=Path,
+        action="append",
+        help="a run's records.jsonl; repeat to pool several runs into one candidate set",
+    )
     parser.add_argument(
         "--summary",
         type=Path,
+        action="append",
         default=None,
-        help="the run's summary.json (default: beside the records)",
+        help="a run's summary.json (default: beside each records file). When given, "
+        "must be repeated once per --records, in the same order.",
+    )
+    parser.add_argument(
+        "--select",
+        default=harvest_select.POLICY_ALL,
+        help=f"selection policy: {harvest_select.POLICY_ALL} (default, admits every "
+        f"accepted draw), {harvest_select.POLICY_DISTINCT_SHAPE}, or "
+        f"{harvest_select.POLICY_SIZE_MATCH}:<n>",
+    )
+    parser.add_argument(
+        "--exclude-task-prefix",
+        action="append",
+        default=[],
+        help="drop candidates whose task id starts with this prefix; repeatable. "
+        "Every arm of the diversity-harvest plan passes 'heldout/'.",
     )
     parser.add_argument("--store", default=None, help="store directory (default: the CLI's own)")
     parser.add_argument(
@@ -577,23 +731,40 @@ def main(argv=None) -> int:
     arguments = parser.parse_args(argv)
 
     try:
-        if not arguments.records.is_file():
-            # Checked first and by itself: run output is gitignored
-            # (`prototype/runs/`), so "no such run" is the failure a fresh
-            # checkout hits, and it must not arrive disguised as a complaint
-            # about the summary that is missing for the same reason.
+        summaries_given = arguments.summary or []
+        if summaries_given and len(summaries_given) != len(arguments.records):
             raise HarvestError(
-                f"no records at {arguments.records}. Run output is not committed "
-                "(`prototype/runs/` is gitignored); point --records at a run "
-                "directory you have."
+                f"{len(arguments.records)} --records but {len(summaries_given)} "
+                "--summary; give one summary per records file, in the same order, "
+                "or none at all"
             )
-        summary_path = arguments.summary or arguments.records.parent / "summary.json"
-        summary = _read_json(summary_path) if summary_path.is_file() else {}
-        if arguments.model_identity:
-            summary.setdefault("config", {})["model_identity"] = arguments.model_identity
-        run = run_identity(summary, arguments.records)
-        if arguments.run_id:
-            run["run_id"] = arguments.run_id
+        if arguments.run_id and len(arguments.records) > 1:
+            raise HarvestError("--run-id names one run; it cannot stand for a pool of them")
+
+        summaries: dict[Path, dict] = {}
+        overrides: dict[Path, dict] = {}
+        for index, records in enumerate(arguments.records):
+            if not records.is_file():
+                # Checked first and by itself: run output is gitignored
+                # (`prototype/runs/`), so "no such run" is the failure a fresh
+                # checkout hits, and it must not arrive disguised as a complaint
+                # about the summary that is missing for the same reason.
+                raise HarvestError(
+                    f"no records at {records}. Run output is not committed "
+                    "(`prototype/runs/` is gitignored); point --records at a run "
+                    "directory you have."
+                )
+            summary_path = (
+                summaries_given[index] if summaries_given else records.parent / "summary.json"
+            )
+            summary = _read_json(summary_path) if summary_path.is_file() else {}
+            if arguments.model_identity:
+                summary.setdefault("config", {})["model_identity"] = arguments.model_identity
+            summaries[records] = summary
+            run = run_identity(summary, records)
+            if arguments.run_id:
+                run["run_id"] = arguments.run_id
+            overrides[records] = run
 
         store = None if arguments.dry_run else StoreCli(arguments.store_bin, arguments.store)
         if arguments.resolver is not None:
@@ -603,16 +774,18 @@ def main(argv=None) -> int:
         else:
             raise HarvestError("--dry-run needs --resolver: there is no store to ask")
 
+        run_sources = sources_from(arguments.records, summaries, overrides)
+
         with tempfile.TemporaryDirectory() as scratch:
             workspace = arguments.out or Path(scratch)
             workspace.mkdir(parents=True, exist_ok=True)
             report = harvest(
-                records_path=arguments.records,
-                summary=summary,
+                sources=run_sources,
                 document=document,
                 store=store,
                 workspace=workspace,
-                run_override=run,
+                policy=arguments.select,
+                exclude_task_prefixes=tuple(arguments.exclude_task_prefix),
             )
     except HarvestError as error:
         sys.stdout.write(json.dumps({"error": "harvest", "message": str(error)}) + "\n")
