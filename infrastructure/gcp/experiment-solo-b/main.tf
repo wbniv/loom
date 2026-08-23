@@ -12,6 +12,7 @@ module "experiment_runner" {
   artifacts_bucket = var.artifacts_bucket
 
   run_id            = var.run_id
+  instance_suffix   = "generated"
   launch_runner     = var.launch_runner
   machine_type      = var.machine_type
   use_spot          = var.use_spot
