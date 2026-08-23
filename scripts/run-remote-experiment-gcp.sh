@@ -339,10 +339,17 @@ while IFS= read -r gguf; do
         continue
     fi
     log "  $name"
+    # `gcloud storage cp` rather than `gsutil cp`: parallel composite upload
+    # (multi-stream, much faster on multi-GB files) and a persistent resumable
+    # tracker, so a killed attempt continues where it stopped instead of
+    # restarting from byte 0 — the 30-min-cap-with-restart combination killed
+    # a ~29.5-min 3B upload three times in a row at ~99% (2026-08-23). The
+    # per-attempt timeout is sized for the largest model at a slow uplink
+    # (4.7 GB at ~1 MB/s ≈ 80 min), not for the average case.
     attempt=1
-    until timeout 1800 gsutil -q cp -n "$gguf" "gs://$BUCKET/models/$name"; do
-        [ "$attempt" -ge 3 ] && die "upload of $name stalled or failed $attempt times in a row (30 min each) — see the gsutil output above"
-        log "  $name: upload attempt $attempt stalled or failed, retrying"
+    until timeout 7200 gcloud storage cp --no-clobber "$gguf" "gs://$BUCKET/models/$name"; do
+        [ "$attempt" -ge 3 ] && die "upload of $name stalled or failed $attempt times in a row (120 min each) — see the gcloud storage output above"
+        log "  $name: upload attempt $attempt stalled or failed, retrying (resumes from tracker)"
         attempt=$((attempt + 1))
     done
 done < <(find "$MODELS_DIR" -maxdepth 1 -name '*.gguf' | sort)
