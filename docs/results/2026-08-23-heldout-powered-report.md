@@ -184,6 +184,64 @@ would have put the same compute at ≈ $3.2; the on-demand premium here is
 ≈ $6.7, paid for eliminating a multi-hour redo risk on a run whose whole
 point is to be decisive.)
 
+## 4a. Cross-cloud parallel execution — pre-registered before either arm's results land
+
+The two arms initially queued sequentially on one GCP GPU (the fixed
+`google_compute_instance` name in `infrastructure/gcp/modules/experiment-runner`
+forced one-instance-at-a-time). Generalized the module for N concurrent
+runners (`instance_suffix`, `manage_bucket` variables — commit
+`<module-fix>`) and built `infrastructure/gcp/experiment-pair/`, a root that
+instantiates it twice sharing one bucket; both `terraform validate` clean.
+That path turned out to be blocked at the account level, not the config
+level: `GPUS_ALL_REGIONS = 1.0` project-wide in this GCP trial project (every
+region, every GPU type, checked directly against
+`gcloud compute project-info describe`), so two simultaneous GCP GPU
+instances cannot exist regardless of how Terraform is shaped. A quota
+increase was filed for next time; it does not help this run.
+
+**Decision: cross-cloud parallel instead — curated arm stays on GCP
+(`g2-standard-4`, on-demand, §4), generated arm moves to the existing AWS
+sibling infra (`infrastructure/aws/`, `g6.xlarge`) on Spot** (AWS on-demand
+G/VT quota is 0 in this account — `L-DB2E81BA` — so Spot is the only
+available AWS path; Spot G/VT quota is 8 vCPUs, comfortably covering one
+`g6.xlarge`'s 4). Both instance types carry the same silicon: one NVIDIA L4
+24 GB. Same pinned llama.cpp revision
+(`1f368f354d9edcfea9fd6a1e0989b3e7335a050f`), same GGUF, same quantization,
+same sampling config, same `n_ctx`, same store snapshot (§2) — only the
+compute host differs.
+
+**Pre-registered comparability assumption, stated before either result is
+known:** per-token acceptance rate from seeded, budget-limited draws is a
+property of the model + quantization + sampling + grammar/mask pipeline, not
+of which cloud's identical-GPU instance executed it — GCP and AWS L4s run the
+same CUDA compute capability (Ada, sm_89) and the harness's `acc/1k tok`
+metric is defined over tokens generated and definitions accepted, neither of
+which is a wall-clock or vendor-specific quantity. The supporting evidence is
+the curated arm's own replication history: the curated heldout12 cell on GCP
+(§1) reproduced phase-b's earlier cells to the third decimal
+([turn 2 note](../plans/2026-08-14-corpus-loop.md#turn-2-and-the-12-seed-sample-2026-08-15)),
+i.e. this metric has already been shown stable across repeated independent
+runs on the *same* cloud; the untested step is *across* clouds on the same
+GPU architecture, which is a materially smaller assumption. If the two arms'
+`mean lat s` columns diverge sharply in the final report (a real hardware or
+driver difference, e.g. differing CPU generation feeding the GPU, differing
+memory bandwidth), that is flagged in §5 as a caveat on the comparison, but
+latency is not part of the accept/attempt count the Fisher test scores.
+
+Laptop-independent execution is ported to both paths: each instance's own
+startup/user-data script drives the run, uploads its artifacts to its
+cloud's own object store, and self-terminates
+(`gcloud compute instances delete` in `finish()` on GCP;
+`shutdown -h now` under `instance_initiated_shutdown_behavior = "terminate"`
+on AWS) — neither depends on a held SSH session or this laptop staying
+awake. The GCP driver's model-upload step was hardened
+(`scripts/run-remote-experiment-gcp.sh`) after a 39-minute silent stall with
+zero progress on the first launch attempt: it now checks the bucket for an
+existing object before touching the network, and wraps any real upload in a
+bounded, retried `timeout` instead of blocking indefinitely. Local
+supervision from here on is short, retry-tolerant polls only — no long
+foreground blocking calls.
+
 ---
 
 ## 5. Result

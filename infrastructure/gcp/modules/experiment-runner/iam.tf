@@ -15,7 +15,7 @@ data "google_compute_default_service_account" "runner" {
 
 # Read the experiment inputs and write the results back — on this bucket only.
 resource "google_storage_bucket_iam_member" "runner_objects" {
-  bucket = google_storage_bucket.artifacts.name
+  bucket = local.bucket_name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${data.google_compute_default_service_account.runner.email}"
 }
@@ -24,7 +24,7 @@ resource "google_storage_bucket_iam_member" "runner_objects" {
 # calls before an rsync. legacyBucketReader is the smallest role that adds it,
 # and it is scoped to this bucket like everything else here.
 resource "google_storage_bucket_iam_member" "runner_bucket" {
-  bucket = google_storage_bucket.artifacts.name
+  bucket = local.bucket_name
   role   = "roles/storage.legacyBucketReader"
   member = "serviceAccount:${data.google_compute_default_service_account.runner.email}"
 }
@@ -40,8 +40,8 @@ resource "google_project_iam_member" "runner_self_delete" {
   member  = "serviceAccount:${data.google_compute_default_service_account.runner.email}"
 
   condition {
-    title       = "only-the-loom-experiment-runner"
-    description = "Restricts this grant to the single instance this module creates."
+    title       = "only-${local.instance_name}"
+    description = "Restricts this grant to the single instance this module instantiation creates."
     expression  = "resource.type == \"compute.googleapis.com/Instance\" && resource.name.endsWith(\"/instances/${local.instance_name}\")"
   }
 }

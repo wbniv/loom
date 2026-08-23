@@ -323,11 +323,28 @@ gsutil -q cp "$TARBALL" "gs://$BUCKET/repo/repo.tar.gz"
 log "uploading the run config"
 gsutil -q cp "$CONFIG_PATH" "gs://$BUCKET/config/run.config.json"
 
-log "uploading models from $MODELS_DIR (skipping anything already there)"
-# -n is no-clobber: a re-run with --keep-bucket does not re-push tens of GB.
+log "uploading models from $MODELS_DIR (skipping anything already in the bucket)"
+# A `gsutil stat` existence check up front means a re-run with --keep-bucket
+# (or a second arm sharing the same bucket) touches the network at all only
+# for models it does not already have — cheaper and faster than relying on
+# `cp -n` alone to discover that server-side. The upload itself is still
+# wrapped in a bounded retry: a stalled multi-GB transfer previously hung for
+# 39 minutes with zero progress and no error (2026-08-23), silently eating a
+# run's wall clock. `timeout` turns a silent hang into a loud, bounded retry
+# instead.
 while IFS= read -r gguf; do
-    log "  $(basename "$gguf")"
-    gsutil -q cp -n "$gguf" "gs://$BUCKET/models/$(basename "$gguf")"
+    name="$(basename "$gguf")"
+    if gsutil -q stat "gs://$BUCKET/models/$name" >/dev/null 2>&1; then
+        log "  $name (already in bucket, skipping)"
+        continue
+    fi
+    log "  $name"
+    attempt=1
+    until timeout 1800 gsutil -q cp -n "$gguf" "gs://$BUCKET/models/$name"; do
+        [ "$attempt" -ge 3 ] && die "upload of $name stalled or failed $attempt times in a row (30 min each) — see the gsutil output above"
+        log "  $name: upload attempt $attempt stalled or failed, retrying"
+        attempt=$((attempt + 1))
+    done
 done < <(find "$MODELS_DIR" -maxdepth 1 -name '*.gguf' | sort)
 
 # A stale marker from a previous run with the same id would end the poll
