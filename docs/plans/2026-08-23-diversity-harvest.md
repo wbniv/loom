@@ -549,6 +549,48 @@ The 15,331 vs 13,987 gap is the byte asymmetry named above, as a number:
 
 **PASS.**
 
+### 6b. The scoring is pre-registered as code, and checked against the recorded baselines
+
+Not one of the numbered steps. `experiment/diversity_report.py` computes the
+metrics table, scores P1–P6 and emits the hand-scoring worksheet; it was
+committed **before any arm was launched**, so the post-run job is to read
+numbers out rather than to decide which numbers to read. Run today against the
+recorded baselines alone:
+
+```
+$ python3 -m experiment.diversity_report --runs-dir .../runs --run followup-curated …
+arm / run                 regime         draws  acc   acc/1k distinct  repeat  sem  vacuous
+followup-curated          full_corpus      196   55    1.377        9   0.836    5    0.036
+followup-generated        full_corpus      206   72    1.803       11   0.847    6    0.042
+followup-gen-turn2        full_corpus      206   69    1.728       10   0.855    6    0.043
+heldout12-curated         held_out         188    4    0.081        2   0.500    0    0.000
+heldout12-generated       held_out         193    7    0.142        5   0.286    1    0.143
+```
+
+Every published figure reproduces exactly — 1.377, 1.803, 1.728, 4/96 at 0.081,
+7/96 at 0.142 — so the scorer agrees with the recorded reports before it is
+asked about anything new. P1–P6 all print `NOT RUN`, which is the correct
+answer today.
+
+**And the worksheet found the right draw by itself.** The mechanical-floor
+selector — funnel `accepted` *and* exact declared-type match — surfaced exactly
+one draw across every recorded run: `heldout12-generated`,
+`heldout/list/reverseThen`, seed 4 draw 0. That is precisely the draw turn 2
+hand-scored FAIL, recovered without being told to look for it.
+
+**A finding worth its own line: the G2 gate reproduces that hand-scored FAIL
+mechanically.** The `vacuous` column above is G1 ∪ G2 applied to what the model
+*emitted*, and `heldout12-generated`'s held-out share is 0.143 — one draw of
+seven — which is the same draw. A reviewer reading the term concluded
+"type-correct, ignores its first argument, reverses nothing"; the de Bruijn walk
+concluded "binds a top-level parameter it never references". They agree, on the
+only case where both have an opinion.
+
+That is one case, so it is a promising sign and not a validated proxy — the
+rubric stays partly human for exactly the reasons R3 gave. But it does mean the
+vacuity metric is measuring the thing it was introduced to measure, which is
+more than could be said for it an hour ago.
+
 ### 7. Runs 1–3 complete; the metrics table against the recorded baselines, every pre-registered prediction scored, and the hand-scoring rubric applied to every held-out draw that met the mechanical floor
 
 **OUTSTANDING — not run.** GPU quota in the project is one accelerator and the
