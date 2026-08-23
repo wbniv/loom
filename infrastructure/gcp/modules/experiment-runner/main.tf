@@ -15,7 +15,11 @@ data "google_compute_image" "runner" {
 }
 
 locals {
-  instance_name = "${var.project}-experiment-runner"
+  instance_name = var.instance_suffix == "" ? "${var.project}-experiment-runner" : "${var.project}-experiment-runner-${var.instance_suffix}"
+
+  # The bucket this instantiation addresses — its own, when it manages one, or
+  # the name of one created by a sibling instantiation in the same apply.
+  bucket_name = var.manage_bucket ? google_storage_bucket.artifacts[0].name : var.artifacts_bucket
 
   startup_script = templatefile("${path.module}/startup-script.sh.tftpl", {
     artifacts_bucket   = var.artifacts_bucket

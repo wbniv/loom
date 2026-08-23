@@ -1,6 +1,6 @@
 output "artifacts_bucket" {
   description = "GCS bucket the driver uploads to and downloads from."
-  value       = google_storage_bucket.artifacts.name
+  value       = local.bucket_name
 }
 
 output "run_id" {

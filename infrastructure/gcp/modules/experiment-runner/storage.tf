@@ -7,8 +7,17 @@
 # GCS bucket names are a single global namespace, so this one carries a
 # project-derived suffix; the AWS sibling could use the bare name because S3
 # names are global but that one was already taken by us.
+#
+# Gated on manage_bucket: when several runners share one apply (concurrent
+# arms of the same experiment), exactly one instantiation should own this
+# resource — the rest reference the same name via var.artifacts_bucket without
+# creating it a second time, which GCS would refuse anyway (bucket names are
+# globally unique) and which would otherwise make two Terraform resources
+# fight over the same bucket's lifecycle.
 
 resource "google_storage_bucket" "artifacts" {
+  count = var.manage_bucket ? 1 : 0
+
   name     = var.artifacts_bucket
   project  = var.project_id
   location = upper(var.region)

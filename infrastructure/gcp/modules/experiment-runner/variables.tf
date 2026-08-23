@@ -31,6 +31,30 @@ variable "run_id" {
   type        = string
 }
 
+variable "instance_suffix" {
+  description = <<-EOT
+    Suffix appended to the runner instance name ("<project>-experiment-runner-<suffix>")
+    and to its self-delete IAM condition, so more than one runner can coexist
+    under one project without a name collision — the module is written for N
+    concurrent runners, not one. Empty (the default) reproduces today's single
+    name, "<project>-experiment-runner", unchanged.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "manage_bucket" {
+  description = <<-EOT
+    Whether this instantiation creates the artifacts bucket. Set false on every
+    instantiation but one when several runners in the same apply share a single
+    bucket (concurrent arms of the same experiment) — the bucket name is still
+    required via artifacts_bucket so IAM bindings and the runner can address it
+    either way.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "launch_runner" {
   description = <<-EOT
     Whether to launch the GPU instance. The driver script applies once with
