@@ -1,8 +1,15 @@
 # Plan — Corpus-size sweep: does acceptance track definition count, or content?
 
 **Date:** 2026-08-24
-**Status:** Pre-registered. Stores, configs and stub validation complete. GPU
-runs not yet launched — this section is committed before any GPU is touched.
+**Status:** Complete. All four arms (sweep08/15/25/41) ran on 2026‑08‑24 via
+runlist mode on the diversity root, all `SUCCEEDED`; results fetched to
+`prototype/runs/sweep-size{08,15,25,41}/` and the root fully destroyed
+(instance, bucket, IAM) per §3's teardown. The §2.7 trend test ran for real
+(LR p = 0.128, Wald p = 0.131 — not significant) and the results report
+(deliverable 4) is committed:
+[`docs/results/2026-08-24-corpus-size-sweep-report.md`](../results/2026-08-24-corpus-size-sweep-report.md).
+Verdict: **no trend detected — underpowered, not refuted**, per §2.7's own
+pre-committed reading of a null result at ≈38% power.
 **TODO entry:** `[corpus-size-sweep]`
 **Parent:** [the diversity-harvest report](../results/2026-08-24-diversity-harvest-report.md),
 ["What this does not license"](../results/2026-08-24-diversity-harvest-report.md#what-this-does-not-license):
@@ -324,12 +331,19 @@ project).
 2. Stores `.loom-store-sweep{08,15,25,41}` and configs
    `prototype/experiment/sweep{08,15,25,41}.config.json`, stub-validated. ✅
 3. Four GCP runs (`sweep08`, `sweep15`, `sweep25`, `sweep41`), sequential,
-   on-demand, zone-cycled.
+   on-demand, zone-cycled. ✅
 4. [`docs/results/2026-08-24-corpus-size-sweep-report.md`](../results/2026-08-24-corpus-size-sweep-report.md):
    the four arms' full_corpus/held_out numbers, the §2.7 trend test run for
    real, hand-scoring of any held-out mechanical-floor candidates against the
    R3 rubric, and an honest verdict — confirmed / refuted / still
-   underpowered, stated as such.
+   underpowered, stated as such. ✅ — LR test p = 0.128 (Wald cross-check
+   p = 0.131), not significant at α = 0.05: **no trend detected —
+   underpowered, not refuted**, exactly the reading §2.7 pre-committed to for
+   a null result at this power. One held-out mechanical-floor candidate
+   arose (`sweep41` · `heldout/list/reverseThen`) and hand-scored **0**,
+   matching the identical term's prior FAIL on this exact task. A decisive
+   answer needs ≈800 draws/arm (≈4× this budget) against the observed effect
+   size.
 
 ## 5. What would change this plan
 

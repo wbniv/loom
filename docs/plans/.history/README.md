@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-24](https://github.com/wbniv/loom/commit/704035c) | Add corpus-size-sweep row to the plan index |
 | [2026-08-23](https://github.com/wbniv/loom/commit/e585160) | Record verification steps 1-6 and 8; step 7 (the GPU runs) stays outstanding |
 | [2026-08-14](https://github.com/wbniv/loom/commit/9127e58) | Close the loop's measurement cycle: recall holds, composition still zero |
 | [2026-08-14](https://github.com/wbniv/loom/commit/cf9b047) | Record turn 2 (plateau) and the stable 12-seed curated baseline |
@@ -50,6 +51,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+704035c	author	Will Norris
+704035c	added	1
+704035c	deleted	0
+704035c	files	1
+704035c	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 e585160	author	Will Norris
 e585160	added	1
 e585160	deleted	0
