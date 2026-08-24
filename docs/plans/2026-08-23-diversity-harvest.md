@@ -1,7 +1,10 @@
 # Plan — A diversity-seeking harvest: select what enters the loop, not everything
 
 **Date:** 2026‑08‑23
-**Status:** Planned — pre-registered, not yet run.
+**Status:** Complete — pre-registered, run, and the verdict is **negative**:
+a diversity-seeking harvest moves neither composition nor recall. See
+[the results](../results/2026-08-24-diversity-harvest-report.md) and
+[verification step 7](#7-runs-13-complete-the-metrics-table-against-the-recorded-baselines-every-pre-registered-prediction-scored-and-the-hand-scoring-rubric-applied-to-every-held-out-draw-that-met-the-mechanical-floor).
 **TODO entry:** `[wip T4] [diversity-harvest]` (TODO.md line 30).
 **Parent:** [the corpus loop](2026-08-14-corpus-loop.md)'s closing verdict —
 "the loop reliably buys recall (+31 % per token, stable across two turns) and
@@ -593,10 +596,59 @@ more than could be said for it an hour ago.
 
 ### 7. Runs 1–3 complete; the metrics table against the recorded baselines, every pre-registered prediction scored, and the hand-scoring rubric applied to every held-out draw that met the mechanical floor
 
-**OUTSTANDING — not run.** GPU quota in the project is one accelerator and the
-powered held-out A/B has priority on it, so no arm of this plan has been
-launched. Everything the runs depend on is built and verified above, and every
-prediction in this document was written before any of them.
+**PASS** — all three runs complete 2026‑08‑24 on europe‑west4‑c (on‑demand;
+every other zone was STOCKOUT). Full results:
+[2026‑08‑24‑diversity‑harvest‑report](../results/2026-08-24-diversity-harvest-report.md).
+The reserve 4th arm (`sizematch` at 96 attempts) was not run — see P3's
+limitation below.
+
+```
+$ python3 -m experiment.diversity_report --runs-dir runs \
+    --run diverse-followup --run sizematch-followup --run diverse-heldout12
+arm / run                 regime         draws  acc   acc/1k distinct  repeat  sem  vacuous
+diverse-followup          full_corpus      198   59    1.477       12   0.797    6    0.017
+diverse-followup          held_out          54    0    0.000        0   0.000    0        —
+sizematch-followup        full_corpus      198   56    1.402       11   0.804    5    0.054
+sizematch-followup        held_out          54    3    0.244        3   0.000    1    0.000
+diverse-heldout12         held_out         210    5    0.102        4   0.200    0    0.000
+
+recorded baselines
+curated                   full_corpus      196   55    1.377        9
+generated-t1              full_corpus      206   72    1.803       11
+generated-t2              full_corpus      206   69    1.728       11
+curated                   held_out          96    4    0.081        2
+generated                 held_out          96    7    0.142        5
+
+- **P1** — diverse held_out acc/1k tok in [0.08, 0.25]; observed 0.102 → **HELD**
+- **P2** — zero held-out draws score 1 under the rubric; 0 draw(s) met the mechanical floor → **HELD**
+- **P3** — diverse 0.000 vs sizematch 0.244 at held_out → **FAILED**
+- **P4** — diverse full_corpus 1.477 vs curated 1.377 and turn 1/2 1.803/1.728 → **HELD**
+- **P5** — diverse full_corpus repeat rate 0.797 vs the 0.836–0.847 band → **HELD**
+- **P6** — vacuous share of accepted: diverse 0.017 vs sizematch 0.054 → **HELD**
+```
+
+Both `followup` arms drew **identical budgets** — 198 draws, 39,936 tokens — so
+the powered contrast is exact rather than approximately matched. `diverse` vs
+`sizematch` at `full_corpus`: **Fisher p = 0.82**. Every other comparison is
+non-significant too (p = 0.29–1.00).
+
+**Hand-scoring:** one draw met the mechanical floor across all three runs —
+`sizematch`, `heldout/list/sum`. Its reference resolves to the extern
+`List.size`, so it returns the list's *length*, not the sum: **score 0**, rubric
+rule 3. Zero semantic successes anywhere, as in every prior run.
+
+Four predictions held, one failed, and two of the passes are qualified in the
+results document rather than banked: **P4 passed on a badly designed criterion**
+(a disjunction over two baselines, clearing the nearer by 0.5 points of a 15 %
+band, while the question it existed to ask got the opposite answer), and **P5
+passed but is a corpus-size effect the control caught** — both 15‑definition
+arms beat the band, so without `sizematch` it would have been reported as a
+diversity win. **P3's powered form does not exist**: `sizematch`'s 96‑attempt
+counterpart was never scheduled, which under-served the one prediction that
+tested the mechanism.
+
+The verdict is negative and is recorded as such: a diversity-seeking harvest
+moves neither composition nor recall.
 
 One infrastructure finding came out of the attempt, recorded because it is a
 finding and not a detour. Launching against the shared Terraform root while

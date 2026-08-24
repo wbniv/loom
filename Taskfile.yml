@@ -58,6 +58,22 @@ tasks:
     cmds:
       - bash scripts/run-remote-experiment-gcp.sh {{.CLI_ARGS}}
 
+  infra:destroy-diversity:
+    desc: "Destroy the diversity-harvest root completely (safe: it shares no resource with any other run)"
+    cmds:
+      # A blanket destroy is only ever correct on a root that owns everything it
+      # manages, which is precisely why experiment-diversity owns its own bucket
+      # rather than borrowing the shared one. Nothing reachable from here belongs
+      # to another run, so this cannot cost anybody else their results.
+      - |
+        set -euo pipefail
+        TF="$HOME/.local/bin/terraform"
+        [ -x "$TF" ] || TF="$(command -v terraform)"
+        export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+        "$TF" -chdir=infrastructure/gcp/experiment-diversity init -input=false -reconfigure >/dev/null
+        "$TF" -chdir=infrastructure/gcp/experiment-diversity destroy -auto-approve \
+          -var "run_id=teardown" -var "model_identity=teardown" -var "launch_runner=false"
+
   infra:validate:
     desc: "terraform fmt + validate every GCP root, without a backend or any GCP call"
     cmds:

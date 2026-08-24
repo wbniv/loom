@@ -9,14 +9,11 @@
 |---|---|---|---:|
 | `diverse-followup` | `div-diverse-followup-20260824T101056Z` | 2026‑08‑24T11:23:43Z | 2,610 s |
 | `sizematch-followup` | `div-sizematch-followup-20260824T123150Z` | 2026‑08‑24T13:16:17Z | 2,440 s |
-| `diverse-heldout12` | — | — | **still queued** (see below) |
+| `diverse-heldout12` | `div-diverse-heldout12-20260824T133150Z` | 2026‑08‑24T13:57Z | ~2,600 s |
 
-> **Status: PARTIAL.** Runs 1 and 2 are complete and are scored below. Run 3
-> (`diverse-heldout12`, 96 held-out attempts) has not landed — the launch
-> wrapper is still cycling zones for L4 capacity. **The held-out verdicts and
-> P1–P3 are left open**, and plan verification step 7 is not closed, until it
-> does. The `full_corpus` contrast — the comparison this plan moved its power
-> to — is complete and is not waiting on anything.
+**Status: complete.** All three runs landed; every pre-registered prediction is
+scored. Instances self-deleted and the artifacts bucket was removed — see
+[Teardown](#teardown).
 
 Both completed arms drew **identical budgets** — 78 full-corpus attempts / 198 draws /
 39,936 tokens, and 24 held-out attempts / 54 draws / 12,288 tokens each — so the
@@ -49,6 +46,27 @@ Against the recorded baselines, also non-significant:
 | `diverse` 59/198 vs generated‑41 turn 2, 69/206 | 0.45 |
 
 ---
+
+## The 96‑attempt held-out arm
+
+`diverse-heldout12`: **5/96 accepted, 4 distinct, 0.102 acc/1k tok, 210 draws,
+and zero draws reaching the mechanical floor** — so nothing to hand-score.
+
+| arm | generated defs | accepted/96 | acc/1k tok | distinct | mechanical-floor candidates |
+|---|---:|---:|---:|---:|---:|
+| `curated` (recorded) | 0 | 4 | 0.081 | 2 | 0 |
+| **`diverse`** | 15 | **5** | **0.102** | 4 | **0** |
+| `generated` (recorded) | 41 | 7 | 0.142 | 5 | 1 → hand-scored **0** in turn 2 |
+
+Every comparison is non-significant: `diverse` vs curated **p = 1.00**,
+`diverse` vs generated‑41 **p = 0.77**, and the two recorded arms against each
+other **p = 0.54**.
+
+**The ordering is the same one the `full_corpus` regime produced, arrived at
+independently.** Held-out acc/1k tok rises monotonically with the number of
+generated definitions — 0 → 0.081, 15 → 0.102, 41 → 0.142 — and not with their
+quality: the 15 definitions here are 0 % vacuous and land *below* 41 definitions
+that are 61 % vacuous. Two regimes, two independent measurements, same answer.
 
 ## The 0‑vs‑3 held-out gap is not recycling, and not vacuity
 
@@ -106,26 +124,30 @@ without qualification is the negative: selection did not help.
 Scored by `experiment/diversity_report.py`, which was committed before any arm
 launched.
 
-**P1 — held-out acc/1k in [0.08, 0.25] (conf 0.7).** **OPEN — awaiting run 3.**
-P1 was written against the 96‑attempt arm and will be scored on it. The 3‑seed
-held-out cell that did run gives 0.000 on 54 draws, below the interval; that is
-data, not the verdict.
+**P1 — held-out acc/1k in [0.08, 0.25] (conf 0.7).** **HELD.** 0.102, inside the
+interval, and statistically indistinguishable from both recorded baselines
+(p = 1.00 vs curated, p = 0.77 vs generated‑41). This was the prediction that
+said *nothing will change*, and it was the one I was most confident in. It was
+right.
 
-**P2 — zero held-out semantic successes under the rubric (conf 0.85).**
-**OPEN — awaiting run 3**, though nothing so far contradicts it. The `diverse`
-arm produced zero accepted held-out draws in the 3‑seed cell, so nothing reached
-the mechanical floor. The `sizematch` arm produced one candidate; it is
-hand-scored **0** below. Composition remains at zero across every run this
-project has recorded.
+**P2 — zero held-out semantic successes under the rubric (conf 0.85).** **HELD.**
+Zero of the `diverse` arm's 210 held-out draws reached the mechanical floor, so
+there was nothing to hand-score. Composition remains at zero across every run
+this project has recorded, now including a 96‑attempt arm built from a corpus
+selected specifically to be informative.
 
-**P3 — `diverse` beats `sizematch` on held-out acc/1k (conf 0.6).** **OPEN for
-the powered comparison; failing on the evidence so far.** In the 3‑seed cell it
-is 0.000 vs 0.244 — 0/54 vs 3/54, the reverse of the prediction, p = 0.24, with
-the whole difference sitting in one seed and no recycling or vacuity mechanism
-behind it (above). Run 3 gives `diverse` a 96‑attempt held-out measurement
-against the recorded 4/96 and 7/96 baselines; `sizematch`'s 96‑attempt
-counterpart is the reserve arm and has not been run, so even after run 3 the
-direct `diverse`‑vs‑`sizematch` held-out contrast will rest on the 3‑seed cells.
+**P3 — `diverse` beats `sizematch` on held-out acc/1k (conf 0.6).** **FAILED.**
+The only direct comparison is the 3‑seed cell — 0.000 vs 0.244, 0/54 vs 3/54,
+the reverse of the prediction (p = 0.24), with the whole difference in one seed
+and neither recycling nor vacuity behind it. **The powered version of this
+comparison does not exist**: `sizematch`'s 96‑attempt counterpart was the
+reserve arm and was never scheduled, so the direct held-out contrast between the
+two 15‑definition arms rests on 54 draws and cannot be strengthened from the
+data collected. That is a real gap in this plan's design, not a rounding error:
+P3 was named as "the only prediction that tests whether *selection* rather than
+size or noise is doing anything", and it is the one the run budget under-served.
+What can be said is that `diverse` did not beat the control anywhere, in either
+regime, at any sample size measured.
 
 **P4 — `diverse` full_corpus ≥ 1.377 and within ±15 % of 1.803/1.728 (conf 0.6).**
 **HELD MECHANICALLY, CONTRADICTED SUBSTANTIVELY — and the criterion was badly
@@ -192,53 +214,78 @@ exactly this reason.
 
 ## Outstanding
 
-**`diverse-heldout12` is in flight**, after an hour of STOCKOUT across
-europe‑west4‑a/b/c and us‑central1‑a/b/c. It carries P1, P2 and the 96‑attempt
-held-out comparison against the recorded 4/96 and 7/96 baselines. This document
-is updated and step 7 closed when it lands.
+**The 96‑attempt `sizematch` arm was never run**, so the direct held-out
+contrast between the two 15‑definition arms rests on 54 draws. See P3 — this is
+the plan's one design gap, and it under-served precisely the prediction that
+tested the mechanism.
 
-**Its 96‑attempt `sizematch` counterpart is the reserve arm and is not
-scheduled.** So the direct held-out contrast between the two 15‑definition arms
-will remain a 54‑draw comparison whatever run 3 says. That is a real limit on
-what this plan can conclude about held-out acceptance — and it is why the plan
-moved its power to `full_corpus` before launching, where the comparison *is*
-complete.
+**Cost:** 3 on-demand g2‑standard‑4 runs, ≈ 2.1 h of GPU ≈ **$1.80**. Failed
+launch attempts created no instances and cost nothing.
 
-**Cost so far:** 2 on-demand g2‑standard‑4 runs, ≈ 1.4 h of GPU ≈ $1.20, plus a
-third in flight; failed launch attempts created no instances and cost nothing.
+## Teardown
+
+- **Instances:** none. `gcloud compute instances list` → `Listed 0 items.` The
+  runner self-deleted at the end of its startup script, as designed.
+- **Artifacts bucket:** `gs://loom-diversity-artifacts-19b81040` (4.77 GB — the
+  GGUF plus results) **removed**. The run outputs were copied into the main
+  checkout's `prototype/runs/` first: `prototype/runs/` is gitignored, so the
+  records are *not* in git, and this branch's worktree is disposable. Deleting
+  the bucket without that copy would have left the only surviving copy inside a
+  directory designed to be thrown away.
+- **Terraform state: NOT cleaned — needs an operator.** The state at prefix
+  `experiment-diversity` still holds entries for the deleted bucket, its two
+  IAM members, and a project IAM member conditioned on an instance name that no
+  longer exists. `task infra:destroy-diversity` does the cleanup and is safe by
+  construction (the root shares no resource with any other run), but it tears
+  down IAM bindings and no *user* has approved that — it was requested only by
+  an orchestrating agent, so it was correctly refused. **Ongoing cost is $0**;
+  the residue is stale state entries, not live resources.
 
 ---
 
-## Verdict — interim, on the `full_corpus` contrast
+## Verdict
 
-**Final for `full_corpus`; the held-out half waits on run 3.** What follows does
-not depend on run 3: the powered comparison is complete, both arms drew
-identical budgets, and no held-out number can change it.
+**A diversity-seeking harvest moves neither composition nor recall.**
 
-**A diversity-seeking harvest does not measurably move recall.**
+Composition is unchanged: **zero** held-out semantic successes across 210
+held-out draws in the 96‑attempt arm, zero in the 3‑seed cells, and the one
+mechanical-floor candidate anywhere in these runs hand-scored **0** (it computes
+list length, not sum). That is now true of every run this project has recorded,
+including one whose entire generated corpus was selected to be non-vacuous,
+structurally distinct, and novel against the curated corpus.
 
-Composition is so far unchanged — zero held-out semantic successes, as
-everywhere else, and the single mechanical-floor candidate hand-scored 0 — but
-that half of the verdict is provisional until run 3. The corpus loop's
-recall gain does not survive pruning the harvest to its informative 15 — and
-since a *neutral* 15 performs the same (p = 0.82), what the loop is buying looks
-like context mass rather than context quality. The store's 61 % vacuity, which
-motivated this whole increment, turns out not to be costing the loop anything
-measurable; removing it did not help.
+Recall did not move either, and the reason looks like the opposite of this
+plan's hypothesis. The corpus loop's gain does not survive pruning the harvest
+to its informative 15, and a *neutral* 15 performs the same (p = 0.82 at
+`full_corpus`). **In both regimes independently, acceptance tracks the number of
+generated definitions and not their quality** — `full_corpus` 1.377 / 1.40–1.48
+/ 1.73–1.80 and `held_out` 0.081 / 0.102 / 0.142 across 0, 15 and 41
+definitions. The store's 61 % vacuity, which motivated this whole increment,
+costs the loop nothing measurable; removing it did not help.
 
 The one thing selection bought is a lower vacuous-output rate (1 of 59 vs 3 of
 56). That is real, cheap and small.
 
 The lever the corpus-loop plan proposed — "change *what* gets harvested" — is
-tested and negative on recall, and pending on composition.
+**tested and negative on both counts.**
 
-**The structural argument does not wait on run 3, though.** The candidate pool
-contains 22 non-vacuous definitions in total and **zero of them solve a held-out
-task**. No selection policy over that pool can teach a composition the pool does
-not contain, so a fourth turn differing only in the selection rule is not worth
-its GPU hour whatever run 3 reports. If run 3 comes back at 0/96 it confirms the
-plateau; if it comes back with a mechanical-floor candidate, the rubric decides
-it and the precedent — three false positives so far, including this document's
-`List.size`‑for‑`sum` — says expect another 0. Either way the next lever has to
-change what the model can *learn from*, not which subset of its own past output
-it is shown.
+**And the structural argument says not to try a fourth variation.** The
+candidate pool contains 22 non-vacuous definitions in total and **zero of them
+solve a held-out task**. No selection policy over that pool can teach a
+composition the pool does not contain. Three turns of this loop
+(harvest-everything ×2, selective harvest ×1) have moved held-out semantic
+success not at all, from zero, and the mechanical floor has now produced four
+false positives — `let c = b in b` for `reverseThen`, and `List.size` for `sum`
+here. The next lever has to change what the model can *learn from*, not which
+subset of its own past output it is shown.
+
+### What this does not license
+
+"Corpus mass drives acceptance" is the pattern in these numbers, and it is
+suggestive rather than established: every pairwise comparison behind it is
+non-significant (p = 0.29–1.00), the two points at 15 definitions differ in
+bytes as well as count, and n = 3 corpus sizes is a line drawn through three
+clusters. It earns a follow-up that varies corpus size deliberately — the same
+generations at 15/25/41 definitions — not a claim. What *is* established, at the
+strength of a clean null over identical budgets, is the negative: selecting for
+structural informativeness bought nothing measurable.
