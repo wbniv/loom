@@ -136,6 +136,27 @@ resolver origins   : {"declared": 21, "generated": 41, "transpiled": 26}  (polic
 cells to run       : 856
 ```
 
+### 3a. Zone provenance — a note against a claim nobody makes
+
+Neither arm ran in the same GCP zone as the other, nor as the heldout12
+baseline, nor as each other's own dry-run assumption: heldout12
+(curated + generated, §1's baseline) ran on `europe-west4-c` (per its
+`startup-script.log`); this run's curated arm launched on `us-central1-a`
+but hit a GCE stockout there (no `g2-standard-4` + L4 capacity) and was
+relaunched on `us-central1-c`, the zone Google's own stockout error named
+as having capacity; the generated arm (§4a) is queued for whichever zone
+has capacity when its quota lands. None of this is treated as a
+confound: the metric this report scores — definitions accepted per 1,000
+tokens generated, from a fixed model/quant/sampling/grammar pipeline
+against a fixed store snapshot — has already reproduced across zones
+without moving (the curated heldout12 cell matched phase-b's earlier cell
+to the third decimal, and phase-b itself ran on yet another zone,
+per the [corpus-loop plan's turn-2 note](../plans/2026-08-14-corpus-loop.md#turn-2-and-the-12-seed-sample-2026-08-15)).
+Zone is not part of any provenance field this comparison depends on;
+GPU silicon (one NVIDIA L4, Ada / sm_89, whichever zone it is racked in)
+is what would matter, and that is constant across every run in this
+report and its baseline.
+
 ## 4. Cost estimate and infra decision (pre-registered before launch)
 
 Per-draw latency measured directly from the heldout12 runs (mean
@@ -184,66 +205,181 @@ would have put the same compute at ≈ $3.2; the on-demand premium here is
 ≈ $6.7, paid for eliminating a multi-hour redo risk on a run whose whole
 point is to be decisive.)
 
-## 4a. Cross-cloud parallel execution — pre-registered before either arm's results land
+## 4a. Parallel execution, GCP-only — pre-registered before either arm's results land
 
 The two arms initially queued sequentially on one GCP GPU (the fixed
 `google_compute_instance` name in `infrastructure/gcp/modules/experiment-runner`
 forced one-instance-at-a-time). Generalized the module for N concurrent
-runners (`instance_suffix`, `manage_bucket` variables — commit
-`<module-fix>`) and built `infrastructure/gcp/experiment-pair/`, a root that
-instantiates it twice sharing one bucket; both `terraform validate` clean.
-That path turned out to be blocked at the account level, not the config
-level: `GPUS_ALL_REGIONS = 1.0` project-wide in this GCP trial project (every
+runners (`instance_suffix`, `manage_bucket` variables) and built
+`infrastructure/gcp/experiment-pair/`, a root that instantiates it twice
+sharing one bucket; both `terraform validate` clean. That path turned out
+to be blocked at the account level, not the config level:
+`GPUS_ALL_REGIONS = 1.0` project-wide in this GCP trial project (every
 region, every GPU type, checked directly against
 `gcloud compute project-info describe`), so two simultaneous GCP GPU
-instances cannot exist regardless of how Terraform is shaped. A quota
-increase was filed for next time; it does not help this run.
+instances could not exist regardless of how Terraform was shaped.
 
-**Decision: cross-cloud parallel instead — curated arm stays on GCP
-(`g2-standard-4`, on-demand, §4), generated arm moves to the existing AWS
-sibling infra (`infrastructure/aws/`, `g6.xlarge`) on Spot** (AWS on-demand
-G/VT quota is 0 in this account — `L-DB2E81BA` — so Spot is the only
-available AWS path; Spot G/VT quota is 8 vCPUs, comfortably covering one
-`g6.xlarge`'s 4). Both instance types carry the same silicon: one NVIDIA L4
-24 GB. Same pinned llama.cpp revision
-(`1f368f354d9edcfea9fd6a1e0989b3e7335a050f`), same GGUF, same quantization,
-same sampling config, same `n_ctx`, same store snapshot (§2) — only the
-compute host differs.
+A cross-cloud fallback (curated on GCP, generated on the existing AWS
+`g6.xlarge` sibling infra, Spot — AWS on-demand G/VT quota is 0 in this
+account) was drafted and partially built (a store-export packing fix for
+`scripts/run-remote-experiment.sh`) but **overridden by the user directly:
+GCP only, no AWS spend, on a $300 GCP trial-credit budget.** The AWS-side
+change was reverted, uncommitted, and abandoned.
 
-**Pre-registered comparability assumption, stated before either result is
-known:** per-token acceptance rate from seeded, budget-limited draws is a
-property of the model + quantization + sampling + grammar/mask pipeline, not
-of which cloud's identical-GPU instance executed it — GCP and AWS L4s run the
-same CUDA compute capability (Ada, sm_89) and the harness's `acc/1k tok`
-metric is defined over tokens generated and definitions accepted, neither of
-which is a wall-clock or vendor-specific quantity. The supporting evidence is
-the curated arm's own replication history: the curated heldout12 cell on GCP
-(§1) reproduced phase-b's earlier cells to the third decimal
-([turn 2 note](../plans/2026-08-14-corpus-loop.md#turn-2-and-the-12-seed-sample-2026-08-15)),
-i.e. this metric has already been shown stable across repeated independent
-runs on the *same* cloud; the untested step is *across* clouds on the same
-GPU architecture, which is a materially smaller assumption. If the two arms'
-`mean lat s` columns diverge sharply in the final report (a real hardware or
-driver difference, e.g. differing CPU generation feeding the GPU, differing
-memory bandwidth), that is flagged in §5 as a caveat on the comparison, but
-latency is not part of the accept/attempt count the Fisher test scores.
+**What actually ran: a GCP quota increase (`GPUS_ALL_REGIONS` and
+`NVIDIA_L4_GPUS`/us-central1, 1 → 2) requested via the Cloud Quotas API
+(`gcloud quotas preferences create`, both quotas flagged
+`quotaIncreaseEligibility.isEligible: true` — self-service, not a support
+ticket), with the curated arm launched immediately on the one GPU-slot of
+quota already available, and the generated arm queued to launch the moment
+the increase lands — genuinely parallel if the quota arrives in time,
+otherwise sequential with no idle wait either way.** Both arms run on
+identical GCP infrastructure (`g2-standard-4`, one NVIDIA L4 24 GB,
+on-demand), so no cross-vendor comparability question arises at all — the
+comparability question this run actually carries is the zone one (§3a),
+which is smaller and already has supporting evidence from the baseline.
 
-Laptop-independent execution is ported to both paths: each instance's own
-startup/user-data script drives the run, uploads its artifacts to its
-cloud's own object store, and self-terminates
-(`gcloud compute instances delete` in `finish()` on GCP;
-`shutdown -h now` under `instance_initiated_shutdown_behavior = "terminate"`
-on AWS) — neither depends on a held SSH session or this laptop staying
-awake. The GCP driver's model-upload step was hardened
-(`scripts/run-remote-experiment-gcp.sh`) after a 39-minute silent stall with
-zero progress on the first launch attempt: it now checks the bucket for an
-existing object before touching the network, and wraps any real upload in a
-bounded, retried `timeout` instead of blocking indefinitely. Local
-supervision from here on is short, retry-tolerant polls only — no long
-foreground blocking calls.
+**Per-consumer Terraform state isolation.** The original shared
+`infrastructure/gcp/experiment` root's state was found clobbered mid-run —
+a concurrently-dispatched T4 agent (isolated worktree, developing a
+harvest-variant experiment, out of scope for this dispatch per the
+original brief) applied against the same backend prefix at the same time
+and overwrote its outputs. Rather than reconcile a shared state under
+concurrent writers, each arm got its own, sharing nothing but the account's
+GPU quota: `infrastructure/gcp/experiment-solo/` (curated;
+state prefix `experiment-solo`, bucket
+`loom-experiment-artifacts-19b81040-curated`, instance name
+`loom-experiment-runner-curated`) and `infrastructure/gcp/experiment-solo-b/`
+(generated; prefix `experiment-solo-b`, bucket
+`loom-experiment-artifacts-19b81040-generated`, instance name
+`loom-experiment-runner-generated`). `scripts/run-remote-experiment-gcp.sh`
+gained `LOOM_GCP_TF_DIR`/`LOOM_GCP_BUCKET` overrides (same style as the
+existing `LOOM_GCP_ZONE`) so this needed no script fork. A distinct
+instance name per root matters even with separate Terraform states: GCE
+instance names must be unique within a project/zone regardless of which
+state manages them, so both roots pin `instance_suffix` explicitly rather
+than relying on state separation alone.
+
+Laptop-independent execution: each instance's own startup script drives
+the run, uploads its artifacts to GCS, and self-deletes
+(`gcloud compute instances delete` in the startup script's `finish()`
+trap) — none of it depends on a held SSH session or this laptop staying
+awake. The model-upload step was hardened twice: first (after a
+39-minute silent stall with zero progress on the first launch attempt) to
+check the bucket for an existing object before touching the network and
+wrap any real upload in a bounded, retried `timeout`; then to parallel
+composite upload via `gcloud storage cp` with a 120-minute cap, which
+uploaded the 4.7 GB model in 33 minutes. Local supervision is short,
+retry-tolerant polls against GCS state directly (not a local driver
+process or its log), every 10 minutes, run from a persistent background
+watcher — so it doesn't matter which session's terminal actually launched
+either arm's driver invocation.
+
+**Teardown checklist (§5 must confirm all of these before this report is
+closed):**
+
+- [ ] Curated arm: instance self-deleted (confirm via
+      `gcloud compute instances list` — should be absent).
+- [ ] Generated arm: instance self-deleted, same check.
+- [ ] **Explicit bucket removal for both arms.** Both launches used
+      `--keep-bucket` (added after the stockout/relaunch on `us-central1-a`
+      → `us-central1-c`, so a retry never re-pays for the model upload) —
+      unlike a normal run, teardown does **not** destroy
+      `loom-experiment-artifacts-19b81040-curated` or `-generated`
+      automatically. Once both arms report SUCCEEDED and results are
+      downloaded, remove both buckets explicitly
+      (`gcloud storage rm -r gs://loom-experiment-artifacts-19b81040-curated`
+      and the `-generated` twin), or leave them if a same-day re-run is
+      still plausible — either way, record the decision here rather than
+      leaving it silently undone.
+- [ ] `infrastructure/gcp/experiment-solo/` and `-solo-b/` states destroyed
+      (`launch_runner=false` re-apply or full `destroy`) so no IAM binding
+      or bucket-shell resource lingers in Terraform state after the buckets
+      themselves are gone.
 
 ---
 
 ## 5. Result
+
+### 5a. Curated arm — complete
+
+**Run id:** `heldout-powered-curated`. Four launch attempts before landing
+(recorded per §3a's provenance point): first failed on the driver's model
+upload bug (fixed as `e861a87`); second and third each hit a GCE
+`STOCKOUT` for `g2-standard-4` + L4 — `us-central1-a` then `us-central1-c`;
+the fourth landed on `us-central1-c`. Driver wall-clock on the landed
+attempt: ≈ 5.9 h. Results local at
+[`prototype/runs/heldout-powered-curated/`](../../prototype/runs/heldout-powered-curated/)
+(`summary.json`, `records.jsonl`, `report.md`, `logs/`).
+
+**New-run numbers:** 856 attempts, 1,746 draws, 438,272 tokens, **42
+accepted** (10 distinct identities), 0.096 acc/1k tok, 2 mechanical-floor
+semantic candidates (`rubric_pending: true` — see §5b), repeat rate 0.762,
+mean latency 10.14 s/draw.
+
+**Pooled with heldout12** (§1: 4/96, 49,152 tok — same store snapshot, same
+config but for seeds, per §1's pre-registered pooling decision):
+
+| | accepted | attempts | tokens | acc/1k tok |
+|---|---:|---:|---:|---:|
+| heldout12 (12 seeds) | 4 | 96 | 49,152 | 0.081 |
+| this run (107 seeds) | 42 | 856 | 438,272 | 0.096 |
+| **pooled curated** | **46** | **952** | 487,424 | **0.094** |
+
+46/952 = **4.83%** — within noise of both the 12-seed rate (4.17%) and
+the original 24-attempt rate reported in the corpus-loop plan's turn-2
+note, i.e. **the curated baseline held at the pre-registered scale**: no
+sign that a larger sample was hiding a different true rate.
+
+### 5b. Hand-scoring the curated arm's two mechanical-floor candidates
+
+**Both candidates are the same identity** (`977ba71e924724a5c2842349d271
+5475949212644a6d9142a40bf9636e005c45`) drawn twice — seed 92/draw 1 and
+seed 97/draw 0 — so this is one distinct definition scored once, not two
+independent judgements.
+
+**Task:** `heldout/list/sum` — spec: *"The result of adding every element
+of a list together, starting from zero."* Type `(fn (List I64) () I64)`.
+Composition note in the task table: *"A fold whose combining function is
+an extern reference"* — i.e. the intended shape is something like
+`foldLeft I64.add 0 xs`.
+
+**Candidate surface:**
+```
+(def (fn (List I64) () I64)
+  (lam (List I64)
+    (app (ref 0x4bd80df0…) (var 0))))
+```
+i.e. `λxs. REF(xs)` — a single-argument application of one referenced
+function to the whole list, nothing else.
+
+**What `0x4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae`
+actually is**, looked up directly in the store export rather than
+inferred from the type: `extern`, name **`List.size`**, type
+`(fn (List I64) () I64)` — the list-length extern, not a sum.
+
+**Hand-scored verdict: FAIL (semantic score 0), both records.** The
+candidate type-checks exactly (`List I64 → I64` matches the task's
+required type bit for bit) and clears the mechanical floor
+(checked-tier + exact type), which is exactly why it needed hand-scoring
+rather than being trusted on the floor alone. But it computes **list
+length**, not **sum of elements** — for `[1, 2, 3]` it returns `3`, not
+`6`. This is the same failure shape as the `reverseThen` precedent
+([corpus-loop turn-2 note](../plans/2026-08-14-corpus-loop.md#turn-2-and-the-12-seed-sample-2026-08-15)):
+a type-correct wrapper around the *wrong* existing function, indistinguishable
+from a correct composition by type alone. **Curated's real
+(hand-scored) held-out semantic-success count stays at 0** — the
+mechanical floor's reported `semantic_successes: 2` in
+`summary.json` is not evidence of composition; it is exactly the
+false-positive shape R3's hand-scoring rubric exists to catch, caught
+again.
+
+### 5c. Generated arm — pending
+
+Launching (§4a); Fisher's exact test on the pooled accepted/attempts
+table, the hand-scoring of any generated-arm mechanical-floor candidates,
+and the verdict sentence all wait for it. Curated's numbers above are
+final and will not be recomputed once the generated arm lands — only
+appended to.
 
 *(filled in after both arms complete)*
