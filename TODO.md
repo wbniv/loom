@@ -35,11 +35,12 @@ Check conformance with `task todo:lint`.
   first; the design question is the work. See
   [diversity report](docs/results/2026-08-24-diversity-harvest-report.md) verdict.
 
-- [T2] [corpus-size-sweep] Pin down mass-vs-quality: same generations at deliberate
+- [wip T2] [corpus-size-sweep] Pin down mass-vs-quality: same generations at deliberate
   store sizes (e.g. 15/25/41 defs), same harness, to establish or refute
   "acceptance tracks context mass" — currently suggestive only (pairwise p=0.29–1.00,
   n=3 sizes). Bounded: existing tooling (build-store-variant.sh, run configs),
   ~3 runs, ~$2. Flagged in the diversity report's "what this does not license".
+  <!-- agent:ad92a2ee7f0dca4d3 -->
 
 
 
