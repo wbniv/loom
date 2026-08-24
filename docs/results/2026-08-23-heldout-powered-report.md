@@ -301,4 +301,85 @@ closed):**
 
 ## 5. Result
 
+### 5a. Curated arm — complete
+
+**Run id:** `heldout-powered-curated`. Four launch attempts before landing
+(recorded per §3a's provenance point): first failed on the driver's model
+upload bug (fixed as `e861a87`); second and third each hit a GCE
+`STOCKOUT` for `g2-standard-4` + L4 — `us-central1-a` then `us-central1-c`;
+the fourth landed on `us-central1-c`. Driver wall-clock on the landed
+attempt: ≈ 5.9 h. Results local at
+[`prototype/runs/heldout-powered-curated/`](../../prototype/runs/heldout-powered-curated/)
+(`summary.json`, `records.jsonl`, `report.md`, `logs/`).
+
+**New-run numbers:** 856 attempts, 1,746 draws, 438,272 tokens, **42
+accepted** (10 distinct identities), 0.096 acc/1k tok, 2 mechanical-floor
+semantic candidates (`rubric_pending: true` — see §5b), repeat rate 0.762,
+mean latency 10.14 s/draw.
+
+**Pooled with heldout12** (§1: 4/96, 49,152 tok — same store snapshot, same
+config but for seeds, per §1's pre-registered pooling decision):
+
+| | accepted | attempts | tokens | acc/1k tok |
+|---|---:|---:|---:|---:|
+| heldout12 (12 seeds) | 4 | 96 | 49,152 | 0.081 |
+| this run (107 seeds) | 42 | 856 | 438,272 | 0.096 |
+| **pooled curated** | **46** | **952** | 487,424 | **0.094** |
+
+46/952 = **4.83%** — within noise of both the 12-seed rate (4.17%) and
+the original 24-attempt rate reported in the corpus-loop plan's turn-2
+note, i.e. **the curated baseline held at the pre-registered scale**: no
+sign that a larger sample was hiding a different true rate.
+
+### 5b. Hand-scoring the curated arm's two mechanical-floor candidates
+
+**Both candidates are the same identity** (`977ba71e924724a5c2842349d271
+5475949212644a6d9142a40bf9636e005c45`) drawn twice — seed 92/draw 1 and
+seed 97/draw 0 — so this is one distinct definition scored once, not two
+independent judgements.
+
+**Task:** `heldout/list/sum` — spec: *"The result of adding every element
+of a list together, starting from zero."* Type `(fn (List I64) () I64)`.
+Composition note in the task table: *"A fold whose combining function is
+an extern reference"* — i.e. the intended shape is something like
+`foldLeft I64.add 0 xs`.
+
+**Candidate surface:**
+```
+(def (fn (List I64) () I64)
+  (lam (List I64)
+    (app (ref 0x4bd80df0…) (var 0))))
+```
+i.e. `λxs. REF(xs)` — a single-argument application of one referenced
+function to the whole list, nothing else.
+
+**What `0x4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae`
+actually is**, looked up directly in the store export rather than
+inferred from the type: `extern`, name **`List.size`**, type
+`(fn (List I64) () I64)` — the list-length extern, not a sum.
+
+**Hand-scored verdict: FAIL (semantic score 0), both records.** The
+candidate type-checks exactly (`List I64 → I64` matches the task's
+required type bit for bit) and clears the mechanical floor
+(checked-tier + exact type), which is exactly why it needed hand-scoring
+rather than being trusted on the floor alone. But it computes **list
+length**, not **sum of elements** — for `[1, 2, 3]` it returns `3`, not
+`6`. This is the same failure shape as the `reverseThen` precedent
+([corpus-loop turn-2 note](../plans/2026-08-14-corpus-loop.md#turn-2-and-the-12-seed-sample-2026-08-15)):
+a type-correct wrapper around the *wrong* existing function, indistinguishable
+from a correct composition by type alone. **Curated's real
+(hand-scored) held-out semantic-success count stays at 0** — the
+mechanical floor's reported `semantic_successes: 2` in
+`summary.json` is not evidence of composition; it is exactly the
+false-positive shape R3's hand-scoring rubric exists to catch, caught
+again.
+
+### 5c. Generated arm — pending
+
+Launching (§4a); Fisher's exact test on the pooled accepted/attempts
+table, the hand-scoring of any generated-arm mechanical-floor candidates,
+and the verdict sentence all wait for it. Curated's numbers above are
+final and will not be recomputed once the generated arm lands — only
+appended to.
+
 *(filled in after both arms complete)*
