@@ -35,13 +35,6 @@ Check conformance with `task todo:lint`.
   first; the design question is the work. See
   [diversity report](docs/results/2026-08-24-diversity-harvest-report.md) verdict.
 
-- [wip T2] [corpus-size-sweep] Pin down mass-vs-quality: same generations at deliberate
-  store sizes (e.g. 15/25/41 defs), same harness, to establish or refute
-  "acceptance tracks context mass" — currently suggestive only (pairwise p=0.29–1.00,
-  n=3 sizes). Bounded: existing tooling (build-store-variant.sh, run configs),
-  ~3 runs, ~$2. Flagged in the diversity report's "what this does not license".
-  <!-- agent:ad92a2ee7f0dca4d3 -->
-
 
 
 
@@ -78,6 +71,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-24 — [corpus-size-sweep] Mass-vs-quality still open: monotone acc/1k tok across 0/8/15/25/41 defs but LR p=0.128 at ≈38% power — underpowered, not refuted. See [report](docs/results/2026-08-24-corpus-size-sweep-report.md).
 - ✅ 2026-08-24 — [diversity-harvest] Negative on both counts: acceptance tracks corpus mass, not quality (diverse 1.477 vs sizematch 1.402, p=0.82; held-out 5/96); no selection rule can buy composition the pool lacks. See [report](docs/results/2026-08-24-diversity-harvest-report.md).
 - ✅ 2026-08-24 — [heldout-powered] Acceptance advantage decisive at n=952/arm (91 vs 46, Fisher p≈8.4e-5, OR 2.08); composition 0 — all 21 candidates vacuous, 19 via type-collision recycling. See [report](docs/results/2026-08-23-heldout-powered-report.md).
 - ✅ 2026-08-15 — [claim-liveness] Burned fence/seq markers skipped, not retried forever; asymmetric escalation (bind free, lease last-attempt+guard) after the agent proved uniform escalation unsafe. See [plan](docs/plans/2026-08-14-store-namespaces.md).
