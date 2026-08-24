@@ -20,9 +20,16 @@ crash.log
 # the equivalence tests read, and harvesting into it would make
 # `test_the_seeded_store_carries_the_oracle_sidecars_unchanged` false by adding
 # objects the oracle's corpus document does not contain.
+#
+# The diversity harvest adds two more of the same kind — `.loom-store-diverse`
+# and `.loom-store-sizematch`, both rebuilt from the recorded runs by
+# `task store:diverse` / `task store:sizematch`. A glob rather than three more
+# literal lines, so the next arm's store is ignored without anyone remembering
+# to add it; `.loom-store` itself is still listed explicitly because the glob
+# would not match it.
 store/target/
 .loom-store/
-.loom-store-generated/
+.loom-store-*/
 
 # The L0 differential export (docs/plans/2026-08-14-production-language-decision.md,
 # Track P). Derived data: `task differential:export` reproduces it byte for byte
