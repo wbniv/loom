@@ -27,13 +27,40 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] [next-lever] Design the next capability lever for the corpus loop: both
-  2026-08-24 experiments concluded the ceiling is the pool's content — no selection
-  rule or feedback volume buys composition the pool lacks (0 of 22 non-vacuous defs
-  solve any held-out task). Find what puts *new* capability into context: external
-  corpus import, task decomposition, worked derivations, or something else. Plan
-  first; the design question is the work. See
-  [diversity report](docs/results/2026-08-24-diversity-harvest-report.md) verdict.
+- [T2] [next-lever-audit] Land `prototype/experiment/addressability_audit.py` — the
+  [next-lever plan](docs/plans/2026-08-24-next-lever.md) §1 diagnostic as a runnable
+  script (route addressability, route-reference rates, cell-censoring stats,
+  address-book sizing). CPU only; output must reproduce §1's pasted blocks. This is
+  the independent verification of the premise-refuting claims — everything below
+  waits on it.
+
+- [T3] [next-lever-prompt] Address-book construction in `prompts.py` behind
+  `address_book: none|full|typed` + the codomain filter, with tests pinning that the
+  filter can never see `composes` or a gold term. T3 not T2: this is the experiment's
+  instrument — a leak silently invalidates the run, same class of defect as the one
+  being fixed. Plan §4.
+
+- [T2] [next-lever-gold] `heldout_gold.py` — verified gold term per held-out task
+  (5 of 8 exist in the plan), funnel/rubric evidence, real-tokenizer check of the
+  chars/1.37 estimates, drop record for any task without a ≤768-token solution.
+
+- [T2] [next-lever-stub] `address_book_stub_check.py` — the plan §4.8 checks, output
+  pasted back into the plan. **Gates the GPU spend.**
+
+- [T1] [next-lever-configs] Three arm configs + `address-runlist.json`, byte-copies
+  of the sweep configs with only the §4 fields changed.
+
+- [T2] [next-lever-run] Launch the runlist instance (spot ≈$1.29, on-demand fallback
+  ≈$4.35), fetch results, tear down root + bucket, write
+  `docs/results/2026-08-25-address-book-report.md` per the pre-registration.
+
+- [T2] [budget-regression] Regression guard for the censoring defect: test asserting
+  no config can produce a cell whose final draw gets fewer than `max_tokens_per_draw`
+  tokens — the bug that silently capped 100% of held-out cells.
+
+- [T1] [heldout-addendum] One-paragraph addendum on both 2026-08-24 reports pointing
+  at the next-lever plan §1, so the archived held-out claims carry their correction;
+  `full_corpus` halves unaffected.
 
 
 
@@ -41,6 +68,13 @@ Check conformance with `task todo:lint`.
 
 
 ## Watch
+
+- [mask-spine-refs] Extend `GoalTypePruner` to `app`-spine head positions (sound
+  codomain filter, 47 → 7–13 refs) — promote to Open if the address-book run's
+  `addr-typed` arm beats `addr-full`. See [next-lever plan](docs/plans/2026-08-24-next-lever.md) §2.
+
+- [decomposition] Hole-directed decomposition design (next-lever plan §2.2) — the
+  pre-committed next lever; promote to Open if the address-book primary comes back null.
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
   the single-stream question is **measured and closed** (3.15 ms/token warm,
@@ -71,6 +105,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-24 — [next-lever] Premise falsified: 7/8 held-out tasks unsolvable (addresses withheld) + 100% cell censoring; lever = address book, pre-registered 3-arm run. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [corpus-size-sweep] Mass-vs-quality still open: monotone acc/1k tok across 0/8/15/25/41 defs but LR p=0.128 at ≈38% power — underpowered, not refuted. See [report](docs/results/2026-08-24-corpus-size-sweep-report.md).
 - ✅ 2026-08-24 — [diversity-harvest] Negative on both counts: acceptance tracks corpus mass, not quality (diverse 1.477 vs sizematch 1.402, p=0.82; held-out 5/96); no selection rule can buy composition the pool lacks. See [report](docs/results/2026-08-24-diversity-harvest-report.md).
 - ✅ 2026-08-24 — [heldout-powered] Acceptance advantage decisive at n=952/arm (91 vs 46, Fisher p≈8.4e-5, OR 2.08); composition 0 — all 21 candidates vacuous, 19 via type-collision recycling. See [report](docs/results/2026-08-23-heldout-powered-report.md).
