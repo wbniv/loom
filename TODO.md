@@ -27,11 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] [diversity-harvest] Design + implement a diversity-seeking harvest for the
-  corpus loop — turn 2 proved self-reproduction plateaus (1.728 vs 1.803, no
-  compounding), so change *what* gets harvested/fed back; the only proposed lever on
-  composition. Plan: docs/plans/2026-08-23-diversity-harvest.md (agent writes it).
-  <!-- agent:ada19433a56bb0053 -->
 
 
 
@@ -68,6 +63,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-24 — [diversity-harvest] Negative on both counts: acceptance tracks corpus mass, not quality (diverse 1.477 vs sizematch 1.402, p=0.82; held-out 5/96); no selection rule can buy composition the pool lacks. See [report](docs/results/2026-08-24-diversity-harvest-report.md).
 - ✅ 2026-08-24 — [heldout-powered] Acceptance advantage decisive at n=952/arm (91 vs 46, Fisher p≈8.4e-5, OR 2.08); composition 0 — all 21 candidates vacuous, 19 via type-collision recycling. See [report](docs/results/2026-08-23-heldout-powered-report.md).
 - ✅ 2026-08-15 — [claim-liveness] Burned fence/seq markers skipped, not retried forever; asymmetric escalation (bind free, lease last-attempt+guard) after the agent proved uniform escalation unsafe. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-15 — [ffi-spike] Built the offset generator: 60/60 fields match ctypes, MLton smoke test links real libllama; FFI=3 measured. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md) A3.
@@ -201,5 +197,4 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
-- [verify] **2026-08-23-diversity-harvest** — Verification section present but no PASS recorded — run + record the steps. _from [2026-08-23-diversity-harvest.md](docs/plans/2026-08-23-diversity-harvest.md)_  <!-- fp:43b9198449518f51 -->
 <!-- END auto-captured-deferrals -->
