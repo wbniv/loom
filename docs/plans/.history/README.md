@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-24](https://github.com/wbniv/loom/commit/82529db) | Corpus-size sweep: results, §2.7 trend test, report |
 | [2026-08-24](https://github.com/wbniv/loom/commit/704035c) | Add corpus-size-sweep row to the plan index |
 | [2026-08-23](https://github.com/wbniv/loom/commit/e585160) | Record verification steps 1-6 and 8; step 7 (the GPU runs) stays outstanding |
 | [2026-08-14](https://github.com/wbniv/loom/commit/9127e58) | Close the loop's measurement cycle: recall holds, composition still zero |
@@ -51,6 +52,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+82529db	author	Will Norris
+82529db	added	1
+82529db	deleted	1
+82529db	files	1
+82529db	body	Four arms (8/15/25/41 generated defs, nested prefix of one 55-item pool)\nplus the reused 0-def anchor: full_corpus acc/1k tok is monotone across\nall five points (1.377/1.427/1.527/1.628/1.903), but the pre-registered\nLR test on pooled per-draw outcomes comes back p=0.128 (Wald p=0.131) —\nnot significant at alpha=0.05. Per §2.7's own pre-committed reading at\n~38% power, that's "no trend detected — underpowered, not refuted," not\na refutation. One held-out mechanical-floor candidate arose (sweep41 ·\nheldout/list/reverseThen) and hand-scored 0, the same term's third\nrecorded FAIL on this exact task. A decisive answer needs ~800 draws/arm.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01FX7iKXCbZLs6s8sPQ5J8hX
 704035c	author	Will Norris
 704035c	added	1
 704035c	deleted	0
