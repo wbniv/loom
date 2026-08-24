@@ -165,6 +165,76 @@ the working tree, gitignored) and the checked-in `.loom-store-*/export-resolver.
 exports, via `corpus_registry`, `experiment.resolver`, `experiment.store_resolver`,
 `experiment.prompts` and `experiment.evaluate` — no GPU, no network.
 
+**Verification.** `prototype/experiment/addressability_audit.py` lands Deliverable
+1 and reproduces every number pasted above — §1.1's five hand-solved tasks, both
+§1.2 tables, the draws table, and §1.3's censoring block — independently, with no
+reference to the values pasted in this section. The held-out draw universe (4,135
+draws) is the explicit nine-run list in the script's module docstring: the two
+`heldout-powered-{curated,generated}` runs, the four `sweep-size{08,15,25,41}`
+runs, and `diverse-followup` / `sizematch-followup` / `diverse-heldout12` — the
+same runs `diversity_report.py`, `corpus_size_sweep_analysis.py` and
+`docs/results/2026-08-23-heldout-powered-report.md` cite. A naive glob over every
+`records.jsonl` under `prototype/runs/` overcounts: it includes one exact-duplicate
+file (the runlist landing commit's demo output, byte-identical to
+`sweep-size08/runs/records.jsonl`) and several early Aug‑13/14 prototyping runs
+(`phase-a-*`, `phase-b-*`, `followup-curated/generated/gen-turn2`,
+`heldout12-curated/generated`) that predate the harness these reports actually
+run on. The "required def" and "ALL required defs" rows count only the
+`Task.composes` route elements that are corpus *definitions*, not the extern half
+(`List.size`, `I64.add`, …) — externs get their own `ref_to_extern` row instead,
+because an extern's hash is common across held-out draws regardless of task
+(§1.2's 33.5%), so folding it into "required" would conflate "the model knows a
+common extern" with "the model referenced this task's own route."
+
+Run and reproduced 2026-08-24:
+
+```
+$ python3 -m experiment.addressability_audit
+```
+
+The 8-row route table (§1.2, exact match):
+
+```
+### 1.2 Per-task route addressability (curated held_out prompt)
+
+heldout/list/concatLength        OK       list/append=present  List.size=present
+heldout/list/mapLength           BLOCKED  list/map=ABSENT  List.size=present
+heldout/list/reverseThen         BLOCKED  list/reverse=ABSENT  list/append=present
+heldout/maybe/mapOrElse          BLOCKED  maybe/map=ABSENT  maybe/getOrElse=ABSENT
+heldout/list/headOrElse          BLOCKED  list/uncons=ABSENT  maybe/getOrElse=ABSENT
+heldout/list/sum                 BLOCKED  list/foldLeft=ABSENT  I64.add=ABSENT
+heldout/sample/stampedBytes      BLOCKED  clock/now=present  rand/bytes=ABSENT
+heldout/nat/selectNonNegative    BLOCKED  nat/widenPos=ABSENT  nat/select=ABSENT
+```
+
+The draws table (§1.2, exact match, over the 4,135-draw universe above):
+
+```
+### 1.2 Behavioural ref rates over every held-out draw on record
+
+draws                              4135  100.0%
+has_any_ref                        1594   38.5%
+ref_to_corpus_def                   413   10.0%
+ref_to_extern                      1384   33.5%
+ref_to_DATA_hash(illegal)            41    1.0%
+ref_to_a_REQUIRED_def               120    2.9%
+ref_to_ALL_required_defs             12    0.3%
+```
+
+§1.1's five hand-solved tasks, §1.2's five-row store-size table, and §1.3's
+censoring block (the `('length', True): 1952` / `('stop', False): 2183` cross-tab,
+1952/1952 = 100.0% truncated, mean 2.12 / median 2 draws per cell, mean 367 /
+median 378 first-draw tokens, 923/1952 = 47.3% first-draw ≥400, mean 1.12 / median
+1 non-truncated draws per cell, and the 38.0/38.8/38.2/36.3% flat `full_corpus`
+rate by store size) all reproduced exactly as well — full output in the script's
+`--section` runs. §4's address-book sizing (not a pasted §1 block) also checked:
+`addr-full` is 35 rows, 9,202 characters, ≈6.1k tokens, matching §3 exactly;
+`addr-typed`'s per-task count under §4.2's literal codomain-erasure filter came
+out 2-13 across the eight tasks rather than the inline "7-13" — one task
+(`stampedBytes`, goal type `Pair I64 Bytes`) lands at 2. This is outside §1's
+verification scope (§4.2 states no exact table to diff against) and does not
+affect any §1 finding; noted here for whoever lands Deliverable 2.
+
 ---
 
 ## 2. The candidate levers, evaluated
