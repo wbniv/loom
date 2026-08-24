@@ -33,11 +33,6 @@ Check conformance with `task todo:lint`.
   composition. Plan: docs/plans/2026-08-23-diversity-harvest.md (agent writes it).
   <!-- agent:ada19433a56bb0053 -->
 
-- [wip T2] [heldout-powered] Scale the held-out A/B to a pre-registered powered sample
-  (7/96 vs 4/96, Fisher p ≈ 0.35 today) on the frozen store; decide the ≈1.75×
-  acceptance advantage either way. Existing harness, config-only changes, GCP spot.
-  <!-- agent:ac8d33d226a857606 -->
-
 
 
 
@@ -73,6 +68,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-24 — [heldout-powered] Acceptance advantage decisive at n=952/arm (91 vs 46, Fisher p≈8.4e-5, OR 2.08); composition 0 — all 21 candidates vacuous, 19 via type-collision recycling. See [report](docs/results/2026-08-23-heldout-powered-report.md).
 - ✅ 2026-08-15 — [claim-liveness] Burned fence/seq markers skipped, not retried forever; asymmetric escalation (bind free, lease last-attempt+guard) after the agent proved uniform escalation unsafe. See [plan](docs/plans/2026-08-14-store-namespaces.md).
 - ✅ 2026-08-15 — [ffi-spike] Built the offset generator: 60/60 fields match ctypes, MLton smoke test links real libllama; FFI=3 measured. See [study](docs/investigations/2026-08-14-language-eval-batch-2.md) A3.
 - ✅ 2026-08-15 — [seq-claims] Concurrent same-holder binds prevented via O_EXCL seq markers; fsck invariant relaxed to strictly-increasing per SPEC's own wording. See [plan](docs/plans/2026-08-14-store-namespaces.md).
