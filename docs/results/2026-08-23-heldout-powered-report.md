@@ -275,27 +275,29 @@ process or its log), every 10 minutes, run from a persistent background
 watcher — so it doesn't matter which session's terminal actually launched
 either arm's driver invocation.
 
-**Teardown checklist (§5 must confirm all of these before this report is
-closed):**
+**Teardown checklist — closed out 2026-08-24:**
 
-- [ ] Curated arm: instance self-deleted (confirm via
-      `gcloud compute instances list` — should be absent).
-- [ ] Generated arm: instance self-deleted, same check.
-- [ ] **Explicit bucket removal for both arms.** Both launches used
-      `--keep-bucket` (added after the stockout/relaunch on `us-central1-a`
-      → `us-central1-c`, so a retry never re-pays for the model upload) —
-      unlike a normal run, teardown does **not** destroy
-      `loom-experiment-artifacts-19b81040-curated` or `-generated`
-      automatically. Once both arms report SUCCEEDED and results are
-      downloaded, remove both buckets explicitly
-      (`gcloud storage rm -r gs://loom-experiment-artifacts-19b81040-curated`
-      and the `-generated` twin), or leave them if a same-day re-run is
-      still plausible — either way, record the decision here rather than
-      leaving it silently undone.
-- [ ] `infrastructure/gcp/experiment-solo/` and `-solo-b/` states destroyed
-      (`launch_runner=false` re-apply or full `destroy`) so no IAM binding
-      or bucket-shell resource lingers in Terraform state after the buckets
-      themselves are gone.
+- [x] Curated arm: instance self-deleted.
+      `gcloud compute instances list` — empty (checked before either
+      `terraform destroy` below ran).
+- [x] Generated arm: instance self-deleted, same check — also empty.
+- [x] **Explicit bucket removal for both arms.** Both launches used
+      `--keep-bucket`, so teardown did not destroy
+      `loom-experiment-artifacts-19b81040-curated` / `-generated`
+      automatically. Results were confirmed local
+      (`prototype/runs/heldout-powered-{curated,generated}/`, gitignored
+      per house convention — every prior run in this project keeps raw
+      records local-only and commits the derived report, which this
+      commit does) before either bucket was touched. Both buckets are
+      gone as of `terraform destroy` below —
+      `gcloud storage buckets list` no longer lists either
+      `-curated` or `-generated`, only the unrelated shared/T4 buckets.
+- [x] `infrastructure/gcp/experiment-solo/` and `-solo-b/` states
+      destroyed — full `terraform destroy` on both (not just
+      `launch_runner=false`), removing the bucket, both bucket IAM
+      bindings, and the self-delete IAM condition for each instance name.
+      `Destroy complete! Resources: 4 destroyed.` on both roots, no
+      errors, no permission block on this cleanup pass.
 
 ---
 
@@ -374,12 +376,140 @@ mechanical floor's reported `semantic_successes: 2` in
 false-positive shape R3's hand-scoring rubric exists to catch, caught
 again.
 
-### 5c. Generated arm — pending
+### 5c. Generated arm — complete
 
-Launching (§4a); Fisher's exact test on the pooled accepted/attempts
-table, the hand-scoring of any generated-arm mechanical-floor candidates,
-and the verdict sentence all wait for it. Curated's numbers above are
-final and will not be recomputed once the generated arm lands — only
-appended to.
+**Run id:** `heldout-powered-generated`, `infrastructure/gcp/experiment-solo-b`,
+zone `europe-west4-c` (`us-central1` stocked out for L4 capacity at launch
+— same failure mode as curated's §5a, different zone landed). Driver
+wall-clock ≈ 7 h. Results local at
+[`prototype/runs/heldout-powered-generated/`](../../prototype/runs/heldout-powered-generated/).
+
+**New-run numbers:** 856 attempts, 1,864 draws, 438,272 tokens, **84
+accepted** (13 distinct identities), 0.192 acc/1k tok, 21 mechanical-floor
+semantic candidates, repeat rate 0.845, mean latency 12.56 s/draw.
+
+**Pooled with heldout12** (7/96, 49,152 tok):
+
+| | accepted | attempts | tokens | acc/1k tok |
+|---|---:|---:|---:|---:|
+| heldout12 (12 seeds) | 7 | 96 | 49,152 | 0.142 |
+| this run (107 seeds) | 84 | 856 | 438,272 | 0.192 |
+| **pooled generated** | **91** | **952** | 487,424 | **0.187** |
+
+### 5d. The official Fisher exact test — pre-registered, two-sided
+
+§1 pre-registered **Fisher's exact test, two-sided, α = 0.05** — that is
+the test being reported here, not the one-sided variant, even though the
+one-sided p-value is smaller and was used only as a fast gut-check while
+the generated arm was still running.
+
+| | accepted | attempts | rate |
+|---|---:|---:|---:|
+| curated (pooled) | 46 | 952 | 4.83% |
+| generated (pooled) | 91 | 952 | 9.56% |
+
+```
+$ python3 -c "from scipy import stats; print(stats.fisher_exact([[91,861],[46,906]], alternative='two-sided'))"
+odds ratio = 2.0817, p = 8.409e-05
+```
+
+**p ≈ 8.4 × 10⁻⁵, odds ratio ≈ 2.08 (generated ≈ 1.98× curated's rate).**
+Comfortably below α = 0.05 — in fact below it by three orders of
+magnitude, far past what the n = 952/arm power target (§1) was sized to
+detect at 80% power. **The held-out acceptance advantage is
+statistically decisive:** this is no longer the n = 96 directional,
+p ≈ 0.35 result from the 12-seed sample — a ~2× advantage at this
+sample size would arise this far into the tail well under 1 time in
+10,000 by chance, given the pre-registered test.
+
+### 5e. Hand-scoring the generated arm's 21 mechanical-floor candidates
+
+21 flagged records, but **only 3 distinct identities** — the same
+dedupe-by-identity step §5b used, now doing more work:
+
+| identity (16 hex) | records | seeds/draws | 
+|---|---:|---|
+| `631d16b8e72b89c1…` | 19 | 15,22,26,28,39,40,44,47,54,56,58,60,64,84,85,91,92,93,106 (all draw 0) |
+| `5df8a2ae002f00c5…` | 1 | seed 25, draw 0 |
+| `0919c00728a4406c…` | 1 | seed 70, draw 0 |
+
+All 21 are for the same task, `heldout/list/reverseThen` — spec: *"The
+first list in reverse order, with the second list following it."*
+Composition note: *"Two corpus definitions in sequence; no new recursion
+needed"* — the intended shape is `append(reverse(a), b)`.
+
+**Two of the three identities are not fresh model output at all — they
+are recycled, already-known-wrong objects already sitting in the store.**
+Looked up directly in `.loom-store-generated/meta/`, not inferred:
+
+- `631d16b8e72b89c1…` (19 of 21 records — 90%): sidecar shows
+  `origin: generated`, harvested from run `followup-generated@2026-08-14T23:11:13Z`,
+  drawn there for **`corpus/list/append`**, `semantic_success: false`
+  already recorded at harvest time (identity-match against the pinned
+  `corpus/list/append` fixture failed). It entered the store on mechanical
+  acceptance alone, exactly as R2 says it may. Decoded AST:
+  `λa. λb. let c = b in b` — returns the second argument, using
+  neither `a` nor `c`. This is the *same* vacuous shape as the
+  `reverseThen` false positive recorded in the corpus-loop turn-2 note.
+- `5df8a2ae002f00c5…` (1 record): same store, same harvest run, same
+  original task (`corpus/list/append`), same `semantic_success: false`
+  at harvest. Decoded AST: `λa. λb. let c = a in a` — returns the
+  first argument unchanged, using neither `b` nor `c`.
+- `0919c00728a4406c…` (1 record): **not** in the store — genuinely
+  fresh model output for this task, this run. Decoded AST:
+  `λa. λb. let c = a in append(b, c)` = `append(b, a)`, i.e. plain
+  concatenation with **no reverse anywhere** and the two lists in the
+  opposite order from the spec (`b` then `a`, not reverse of `a` then
+  `b`). `append` confirmed by direct store lookup: hash
+  `32f5d833f0b7c42ea8252e7ec8810657e9e9d132d395d30a7259e683bc31f791` is
+  `corpus/list/append`.
+
+**Hand-scored verdict: FAIL (semantic score 0), all three identities, all
+21 records.** None reverses anything; none combines both arguments in the
+spec's order; two of the three are dead objects being reused, not new
+reasoning. **Generated's real (hand-scored) held-out semantic-success
+count is 0** — identical to curated's (§5b) despite the mechanical floor
+reporting 21 vs. 2.
+
+**Why this matters beyond this one task.** `corpus/list/append` and
+`heldout/list/reverseThen` share an identical type signature
+(`List I64 → List I64 → List I64`), so a vacuous definition that
+type-checks for one type-checks for the other — it does not need to
+compute anything related to either task's actual meaning. Once such an
+object is harvested (mechanical acceptance, `semantic_success: false`,
+exactly per R2's design — nothing here is a bug), it re-enters the model's
+context as a full-corpus example and can be regurgitated for *any*
+held-out task whose type happens to collide, clearing the mechanical
+floor there too without new reasoning. 19 of this run's 21 mechanical-floor
+"successes" are one dead object being reproduced, not 19 independent draws
+finding a composition. **This is a real failure mode of the corpus loop
+itself, not sampling noise**, and it is exactly the shape of thing R3's
+hand-scored rubric — and the identity-dedup step this report applied
+before scoring — exists to catch before anyone treats a mechanical-floor
+count as a composition count.
+
+### 5f. Verdict
+
+**The held-out acceptance advantage is statistically confirmed: generated
+accepts ≈ 1.98× as often as curated at the pre-registered scale (91/952
+vs. 46/952, Fisher exact two-sided p ≈ 8.4 × 10⁻⁵), settling the question
+the 12-seed sample (7/96 vs. 4/96, p ≈ 0.35) left open.** This is a
+recall effect, not a composition effect: hand-scoring every mechanical-floor
+"semantic success" produced by either arm — 2 in curated, 21 (3 distinct
+identities) in generated — finds **zero genuine held-out compositions in
+either arm**. Curated's 2 candidates were one type-correct `List.size`
+standing in for list-sum; generated's 21 were three type-correct
+non-reversing, wrong-order or vacuous definitions, two of which were not
+even fresh reasoning but a single dead harvested object recycled across
+tasks that happen to share a type. The corpus loop reliably buys the
+model more accepted, checker-valid held-out definitions — 46 → 91 in this
+run, holding the ≈ 2× multiple the loop showed from its very first turn —
+without buying it the ability to actually solve a held-out composition
+task, and it introduces a specific new risk (type-collision recycling of
+a known-wrong harvested object) that a future, larger-sample or
+diversity-seeking harvest should account for. This closes the question
+this dispatch was scoped to answer; the composition question is the
+project's next one, unchanged from the corpus-loop plan's own closing
+line.
 
 *(filled in after both arms complete)*

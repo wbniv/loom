@@ -793,3 +793,49 @@ recall (+31 % per token, stable across two turns) and buys no measured
 composition. Its held-out acceptance advantage (≈1.75×) needs a larger
 sample or a diversity-seeking harvest (turn 2 showed self-reproductions
 plateau) to become a claim.
+
+## The powered held-out sample (2026‑08‑24) — the advantage is real, composition still isn't
+
+Pre-registered power analysis (n = 952/arm, 80 % power target at the
+observed rates, Fisher-exact Monte Carlo — not the normal approximation
+alone) scaled the 12-seed sample with 107 fresh seeds per arm, same store
+snapshot (41 generated definitions, frozen), same config but for seeds.
+[Full report](../results/2026-08-23-heldout-powered-report.md).
+
+- **Pooled: generated 91/952 (9.56 %) vs curated 46/952 (4.83 %).**
+  Official pre-registered test — Fisher exact, **two-sided**, α = 0.05:
+  **p ≈ 8.4 × 10⁻⁵, odds ratio ≈ 2.08.** The 12-seed sample's directional,
+  p ≈ 0.35 result is now decisive: the held-out acceptance advantage is
+  **confirmed**, not a projection.
+- **Hand-scoring every mechanical-floor "success" in both arms — 2 in
+  curated, 21 in generated — finds zero genuine held-out compositions in
+  either.** Curated's 2 were one identity, a `List.size` standing in for
+  `heldout/list/sum`'s required fold. Generated's 21 deduped to **3**
+  distinct identities, all for `heldout/list/reverseThen`, all FAIL: none
+  reverses anything, none combines both arguments in spec order.
+- **New failure mode, not previously observed: type-collision recycling.**
+  19 of generated's 21 flagged records (2 of 3 distinct identities) were
+  not fresh reasoning at all — they were a dead object already in the
+  store, harvested back on 2026‑08‑14 from `corpus/list/append`
+  (`semantic_success: false` at harvest, mechanical acceptance only, R2
+  working exactly as designed). `corpus/list/append` and
+  `heldout/list/reverseThen` share an identical type signature, so the
+  vacuous object type-checks for both and gets regurgitated from the
+  full-corpus context to clear a different task's mechanical floor
+  without any new reasoning behind it. Only 1 of the 3 identities was
+  genuinely fresh model output this run — and it was also wrong
+  (`append(b, a)`, no reverse, arguments in the wrong order).
+
+**Loop verdict, updated and now final for this measurement:** the corpus
+loop's recall effect (+31 % per token) and its held-out acceptance
+advantage (≈2×) are both real and both now measured at a powered sample,
+not projected from one. Composition is still zero, everywhere, on every
+sample size run so far — and the powered sample surfaced a mechanism for
+*why* a larger corpus alone won't fix that on its own: a single
+known-wrong harvested object can inflate the mechanical-floor "success"
+count on any held-out task whose type happens to collide with the task it
+was originally (and wrongly) admitted under. A future harvest that wants
+composition, not just recall, needs either semantic (not just mechanical)
+admission for held-out-style definitions, or a diversity/dedup step ahead
+of harvest that catches type-collision reuse before it's amplified by
+being drawn 19 times in one sample.

@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-14](https://github.com/wbniv/loom/commit/9127e58) | Close the loop's measurement cycle: recall holds, composition still zero |
 | [2026-08-14](https://github.com/wbniv/loom/commit/cf9b047) | Record turn 2 (plateau) and the stable 12-seed curated baseline |
 | [2026-08-14](https://github.com/wbniv/loom/commit/ed2b6d7) | Record the A/B verdict: generated corpus lifts acceptance 31%, 3x held-out |
 | [2026-08-14](https://github.com/wbniv/loom/commit/4b907cf) | Make the corpus-loop A/B differ in what the model sees |
@@ -7,6 +8,11 @@
 | [2026-08-14](https://github.com/wbniv/loom/commit/8977f57) | Plan the corpus loop; queue it and the experiment write-up |
 
 <!--history-meta v1
+9127e58	author	Will Norris
+9127e58	added	20
+9127e58	deleted	3
+9127e58	files	1
+9127e58	body	heldout12: generated 7/96 vs curated 4/96 (directional, p~0.35). The\nfirst mechanical-floor held-out semantic success hand-scores FAIL --\na type-correct identity that reverses nothing. The pre-registered\nrubric caught the false positive as designed.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015fUQnZN5JKnMMQTCsEwvxL
 cf9b047	author	Will Norris
 cf9b047	added	18
 cf9b047	deleted	0
