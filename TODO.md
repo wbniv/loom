@@ -27,6 +27,20 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [T4] [next-lever] Design the next capability lever for the corpus loop: both
+  2026-08-24 experiments concluded the ceiling is the pool's content — no selection
+  rule or feedback volume buys composition the pool lacks (0 of 22 non-vacuous defs
+  solve any held-out task). Find what puts *new* capability into context: external
+  corpus import, task decomposition, worked derivations, or something else. Plan
+  first; the design question is the work. See
+  [diversity report](docs/results/2026-08-24-diversity-harvest-report.md) verdict.
+
+- [T2] [corpus-size-sweep] Pin down mass-vs-quality: same generations at deliberate
+  store sizes (e.g. 15/25/41 defs), same harness, to establish or refute
+  "acceptance tracks context mass" — currently suggestive only (pairwise p=0.29–1.00,
+  n=3 sizes). Bounded: existing tooling (build-store-variant.sh, run configs),
+  ~3 runs, ~$2. Flagged in the diversity report's "what this does not license".
+
 
 
 
