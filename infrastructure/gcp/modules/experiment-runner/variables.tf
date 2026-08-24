@@ -185,6 +185,12 @@ variable "parallel_slots" {
   default     = 1
 }
 
+variable "runlist_key" {
+  description = "Optional GCS object name of a JSON array of {config_key, output_dir, run_id} entries. When non-empty the runner executes every entry sequentially (masked configs only) and self-deletes at the end, so one apply covers a whole sweep with no operator machine in the loop."
+  type        = string
+  default     = ""
+}
+
 variable "remote_config_key" {
   description = "GCS object name of the run config the driver uploads. The runner patches its backend fields and passes it to experiment.runner."
   type        = string

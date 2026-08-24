@@ -34,6 +34,7 @@ locals {
     n_gpu_layers       = var.n_gpu_layers
     context_size       = var.context_size
     parallel_slots     = var.parallel_slots
+    runlist_key        = var.runlist_key
     remote_config_key  = var.remote_config_key
     remote_output_dir  = var.remote_output_dir
   })

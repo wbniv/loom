@@ -154,6 +154,7 @@ while [ $# -gt 0 ]; do
                 *) echo "--teardown-scope takes 'instance' or 'all', got '$2'" >&2; exit 2 ;;
             esac
             shift 2 ;;
+        --runlist) RUNLIST_PATH="$2"; shift 2 ;;
         --poll-seconds) POLL_SECONDS="$2"; shift 2 ;;
         --timeout-seconds) TIMEOUT_SECONDS="$2"; shift 2 ;;
         --skip-quota-check) SKIP_QUOTA_CHECK=true; shift ;;
@@ -414,6 +415,24 @@ gsutil -q cp "$TARBALL" "gs://$BUCKET/repo/repo.tar.gz"
 
 log "uploading the run config"
 gsutil -q cp "$CONFIG_PATH" "gs://$BUCKET/config/run.config.json"
+
+# Runlist mode (--runlist FILE): the instance runs every {config_key,
+# output_dir, run_id} entry sequentially and self-deletes at the end, so this
+# driver's own lifetime stops mattering once apply 2/2 returns — built
+# 2026-08-24 so a multi-arm sweep can finish with the operator offline. Each
+# entry's config_key is expected to name prototype/experiment/<basename>.
+if [ -n "${RUNLIST_PATH:-}" ]; then
+    [ -f "$RUNLIST_PATH" ] || die "runlist not found: $RUNLIST_PATH"
+    RUNLIST_KEY="runlist/$(basename "$RUNLIST_PATH")"
+    log "uploading runlist $RUNLIST_KEY and its configs"
+    gsutil -q cp "$RUNLIST_PATH" "gs://$BUCKET/$RUNLIST_KEY"
+    while IFS= read -r cfg_key; do
+        local_cfg="$REPO_ROOT/prototype/experiment/$(basename "$cfg_key")"
+        [ -f "$local_cfg" ] || die "runlist names $cfg_key but $local_cfg does not exist"
+        gsutil -q cp "$local_cfg" "gs://$BUCKET/$cfg_key"
+    done < <(jq -r '.[].config_key' "$RUNLIST_PATH")
+    TF_VARS+=(-var "runlist_key=$RUNLIST_KEY")
+fi
 
 log "uploading models from $MODELS_DIR (skipping anything already in the bucket)"
 # A `gsutil stat` existence check up front means a re-run with --keep-bucket

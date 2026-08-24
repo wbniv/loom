@@ -88,3 +88,9 @@ variable "remote_output_dir" {
   type        = string
   default     = "runs/diverse-followup"
 }
+
+variable "runlist_key" {
+  description = "Optional GCS key of a runlist JSON; see the module variable of the same name."
+  type        = string
+  default     = ""
+}

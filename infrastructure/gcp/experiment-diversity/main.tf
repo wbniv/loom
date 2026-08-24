@@ -45,6 +45,7 @@ module "experiment_runner" {
   model_identity    = var.model_identity
   hardware          = var.hardware
   remote_output_dir = var.remote_output_dir
+  runlist_key       = var.runlist_key
 
   labels = {
     project     = "loom"

@@ -28,6 +28,14 @@ CTX="${context_size}"
 PARALLEL="${parallel_slots}"
 CONFIG_KEY="${remote_config_key}"
 OUTPUT_DIR="${remote_output_dir}"
+# Optional: a bucket key naming a JSON array of {config_key, output_dir,
+# run_id} entries. When set, this instance runs every entry sequentially and
+# self-deletes at the end — one apply covers a whole sweep, and the operator's
+# laptop is not needed between arms (2026-08-24: built so a four-arm sweep
+# could finish while the operator was on a plane). Masked (condition-4-only)
+# configs only; each arm uploads its own results and status marker as it
+# completes, so a mid-sweep failure loses one arm, not the sweep.
+RUNLIST_KEY="${runlist_key}"
 
 export DEBIAN_FRONTEND=noninteractive
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
@@ -127,11 +135,73 @@ if [ -z "$MODEL_PATH" ] || [ ! -f "$MODEL_PATH" ]; then
 fi
 log "model: $MODEL_PATH"
 
+# --- 3a. Runlist mode --------------------------------------------------------
+# Runs each entry with the same patch-config/run/upload sequence as the legacy
+# single-config path below (kept byte-stable rather than refactored into this
+# function; one path is battle-tested, the other is new).
+run_arm() {
+  local cfg_key="$1" out_dir="$2" arm_id="$3" arm_status=FAILED
+  log "arm $arm_id: fetching config $cfg_key"
+  if ! gsutil -q cp "gs://$BUCKET/$cfg_key" "$WORK/arm.config.json"; then
+    log "arm $arm_id: config fetch failed"
+  elif ! python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["conditions"]; sys.exit(0 if c==["gbnf+typemask"] else 1)' \
+        "$WORK/arm.config.json"; then
+    log "arm $arm_id: runlist mode serves masked (condition-4-only) configs; skipping"
+  else
+    MODEL_PATH="$MODEL_PATH" LLAMA_LIB="$LLAMA_LIB" NGL="$NGL" \
+    MODEL_IDENTITY="$MODEL_IDENTITY" HARDWARE="$HARDWARE" OUTPUT_DIR="$out_dir" \
+      python3 - "$WORK/arm.config.json" "$WORK/repo/prototype/experiment/remote.config.json" <<'PY'
+import json, os, sys
+source, target = sys.argv[1], sys.argv[2]
+with open(source, encoding="utf-8") as handle:
+    config = json.load(handle)
+config["backend"] = "llama-cpp"
+config["model_path"] = os.environ["MODEL_PATH"]
+config["llama_lib"] = os.environ["LLAMA_LIB"]
+config["n_gpu_layers"] = int(os.environ["NGL"])
+config.pop("server_url", None)
+config["model_identity"] = os.environ["MODEL_IDENTITY"]
+config["hardware"] = os.environ["HARDWARE"]
+config["output_dir"] = os.environ["OUTPUT_DIR"]
+config.pop("binary", None)
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(config, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+    log "arm $arm_id: running the matrix"
+    if (cd "$WORK/repo/prototype" && python3 -m experiment.runner --config experiment/remote.config.json); then
+      arm_status=SUCCEEDED
+    fi
+  fi
+  if [ -d "$WORK/repo/prototype/$out_dir" ]; then
+    gsutil -q -m rsync -r "$WORK/repo/prototype/$out_dir" "gs://$BUCKET/results/$arm_id/runs/" || true
+  fi
+  gsutil -q cp "$LOG" "gs://$BUCKET/results/$arm_id/logs/startup-script.log" || true
+  printf '%s\n' "$arm_status" | gsutil -q cp - "gs://$BUCKET/status/$arm_id.txt" || true
+  log "arm $arm_id: $arm_status"
+  [ "$arm_status" = SUCCEEDED ]
+}
+
+if [ -n "$RUNLIST_KEY" ]; then
+  log "runlist mode: $RUNLIST_KEY"
+  gsutil -q cp "gs://$BUCKET/$RUNLIST_KEY" "$WORK/runlist.json"
+
+  # The build steps below are arm-independent; do them once, then loop.
+  RUNLIST_MODE=1
+else
+  RUNLIST_MODE=0
+fi
+
 # --- 3b. Which transport this run needs -------------------------------------
 # Condition 4 masks at the logit level, and `llama-server`'s HTTP API exposes no
 # per-token logit callback (Phase B R1), so a masked matrix runs in process over
 # `libllama.so` instead. The config decides; the operator does not configure the
 # transport twice and cannot get the two out of step.
+if [ "$RUNLIST_MODE" = 1 ]; then
+  # Runlist arms are masked-only by contract (enforced per arm in run_arm), so
+  # the transport is known without a single-run config.
+  MASKED=1
+else
 log "fetching the run config"
 gsutil -q cp "gs://$BUCKET/$CONFIG_KEY" "$WORK/run.config.json"
 
@@ -140,8 +210,11 @@ if python3 -c 'import json,sys; sys.exit(0 if "gbnf+typemask" in json.load(open(
      "$WORK/run.config.json"; then
   MASKED=1
 fi
+fi
 
-if [ "$MASKED" = 1 ]; then
+if [ "$RUNLIST_MODE" = 1 ]; then
+  :
+elif [ "$MASKED" = 1 ]; then
   # One run, one backend: `llama-cpp` implements `generate_masked` only and
   # refuses `generate` by name, so a config mixing condition 4 with any Phase A
   # condition would die partway through a matrix that costs GPU-hours. Fail here
@@ -222,6 +295,25 @@ if [ "$MASKED" = 0 ]; then
   curl -sf http://127.0.0.1:8080/health >/dev/null
 else
   log "skipping llama-server: the masked transport loads the model in process"
+fi
+
+# --- 6r. Runlist execution ---------------------------------------------------
+if [ "$RUNLIST_MODE" = 1 ]; then
+  ARMS_TOTAL=0
+  ARMS_OK=0
+  while IFS="$(printf '\t')" read -r cfg_key out_dir arm_id; do
+    [ -n "$arm_id" ] || continue
+    ARMS_TOTAL=$((ARMS_TOTAL + 1))
+    if run_arm "$cfg_key" "$out_dir" "$arm_id"; then
+      ARMS_OK=$((ARMS_OK + 1))
+    fi
+  done < <(jq -r '.[] | [.config_key, .output_dir, .run_id] | @tsv' "$WORK/runlist.json")
+
+  log "runlist complete: $ARMS_OK/$ARMS_TOTAL arms succeeded"
+  if [ "$ARMS_TOTAL" -gt 0 ] && [ "$ARMS_OK" = "$ARMS_TOTAL" ]; then
+    STATUS=SUCCEEDED
+  fi
+  exit 0
 fi
 
 # --- 6. Remote config -------------------------------------------------------

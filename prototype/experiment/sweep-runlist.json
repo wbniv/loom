@@ -1,0 +1,22 @@
+[
+  {
+    "config_key": "config/sweep08.config.json",
+    "output_dir": "runs/sweep-size08",
+    "run_id": "sweep-size08"
+  },
+  {
+    "config_key": "config/sweep15.config.json",
+    "output_dir": "runs/sweep-size15",
+    "run_id": "sweep-size15"
+  },
+  {
+    "config_key": "config/sweep25.config.json",
+    "output_dir": "runs/sweep-size25",
+    "run_id": "sweep-size25"
+  },
+  {
+    "config_key": "config/sweep41.config.json",
+    "output_dir": "runs/sweep-size41",
+    "run_id": "sweep-size41"
+  }
+]
