@@ -526,6 +526,28 @@ Deliverable 4, run and pasted into this plan before any instance launches:
 5. Route-reference extraction, replayed over the 4,135 recorded held-out draws,
    reproduces the 12 / 4,135 baseline exactly.
 
+> **Note filed with Deliverable 2 (2026‑08‑25), unresolved — check 2 is not
+> satisfiable by §4.2's filter as written.** §4.2 lists object *o* iff some
+> *k* ∈ {0,1,2,3} has *o*'s *k*-th codomain erasing to the task's **body goal**.
+> That is a body-goal test, not §2.4's spine-aware one, and under it a route
+> element whose own codomain never reaches the body goal is dropped. Recomputed
+> over all eight tasks (`experiment.addressability_audit --section addressbook`,
+> which now calls the landed filter directly), **`addr-typed` omits at least one
+> route element for 5 of the 8 tasks**: `concatLength` loses `list/append`
+> (returns a list, goal is `I64`), `mapLength` loses `list/map`, `mapOrElse`
+> loses `maybe/map`, `headOrElse` loses `list/uncons`, and `stampedBytes` loses
+> both `clock/now` and `rand/bytes`. `reverseThen`, `sum` and `selectNonNegative`
+> keep their full routes. §2.4's "the right definitions survive the filter in
+> every case" holds for the three tasks it tabulates and not for `mapOrElse`,
+> which it also tabulates but does not check.
+>
+> Deliverable 2 implements §4.2 **literally and unchanged**, because §4.2 is the
+> pre-registered filter and §4.9 forbids quietly reselecting it; the tests pin
+> the exclusion as a fact rather than asserting check 2's opposite. Whether
+> `addr-typed` runs on this filter, on a spine-aware one, or is dropped from the
+> family is a design decision for the plan's owner and is **open before any GPU
+> spend**. Nothing about `addr-none` or `addr-full` depends on it.
+
 ### 4.9 No peeking, no test-shopping
 
 The arms, the metric, the tests, the correction and the thresholds are fixed above

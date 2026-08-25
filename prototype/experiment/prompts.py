@@ -22,11 +22,34 @@ is the only one of the four that is a property of the *task* rather than of the
 prompt — that asymmetry is real, and is kept explicit here rather than smoothed
 away, because R3 scores the two task kinds by different rules.
 
-**No hash directory is ever supplied.** Prediction 2 is stated in terms of
-64-hex hashes being unguessable in low-example regimes and becoming available
-"once examples supply the hashes", so hashes enter a prompt only through
-examples. Handing the model a name-to-hash table would make prediction 2
-untestable, so the harness does not have one.
+**No hash directory is ever supplied** — unless a config asks for one. Prediction
+2 is stated in terms of 64-hex hashes being unguessable in low-example regimes
+and becoming available "once examples supply the hashes", so under R4 hashes
+enter a prompt only through examples, and `address_book: "none"` (the default,
+and what every pre-existing config is in) keeps that exactly.
+
+The address book (2026-08-24 next-lever plan §3/§4)
+--------------------------------------------------
+
+`address_book` is the manipulated variable of that plan's three-arm
+pre-registration, and it is the *only* thing its arms differ by:
+
+``none``   no block at all — byte-identical to the R4 prompt.
+``full``   one row per `ref`-legal store object, in resolver order.
+``typed``  the same rows, filtered by §4.2's codomain test against the task's
+           own declared type.
+
+A row is `0x<64 hex> <name> : <type surface>` — an address, a name and a type.
+Never a term. The block therefore cannot carry a definition's body, and a gold
+answer cannot reach the model through it.
+
+**The `typed` filter is deliberately impoverished.** `typed_address_rows` takes a
+resolver and a *type surface*, and nothing else. It is not given the `Task`, so
+it cannot consult `composes` (the recorded route) or `expected_surface` (a gold
+term) even by accident; §4.2 requires that by construction rather than by care,
+and `test_experiment.py` pins it adversarially. Selection is a pure function of
+the resolver's own types and the task's declared type, so two tasks with the
+same declared type and different routes get byte-identical blocks.
 
 **Leave-one-out is on by default.** A corpus-drawn task under `full_corpus`
 would otherwise carry its own answer verbatim in the prompt, and semantic
@@ -42,9 +65,10 @@ from dataclasses import dataclass, field
 
 import corpus_registry
 import prelude
-from transcode import type_to_surface
+import sexpr
+from transcode import type_to_ir, type_to_surface
 
-from .resolver import ExperimentResolver
+from .resolver import KIND_DEFINITION, KIND_EXTERN, ExperimentResolver, Resolved
 
 REGIME_NONE = "none"
 REGIME_FEW_SHOT = "few_shot"
@@ -55,6 +79,14 @@ REGIMES = (REGIME_NONE, REGIME_FEW_SHOT, REGIME_FULL_CORPUS, REGIME_HELD_OUT)
 
 KIND_CORPUS = "corpus"
 KIND_HELD_OUT = "held_out"
+
+#: The three arms of the next-lever pre-registration (§4.2). `none` is the
+#: default everywhere, and under it `build_prompt` returns the R4 bytes.
+ADDRESS_BOOK_NONE = "none"
+ADDRESS_BOOK_FULL = "full"
+ADDRESS_BOOK_TYPED = "typed"
+
+ADDRESS_BOOKS = (ADDRESS_BOOK_NONE, ADDRESS_BOOK_FULL, ADDRESS_BOOK_TYPED)
 
 #: The small few-shot set: one boolean eliminator, one `match` over a nominal
 #: data type, one recursive `fix` with a measure and a cross-definition `ref`,
@@ -91,6 +123,18 @@ Answer with the single `(def ...)` form and nothing else.\
 
 EXAMPLE_HEADER = "Here are definitions in this surface, each with what it does."
 
+#: The address block's one header line. §3 sizes the block as its rows alone
+#: (9,202 characters for the full book), and `address_rows` still returns
+#: exactly those rows, so that sizing is unchanged; the header is 96 characters
+#: of framing on top, without which the block is 35 unlabelled hex lines and the
+#: arm tests "does a wall of hashes confuse a 7B" rather than "does addressing
+#: help". It is identical across the two address arms, so §4.8's byte-comparison
+#: strips it with the rows it heads.
+ADDRESS_HEADER = (
+    "These objects are already in the store. Each line is one object's address, "
+    "its name and its type; write `(ref ADDRESS)` to use it."
+)
+
 #: Characters per token for *this* surface — a floor, and a measured one.
 #:
 #: The phase-b run log records the longest curated prompts at `full_corpus`
@@ -109,17 +153,25 @@ def estimated_tokens(text: str) -> int:
     return int(len(text) / CHARS_PER_TOKEN) + 1
 
 
-def context_required(regimes, resolver, *, leave_one_out=True, draw_tokens=0) -> int:
+def context_required(
+    regimes, resolver, *, leave_one_out=True, draw_tokens=0, address_book=ADDRESS_BOOK_NONE
+) -> int:
     """Tokens the longest prompt over `regimes` needs, plus a draw's budget.
 
     The `n_ctx` a config must carry. Computed from the prompts themselves, so a
     config cannot drift under its own corpus — which is exactly how phase-b
-    shipped `n_ctx: 4096` for an 11.9k-token prompt.
+    shipped `n_ctx: 4096` for an 11.9k-token prompt, and, with `address_book`
+    passed through, how §4.3.2 keeps a config from drifting under its own
+    address book.
     """
     longest = 0
     for regime in regimes:
         for task in tasks_for_regime(regime):
-            text = build_prompt(task, regime, resolver, leave_one_out=leave_one_out)
+            text = build_prompt(
+                task, regime, resolver,
+                leave_one_out=leave_one_out,
+                address_book=address_book,
+            )
             longest = max(longest, estimated_tokens(text))
     return longest + draw_tokens
 
@@ -393,6 +445,190 @@ def example_names(
     return tuple(names)
 
 
+# --------------------------------------------------------------------------
+# The store address book (2026-08-24 next-lever plan §3, §4.2)
+# --------------------------------------------------------------------------
+
+
+def ref_legal_objects(resolver: ExperimentResolver) -> tuple[Resolved, ...]:
+    """Every object a `(ref …)` may legally name, in resolver order.
+
+    Definitions and externs; not data or ability declarations, which are
+    nominal hashes with no reference type — a `(ref DATA_HASH)` is exactly the
+    illegal draw §1.2 measures the model making, and listing one would teach it
+    that mistake. For the curated resolver this is 35 of 47 digests.
+    """
+    return tuple(
+        found
+        for found in (resolver.resolve(digest) for digest in resolver.digests())
+        if found.kind in (KIND_DEFINITION, KIND_EXTERN)
+    )
+
+
+def address_row(found: Resolved) -> str:
+    """One book row: an address, a name, a type. Never a term."""
+    return f"0x{found.hex} {found.name} : {type_to_surface(found.type_ir)}"
+
+
+def _erase(type_ir: list) -> list:
+    """§3.2.1's refinement erasure: `refine T φ` -> `erase(T)`, recursively."""
+    tag = type_ir[0]
+    if tag == 3:  # refine
+        return _erase(type_ir[1])
+    if tag == 1:  # data
+        return [1, type_ir[1], [_erase(a) for a in type_ir[2]]]
+    if tag == 2:  # fn
+        return [2, _erase(type_ir[1]), type_ir[2], _erase(type_ir[3])]
+    if tag == 6:  # forall
+        return [6, _erase(type_ir[1])]
+    return type_ir  # base, cap, tyvar: nothing to erase
+
+
+def _kth_codomain(type_ir: list, k: int) -> list | None:
+    """The type after peeling `k` `fn` arrows, or `None` if it has fewer."""
+    current = type_ir
+    for _ in range(k):
+        if current[0] != 2:
+            return None
+        current = current[3]
+    return current
+
+
+def _body_goal(type_ir: list) -> list:
+    """A task's own type, peeled of every `fn` arrow — the type its written
+    term's innermost body must check against."""
+    current = type_ir
+    while current[0] == 2:
+        current = current[3]
+    return _erase(current)
+
+
+#: §2.4's spine depths. A `ref` at the head of a k-ary application spine checked
+#: against goal G must resolve to a type whose k-th codomain erases to G; every
+#: held-out route saturates at three arguments or fewer.
+CODOMAIN_DEPTHS = (0, 1, 2, 3)
+
+
+def _admits_goal(type_ir: list, goal: list) -> bool:
+    if type_ir[0] == 6:  # a bare `forall` can instantiate to anything
+        return True
+    return any(
+        (peeled := _kth_codomain(type_ir, k)) is not None and _erase(peeled) == goal
+        for k in CODOMAIN_DEPTHS
+    )
+
+
+def body_goal_of(type_surface: str) -> list:
+    """The body goal of a declared type, parsed from its canonical surface."""
+    if not type_surface.strip():
+        raise ValueError("a goal-type filter needs a declared type surface")
+    return _body_goal(type_to_ir(sexpr.parse_all(type_surface)[0]))
+
+
+def typed_address_rows(resolver: ExperimentResolver, type_surface: str) -> tuple[str, ...]:
+    """§4.2's goal-type filter — **a resolver and a type, and nothing else**.
+
+    Object `o` is listed iff some k in `CODOMAIN_DEPTHS` has `o`'s k-th codomain
+    erasing (§3.2.1) to the declared type's body goal, or `o`'s type is a bare
+    `forall`. Rows keep resolver order, so which rows survive is the only thing
+    the filter decides — it cannot rank the route first either.
+
+    The two-argument signature is the guarantee, not a convenience: this
+    function is never handed a `Task`, so it cannot read `composes` or
+    `expected_surface`, and two tasks with the same declared type and different
+    routes are indistinguishable to it.
+    """
+    goal = body_goal_of(type_surface)
+    return tuple(
+        address_row(found)
+        for found in ref_legal_objects(resolver)
+        if _admits_goal(found.type_ir, goal)
+    )
+
+
+def full_address_rows(resolver: ExperimentResolver) -> tuple[str, ...]:
+    """Every `ref`-legal object's row, in resolver order — `addr-full`."""
+    return tuple(address_row(found) for found in ref_legal_objects(resolver))
+
+
+def address_rows(
+    resolver: ExperimentResolver,
+    address_book: str,
+    *,
+    type_surface: str = "",
+    exclude_identity: str = "",
+) -> tuple[str, ...]:
+    """The rows one arm shows for one task, in resolver order.
+
+    `exclude_identity` is leave-one-out carried into the book. It never fires
+    for the plan's arms — a held-out task is not a corpus entry and has no
+    `expected_identity` — but a corpus-drawn task under an address book would
+    otherwise be handed the address of the very definition the prompt is
+    withholding, and leave-one-out's job is that its answer is not in the
+    prompt in *any* form.
+    """
+    if address_book not in ADDRESS_BOOKS:
+        raise ValueError(
+            f"unknown address_book {address_book!r}; known: {', '.join(ADDRESS_BOOKS)}")
+    if address_book == ADDRESS_BOOK_NONE:
+        return ()
+    rows = (
+        full_address_rows(resolver) if address_book == ADDRESS_BOOK_FULL
+        else typed_address_rows(resolver, type_surface)
+    )
+    if exclude_identity:
+        prefix = f"0x{exclude_identity} "
+        rows = tuple(row for row in rows if not row.startswith(prefix))
+    return rows
+
+
+def address_book_block(
+    resolver: ExperimentResolver,
+    address_book: str,
+    *,
+    type_surface: str = "",
+    exclude_identity: str = "",
+) -> str:
+    """The exact block `build_prompt` inserts, or `""` for `none`.
+
+    §4.8's first check strips this string from an address arm's prompt and
+    compares the remainder byte-for-byte with `addr-none`, so this is the one
+    place the block's text is built.
+    """
+    rows = address_rows(
+        resolver, address_book, type_surface=type_surface, exclude_identity=exclude_identity)
+    if not rows:
+        return ""
+    return "\n".join([ADDRESS_HEADER, *rows])
+
+
+def _task_address_block(
+    task: Task,
+    resolver: ExperimentResolver,
+    address_book: str,
+    *,
+    leave_one_out: bool,
+) -> str:
+    """`address_book_block` for a task, supplying only its *declared* type.
+
+    A corpus-drawn task declares no type — `expected_type_surface` is empty and
+    the only type it has is the one inside its gold surface. Reading that would
+    make the filter a function of the answer, so `typed` refuses the task
+    outright rather than quietly deriving a goal from a fixture.
+    """
+    if address_book == ADDRESS_BOOK_TYPED and not task.expected_type_surface.strip():
+        raise ValueError(
+            f"address_book 'typed' filters on a task's declared type, and "
+            f"{task.task_id!r} ({task.kind}) declares none. The next-lever arms "
+            f"(§4.2) are the 'held_out' regime only.")
+    return address_book_block(
+        resolver,
+        address_book,
+        type_surface=task.expected_type_surface,
+        exclude_identity=task.expected_identity if leave_one_out else "",
+    )
+
+
 def build_prompt(
     task: Task,
     regime: str,
@@ -400,6 +636,7 @@ def build_prompt(
     *,
     leave_one_out: bool = True,
     narrowing: str = "",
+    address_book: str = ADDRESS_BOOK_NONE,
 ) -> str:
     """The full prompt for one (task, regime) pair.
 
@@ -407,6 +644,12 @@ def build_prompt(
     rejected draw. It is appended after the examples and before the ask, so the
     prompt prefix is byte-identical across conditions until a rejection has
     actually happened — which is what makes the conditions comparable on tokens.
+
+    `address_book` inserts §3's block between the examples and `narrowing` —
+    before it, not after, so the prefix-identity property above survives the
+    new block. At the default `"none"` not one byte of this function's output
+    changes, which is what makes `addr-none` the control arm rather than a
+    fourth thing.
     """
     blocks = [PREAMBLE]
     names = example_names(regime, task, resolver, leave_one_out=leave_one_out)
@@ -423,6 +666,9 @@ def build_prompt(
             lines.append(f"\n{entry.spec}\n{found.surface}" if entry.spec
                          else f"\n{found.surface}")
         blocks.append("\n".join(lines))
+    book = _task_address_block(task, resolver, address_book, leave_one_out=leave_one_out)
+    if book:
+        blocks.append(book)
     if narrowing:
         blocks.append(narrowing)
     blocks.append(f"Now write this definition.\n{task.spec}")

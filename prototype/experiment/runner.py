@@ -70,7 +70,19 @@ from .evaluate import (
     score_semantic,
 )
 from .masker import PRUNER_NAMES, build_masker
-from .prompts import KIND_CORPUS, KIND_HELD_OUT, REGIMES, Task, all_tasks, build_prompt, tasks_for_regime
+from .prompts import (
+    ADDRESS_BOOK_NONE,
+    ADDRESS_BOOK_TYPED,
+    ADDRESS_BOOKS,
+    KIND_CORPUS,
+    KIND_HELD_OUT,
+    REGIME_HELD_OUT,
+    REGIMES,
+    Task,
+    all_tasks,
+    build_prompt,
+    tasks_for_regime,
+)
 from .resolver import ExperimentResolver
 from .store_resolver import POLICY_ALL, POLICY_CURATED, StoreExportError, StoreResolver
 
@@ -129,6 +141,12 @@ class Config:
     #: `null` for the regime's whole task set, or an explicit list of task ids.
     tasks: list | None = None
     leave_one_out: bool = True
+    #: The 2026-08-24 next-lever plan §4.2's manipulated variable: `"none"`
+    #: (the R4 prompt, byte for byte — every pre-existing config is here),
+    #: `"full"` (every `ref`-legal object's address) or `"typed"` (§4.2's
+    #: goal-type filter over the same rows). Recorded on every draw, because
+    #: the arm is what §4.5's primary partitions on.
+    address_book: str = ADDRESS_BOOK_NONE
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -224,6 +242,18 @@ class Config:
         for regime in self.regimes:
             if regime not in REGIMES:
                 raise SystemExit(f"unknown regime {regime!r}; known regimes: {', '.join(REGIMES)}")
+        if self.address_book not in ADDRESS_BOOKS:
+            raise SystemExit(
+                f"unknown address_book {self.address_book!r}; known address books: "
+                f"{', '.join(ADDRESS_BOOKS)}")
+        if self.address_book == ADDRESS_BOOK_TYPED and list(self.regimes) != [REGIME_HELD_OUT]:
+            # The filter needs a *declared* task type, and only a held-out task
+            # has one. Refusing here rather than at the first corpus prompt
+            # keeps the failure a config error instead of a mid-run crash.
+            raise SystemExit(
+                "address_book 'typed' filters on the task's declared type, which "
+                "only held-out tasks carry; plan §4.2's arms are the 'held_out' "
+                f"regime alone, and this config runs {self.regimes}.")
         if self.token_budget_per_task < 1 or self.max_tokens_per_draw < 1:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
@@ -362,6 +392,7 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
             task, regime, resolver,
             leave_one_out=config.leave_one_out,
             narrowing=narrowing,
+            address_book=config.address_book,
         )
         # The seed varies per draw or every redraw repeats the first draw
         # exactly; the derivation is deterministic so the run still reproduces.
@@ -397,6 +428,7 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
             "task_kind": task.kind,
             "condition": condition,
             "regime": regime,
+            "address_book": config.address_book,
             "seed": seed,
             "draw": this_draw,
             "draw_seed": draw_seed,
@@ -903,6 +935,7 @@ def render_report(summary, records):
         f"(max {config['max_tokens_per_draw']} per draw, "
         f"max {config['max_draws_per_task']} draws)  ",
         f"**Leave-one-out examples:** {config['leave_one_out']}  ",
+        f"**Address book:** {config.get('address_book', 'none')}  ",
         f"**Draws recorded:** {summary['records']} in {summary['elapsed_s']} s  ",
         f"**Resolver objects:** {json.dumps(summary['resolver_objects'], sort_keys=True)}  ",
         f"**Contract versions:** {json.dumps(summary['contract_versions'], sort_keys=True)}",

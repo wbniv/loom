@@ -61,12 +61,17 @@ import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import sexpr
-import transcode
-
 from experiment import runner
 from experiment.evaluate import run_funnel, score_semantic
-from experiment.prompts import HELD_OUT_TASKS, REGIME_HELD_OUT, build_prompt, estimated_tokens
+from experiment.prompts import (
+    HELD_OUT_TASKS,
+    REGIME_HELD_OUT,
+    address_row,
+    build_prompt,
+    estimated_tokens,
+    ref_legal_objects,
+    typed_address_rows,
+)
 from experiment.resolver import KIND_DATA, KIND_DEFINITION, KIND_EXTERN, ExperimentResolver
 from experiment.store_resolver import POLICY_ALL, StoreResolver
 
@@ -417,39 +422,6 @@ def censoring() -> dict:
 # --------------------------------------------------------------------------
 
 
-def _erase(type_ir: list) -> list:
-    """§3.2.1's refinement erasure: `refine T φ` -> `erase(T)`, recursively."""
-    tag = type_ir[0]
-    if tag == 3:  # refine
-        return _erase(type_ir[1])
-    if tag == 1:  # data
-        return [1, type_ir[1], [_erase(a) for a in type_ir[2]]]
-    if tag == 2:  # fn
-        return [2, _erase(type_ir[1]), type_ir[2], _erase(type_ir[3])]
-    if tag == 6:  # forall
-        return [6, _erase(type_ir[1])]
-    return type_ir  # base, cap, tyvar: nothing to erase
-
-
-def _kth_codomain(type_ir: list, k: int) -> list | None:
-    """The type after peeling `k` `fn` arrows, or `None` if it has fewer."""
-    current = type_ir
-    for _ in range(k):
-        if current[0] != 2:
-            return None
-        current = current[3]
-    return current
-
-
-def _body_goal(type_ir: list) -> list:
-    """A task's own type, peeled of every `fn` arrow — the type its written
-    term's innermost body must check against."""
-    current = type_ir
-    while current[0] == 2:
-        current = current[3]
-    return _erase(current)
-
-
 def addressbook(resolver: ExperimentResolver) -> dict:
     """`addr-full`'s row count/size, and `addr-typed`'s per-task row count.
 
@@ -457,30 +429,22 @@ def addressbook(resolver: ExperimentResolver) -> dict:
     some k in {0,1,2,3} has `o`'s k-th codomain erasing to `t`'s body goal, or
     `o`'s type is a bare `forall`. Static and task-declared-type-only, exactly
     as §4.2 requires — it never looks at `composes` or a gold term.
+
+    Deliverable 2 landed that filter in `experiment.prompts` as the thing the
+    arms are actually built from, so this section now *calls* it rather than
+    carrying a second copy: the sizing reported here and the block a run ships
+    cannot drift apart. `full_book_chars` stays the rows alone, which is what
+    §3's 9,202 counts — `prompts.ADDRESS_HEADER` is not part of the sizing.
     """
-    ref_legal = [
-        resolver.resolve(digest)
-        for digest in resolver.digests()
-        if resolver.resolve(digest).kind in (KIND_DEFINITION, KIND_EXTERN)
-    ]
-    full_rows = [f"0x{found.hex} {found.name} : {transcode.type_to_surface(found.type_ir)}" for found in ref_legal]
+    ref_legal = ref_legal_objects(resolver)
+    full_rows = [address_row(found) for found in ref_legal]
     full_block = "\n".join(full_rows)
 
-    typed_counts = {}
-    for task in HELD_OUT_TASKS:
-        parsed = sexpr.parse_all(task.expected_type_surface)
-        goal = _body_goal(transcode.type_to_ir(parsed[0]))
-        matched = []
-        for found in ref_legal:
-            if found.type_ir[0] == 6:  # bare forall: always admissible
-                matched.append(found.name)
-                continue
-            for k in (0, 1, 2, 3):
-                peeled = _kth_codomain(found.type_ir, k)
-                if peeled is not None and _erase(peeled) == goal:
-                    matched.append(found.name)
-                    break
-        typed_counts[task.task_id] = matched
+    by_row = {address_row(found): found.name for found in ref_legal}
+    typed_counts = {
+        task.task_id: [by_row[row] for row in typed_address_rows(resolver, task.expected_type_surface)]
+        for task in HELD_OUT_TASKS
+    }
 
     return {
         "ref_legal_objects": len(ref_legal),

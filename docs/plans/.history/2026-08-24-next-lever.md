@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-24](https://github.com/wbniv/loom/commit/c878b33) | Addressability audit: §1 diagnostics as a runnable script |
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 
 <!--history-meta v1
+c878b33	author	Will Norris
+c878b33	added	70
+c878b33	deleted	0
+c878b33	files	1
+c878b33	body	prototype/experiment/addressability_audit.py independently recomputes every\nnumber docs/plans/2026-08-24-next-lever.md §1 pastes, from the repository's\nown data via the harness's own loaders (experiment.resolver,\nexperiment.store_resolver, experiment.prompts, experiment.evaluate,\nexperiment.runner) — no reference to the pasted values, no GPU, no network.\nEvery §1 block reproduces exactly, including the exact 4,135-draw held-out\nuniverse (the design session's pasted total undercounted a naive glob over\nprototype/runs/ by excluding one exact-duplicate run file and several\npre-harness Aug-13/14 prototyping runs). §4's address-book sizing is also\ncomputed as a bonus (not a pasted §1 block); addr-typed's per-task row count\ncame out 2-13 rather than the plan's inline "7-13", noted in the plan for\nwhoever lands Deliverable 2.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01FX7iKXCbZLs6s8sPQ5J8hX
 3525fed	author	Will Norris
 3525fed	added	575
 3525fed	deleted	0
