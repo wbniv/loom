@@ -27,9 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] [next-lever-stub] `address_book_stub_check.py` — the plan §4.8 checks, output
-  pasted back into the plan. **Gates the GPU spend.**
-
 - [T2] [next-lever-run] Launch the runlist instance (spot ≈$1.29, on-demand fallback
   ≈$4.35), fetch results, tear down root + bucket, write
   `docs/results/2026-08-25-address-book-report.md` per the pre-registration.
@@ -80,6 +77,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-25 — [next-lever-stub] §4.8 dry-run (as amended by A1): all 5 checks PASS, output pasted into the plan; GPU gate open. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [next-lever-gold] All 8 gold terms verified (funnel+mechfloor, real tokenizer), none dropped; worst case 662 tok < 768 cap; §4.3's stale 447/72% corrected. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [budget-regression] §4.3 budget fix landed (T2 escalation: it was never implemented) + guard with fail-then-pass proof; full-cap-or-no-draw for any config. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [next-lever-configs] Three arm configs + `address-runlist.json` as byte-copies of `followup_curated` with only §4.2/§4.3 fields changed; all validate. See [plan](docs/plans/2026-08-24-next-lever.md).
