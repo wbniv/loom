@@ -420,6 +420,11 @@ not given either.** Deliverable 2's tests pin that by construction.
    `max_draws_per_task: 8`. Every cell gets **exactly 8 draws**, each with the
    full 768‑token cap, and no draw is handed a leftover fragment. 768 clears the
    447‑token worst-case gold answer by 72 %.
+   *Correction (2026‑08‑25, from Deliverable 3's real-tokenizer check in §4.4):
+   the 447 figure was the worst of §1.1's original five golds under the chars/1.37
+   estimate; the real worst case over all eight is `stampedBytes` at 662 tokens,
+   which 768 clears by 16 %, not 72 %. The cap and every other §4.3 value are
+   unchanged — the margin claim was stale, not the rule.*
 2. `n_ctx: 32768` unchanged — `addr-full`'s 18.1k prompt plus 768 completion is
    19k, well inside it. `context_required` is asserted against every arm's prompts
    in the stub check (§4.6), so a config cannot drift under its own address book.

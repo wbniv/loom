@@ -1,11 +1,17 @@
 | Date | Change |
 |------|--------|
+| [2026-08-25](https://github.com/wbniv/loom/commit/8b86e0c) | Deliverable 3: gold reference terms for all 8 held-out tasks (plan §4.4) |
 | [2026-08-25](https://github.com/wbniv/loom/commit/c42a8aa) | Amendment A1: addr-typed leaves the Holm family (pre-data) |
 | [2026-08-25](https://github.com/wbniv/loom/commit/10e0e5a) | Address book: the next-lever arms behind address_book: none|full|typed |
 | [2026-08-24](https://github.com/wbniv/loom/commit/c878b33) | Addressability audit: §1 diagnostics as a runnable script |
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 
 <!--history-meta v1
+8b86e0c	author	Will Norris
+8b86e0c	added	56
+8b86e0c	deleted	0
+8b86e0c	files	1
+8b86e0c	body	Five gold terms reuse §1.1's HAND_SOLVED fixtures verbatim; three newly\nauthored (headOrElse, stampedBytes, selectNonNegative) built from canonical\nIR helpers and checked against real corpus hashes. All eight pass the\nharness's own run_funnel + score_semantic, none leak into any built prompt,\nand a real-tokenizer check against the pinned qwen2.5-coder-7b GGUF revises\nthe eight-task worst case to 662 completion tokens (vs the five-task 447\nfigure §1.1/§4.3 cite) — still clears the 768-token §4.3 cap.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 c42a8aa	author	Will Norris
 c42a8aa	added	89
 c42a8aa	deleted	1

@@ -27,27 +27,13 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] [next-lever-gold] `heldout_gold.py` — verified gold term per held-out task
-  (5 of 8 exist in the plan), funnel/rubric evidence, real-tokenizer check of the
-  chars/1.37 estimates, drop record for any task without a ≤768-token solution.
-
 - [T2] [next-lever-stub] `address_book_stub_check.py` — the plan §4.8 checks, output
   pasted back into the plan. **Gates the GPU spend.**
-
-- [T1] [next-lever-configs] Three arm configs + `address-runlist.json`, byte-copies
-  of the sweep configs with only the §4 fields changed.
 
 - [T2] [next-lever-run] Launch the runlist instance (spot ≈$1.29, on-demand fallback
   ≈$4.35), fetch results, tear down root + bucket, write
   `docs/results/2026-08-25-address-book-report.md` per the pre-registration.
 
-- [T2] [budget-regression] Regression guard for the censoring defect: test asserting
-  no config can produce a cell whose final draw gets fewer than `max_tokens_per_draw`
-  tokens — the bug that silently capped 100% of held-out cells.
-
-- [T1] [heldout-addendum] One-paragraph addendum on both 2026-08-24 reports pointing
-  at the next-lever plan §1, so the archived held-out claims carry their correction;
-  `full_corpus` halves unaffected.
 
 
 
@@ -94,6 +80,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-25 — [next-lever-gold] All 8 gold terms verified (funnel+mechfloor, real tokenizer), none dropped; worst case 662 tok < 768 cap; §4.3's stale 447/72% corrected. See [plan](docs/plans/2026-08-24-next-lever.md).
+- ✅ 2026-08-25 — [budget-regression] §4.3 budget fix landed (T2 escalation: it was never implemented) + guard with fail-then-pass proof; full-cap-or-no-draw for any config. See [plan](docs/plans/2026-08-24-next-lever.md).
+- ✅ 2026-08-25 — [next-lever-configs] Three arm configs + `address-runlist.json` as byte-copies of `followup_curated` with only §4.2/§4.3 fields changed; all validate. See [plan](docs/plans/2026-08-24-next-lever.md).
+- ✅ 2026-08-25 — [heldout-addendum] Correction addendum appended to both 2026-08-24 reports, pointing at next-lever §1; `full_corpus` halves stand. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [next-lever-prompt] Address book behind `address_book: none|full|typed` + blind codomain filter, 21 leak-pinning tests; escalation resolved by plan Amendment A1 (addr-typed → exploratory). See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [next-lever-audit] §1 diagnostics recomputed independently from repo data; every pasted block reproduces exactly (4,135-draw universe). See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [next-lever] Premise falsified: 7/8 held-out tasks unsolvable (addresses withheld) + 100% cell censoring; lever = address book, pre-registered 3-arm run. See [plan](docs/plans/2026-08-24-next-lever.md).
