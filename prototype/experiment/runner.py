@@ -372,22 +372,31 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
 
     Each record carries two additive fields for crash-safety:
 
-    ``cell_done``   true on the record that ends the cell (budget exhausted,
-                    draw cap hit, or an early semantic-success stop) — the
-                    resume completeness marker `run` looks for. A cell cut off
-                    mid-draw writes no such record and is rerun from scratch.
+    ``cell_done``   true on the record that ends the cell (no room left for a
+                    full-cap draw, draw cap hit, or an early semantic-success
+                    stop) — the resume completeness marker `run` looks for. A
+                    cell cut off mid-draw writes no such record and is rerun
+                    from scratch.
     ``retried``     true if this draw needed the one-retry-after-a-hiccup path
                     below.
+
+    **Budget semantics** (plan `2026-08-24-next-lever` §4.3, fixing the §1.3
+    defect): a draw is granted only while the *whole* per-draw cap still fits
+    in the remaining budget, and every granted draw is allotted exactly
+    `max_tokens_per_draw`. No draw is ever handed a leftover fragment, for any
+    config — a truncated draw is then a genuine rejection rather than the
+    thing that terminates the cell.
     """
     if condition == CONDITION_TYPEMASK and masker is None:  # pragma: no cover - `run` builds it
         raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
     budget = config.token_budget_per_task
+    per_draw = config.max_tokens_per_draw
     used = 0
     draws = 0
     narrowing = ""
     records = []
-    while used < budget and draws < config.max_draws_per_task:
-        max_tokens = min(config.max_tokens_per_draw, budget - used)
+    while budget - used >= per_draw and draws < config.max_draws_per_task:
+        max_tokens = per_draw
         prompt = build_prompt(
             task, regime, resolver,
             leave_one_out=config.leave_one_out,
@@ -422,7 +431,7 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
         if condition == CONDITION_GBNF_REJECTION:
             narrowing = narrowing_note(funnel)
         stop_now = semantic.success and config.stop_on_semantic_success
-        cell_done = stop_now or not (used < budget and draws < config.max_draws_per_task)
+        cell_done = stop_now or not (budget - used >= per_draw and draws < config.max_draws_per_task)
         record = {
             "task": task.task_id,
             "task_kind": task.kind,

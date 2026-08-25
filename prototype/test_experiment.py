@@ -1005,5 +1005,117 @@ class CliTest(unittest.TestCase):
                 self.assertTrue((Path(directory) / "out" / name).exists(), name)
 
 
+class _AllotmentRecordingBackend(StubBackend):
+    """A `StubBackend` that records each draw's allotment and spends all of it.
+
+    Two properties matter for the budget guard. It captures the `max_tokens`
+    the runner hands to *every* backend call, which is the quantity §4.3
+    constrains; and it reports `completion_tokens == max_tokens`, so the
+    cumulative budget actually binds instead of the stub's four-chars-per-token
+    trickle leaving the budget arm of the loop condition untested.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allotments: list[int] = []
+
+    def generate(self, prompt, *, grammar=None, max_tokens=256, seed=0, temperature=0.0):
+        self.allotments.append(max_tokens)
+        generation = super().generate(
+            prompt, grammar=grammar, max_tokens=max_tokens, seed=seed, temperature=temperature)
+        return dataclasses.replace(
+            generation, completion_tokens=max_tokens, stop_reason="length")
+
+
+class BudgetSemanticsTest(unittest.TestCase):
+    """No draw is ever handed a leftover fragment — plan §4.3, fixing §1.3.
+
+    The defect this guards against: the loop used to allot
+    `min(max_tokens_per_draw, budget - used)` and to keep drawing while any
+    budget at all remained, so a cell's last draw got whatever scrap was left
+    and truncated by construction — 100 % of held-out cells on record were
+    terminated by such a draw. The corrected rule is that a draw happens only
+    when a *whole* cap fits in what is left, and then gets exactly that cap.
+
+    Every case below drives the real `runner.run` with a stub backend on CPU;
+    the arithmetic is never re-derived here, it is read back off the backend.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def _allotments(self, *, budget, cap, max_draws):
+        """Run one real cell and return (allotments handed out, records)."""
+        config = stub_config(
+            token_budget_per_task=budget,
+            max_tokens_per_draw=cap,
+            max_draws_per_task=max_draws,
+            conditions=[runner.CONDITION_GBNF],
+            regimes=["few_shot"],
+            tasks=["corpus/bool/not"],
+        )
+        backend = _AllotmentRecordingBackend(STUB_OUTPUTS, STUB_GRAMMAR_OUTPUTS)
+        records, _ = runner.run(config, resolver=self.resolver, backend=backend)
+        return backend.allotments, records
+
+    def test_the_historical_failing_shape_grants_no_fragment_draw(self):
+        """budget=1000, cap=768: one full draw, and the 232-token scrap is dropped.
+
+        This is the shape the defect was invisible in — a budget that is not a
+        multiple of the cap. The old loop drew twice, the second draw allotted
+        232 tokens and truncated; the cell then "ended" on that truncation.
+        """
+        allotments, records = self._allotments(budget=1000, cap=768, max_draws=8)
+        self.assertEqual(allotments, [768])
+        self.assertEqual(len(records), 1)
+        self.assertTrue(records[-1]["cell_done"])
+
+    def test_the_4_3_arm_values_give_exactly_eight_full_cap_draws(self):
+        """§4.3: budget 6144, cap 768, max_draws 8 → 8 × 768, the n=320/arm basis.
+
+        §4.7's power calculation is 8 tasks × 5 seeds × 8 draws = 320 draws per
+        arm. If a cell yields anything but eight draws, that n is wrong.
+        """
+        allotments, records = self._allotments(budget=6144, cap=768, max_draws=8)
+        self.assertEqual(allotments, [768] * 8)
+        self.assertEqual(len(records), 8)
+        self.assertEqual(sum(allotments), 6144)
+        self.assertTrue(records[-1]["cell_done"])
+
+    def test_every_granted_draw_across_a_spread_of_configs_gets_the_full_cap(self):
+        """Whatever the combination, an allotment is the cap or the draw is not made."""
+        cases = [
+            (6144, 768, 8),    # the §4.3 arms: draw cap and budget bind together
+            (1000, 768, 8),    # budget not a multiple of the cap
+            (768, 768, 8),     # exactly one draw fits
+            (767, 768, 8),     # not even one draw fits
+            (400, 60, 8),      # the draw cap binds first
+            (400, 60, 3),      # a lower draw cap binds first
+            (512, 512, 32),    # every shipped pre-§4.3 config's shape
+            (1536, 500, 8),    # 3 full draws, 36 tokens stranded
+            (100, 7, 32),      # many small draws, 2 tokens stranded
+        ]
+        for budget, cap, max_draws in cases:
+            with self.subTest(budget=budget, cap=cap, max_draws=max_draws):
+                allotments, records = self._allotments(
+                    budget=budget, cap=cap, max_draws=max_draws)
+                self.assertEqual(len(records), len(allotments))
+                for index, allotment in enumerate(allotments):
+                    self.assertEqual(allotment, cap, f"draw {index} was handed a fragment")
+                self.assertLessEqual(len(allotments), max_draws)
+                self.assertLessEqual(sum(allotments), budget)
+                # And the loop stopped for a reason: either the draw cap, or
+                # too little budget left for one more whole draw.
+                if len(allotments) < max_draws:
+                    self.assertLess(budget - sum(allotments), cap)
+
+    def test_a_budget_smaller_than_one_draw_yields_no_draw_at_all(self):
+        """No partial-cap draw ever happens — for any config, including this one."""
+        allotments, records = self._allotments(budget=767, cap=768, max_draws=8)
+        self.assertEqual(allotments, [])
+        self.assertEqual(records, [])
+
+
 if __name__ == "__main__":
     unittest.main()
