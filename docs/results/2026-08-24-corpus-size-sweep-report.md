@@ -244,3 +244,19 @@ across every run this project has recorded.
 budget) against the observed effect size, per the extrapolation in §2. That
 is a concrete, falsifiable follow-up, not a design change — same pool, same
 ordering, same test, more seeds.
+
+## Addendum (2026‑08‑25)
+
+This report's **held-out** results (the zero-successes headline, the
+hand-scored `reverseThen` candidate in §3, and the reachability implicit in
+"0 of 22 non-vacuous defs solve any held-out task") are undermined by two
+defects documented in [next-lever plan §1](../plans/2026-08-24-next-lever.md):
+the `held_out` prompt withholds the 64‑hex addresses a solution needs to
+`(ref …)` — 7 of this project's 8 held-out tasks are unsolvable from that
+prompt as built, regardless of store size or selection rule (§1.2) — and every
+held-out cell here was terminated by a truncated final draw, leaving a median
+of one usable draw per cell against gold answers that cost more tokens than
+that (§1.3). The **`full_corpus`** halves of this report — the acc/1k tok
+sweep in §1–§2, the monotone trend, the LR test and its verdict — are
+**unaffected**: `full_corpus` censorship is flat across store sizes (§1.3) and
+its conclusions stand as written above.

@@ -279,6 +279,23 @@ false positives — `let c = b in b` for `reverseThen`, and `List.size` for `sum
 here. The next lever has to change what the model can *learn from*, not which
 subset of its own past output it is shown.
 
+## Addendum (2026‑08‑25)
+
+This report's **held-out** results — the zero-successes headline, the
+hand-scored `sizematch-followup` candidate above, and the "0 of 22 non-vacuous
+defs solve a held-out task" claim this Verdict repeats — are undermined by two
+defects documented in [next-lever plan §1](../plans/2026-08-24-next-lever.md):
+the pool in fact already contains hand-verifiable solutions to 5 of the 8
+held-out tasks (§1.1), but the `held_out` prompt withholds the 64‑hex
+addresses those solutions need to `(ref …)`, leaving 7 of 8 tasks
+information-theoretically unsolvable from the prompt as built regardless of
+selection policy (§1.2); and every held-out cell in this project's runs,
+including the ones tabulated here, was terminated by a truncated final draw
+(§1.3). The **`full_corpus`** halves of this report — the acc/1k tok figures
+across 0, 15, and 41 definitions, the pairwise significance tests, and the
+"acceptance tracks definition count, not quality" reading — are **unaffected**
+and stand as written above.
+
 ### What this does not license
 
 "Corpus mass drives acceptance" is the pattern in these numbers, and it is
