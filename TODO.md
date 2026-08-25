@@ -27,13 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] [next-lever-audit] Land `prototype/experiment/addressability_audit.py` — the
-  [next-lever plan](docs/plans/2026-08-24-next-lever.md) §1 diagnostic as a runnable
-  script (route addressability, route-reference rates, cell-censoring stats,
-  address-book sizing). CPU only; output must reproduce §1's pasted blocks. This is
-  the independent verification of the premise-refuting claims — everything below
-  waits on it.
-
 - [T3] [next-lever-prompt] Address-book construction in `prompts.py` behind
   `address_book: none|full|typed` + the codomain filter, with tests pinning that the
   filter can never see `composes` or a gold term. T3 not T2: this is the experiment's
@@ -105,6 +98,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-24 — [next-lever-audit] §1 diagnostics recomputed independently from repo data; every pasted block reproduces exactly (4,135-draw universe). See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [next-lever] Premise falsified: 7/8 held-out tasks unsolvable (addresses withheld) + 100% cell censoring; lever = address book, pre-registered 3-arm run. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [corpus-size-sweep] Mass-vs-quality still open: monotone acc/1k tok across 0/8/15/25/41 defs but LR p=0.128 at ≈38% power — underpowered, not refuted. See [report](docs/results/2026-08-24-corpus-size-sweep-report.md).
 - ✅ 2026-08-24 — [diversity-harvest] Negative on both counts: acceptance tracks corpus mass, not quality (diverse 1.477 vs sizematch 1.402, p=0.82; held-out 5/96); no selection rule can buy composition the pool lacks. See [report](docs/results/2026-08-24-diversity-harvest-report.md).
