@@ -462,10 +462,18 @@ draw-level table. Two comparisons — `addr-full` vs `addr-none` and `addr-typed
 clear 0.025. H3 (`addr-typed` vs `addr-full`) is a third, **two-sided** Fisher test
 reported as exploratory and not part of the Holm family.
 
+> **Amended by A1 (2026‑08‑25, pre‑data, after §4.9):** `addr-typed` leaves the
+> family. The primary is the single comparison `addr-full` vs `addr-none`,
+> one-sided Fisher at α = 0.05, no Holm. Every `addr-typed` comparison is
+> exploratory.
+
 ### 4.6 Secondary metrics, recorded and reported, not leaned on
 
 - **Hand-scored semantic success (R3 rubric)** per arm, with Clopper-Pearson 95 %
   intervals. Pre-registered Fisher one-sided vs `addr-none` at α = 0.025.
+  *Amended by A1: `addr-full` vs `addr-none` at α = 0.05 (single pre-registered
+  secondary comparison; ≥ 5 successes vs 0 clears, per the §4.7 table);
+  `addr-typed` exploratory.*
   Every mechanical-floor candidate is hand-scored; the rubric is the one the
   diversity-harvest and sweep reports used, unchanged.
 - **Any-required-reference rate** (≥ 1 route element referenced) — the weaker
@@ -478,6 +486,11 @@ reported as exploratory and not part of the Holm family.
   per-draw rate precisely so the token asymmetry cannot bias it.
 
 ### 4.7 Power — stated honestly, before any run
+
+> **Amended by A1:** the primary is now a single comparison at α = 0.05, so the
+> table below (computed at Holm's 0.025) is a **lower bound** on primary power;
+> the secondary's clearing threshold drops from ≥ 6 to ≥ 5 successes
+> (p = 0.03076 < 0.05, from the table's own Fisher values).
 
 Simulated Fisher exact, one-sided, 4,000 replicates per cell, n = 320 per arm,
 `addr-none` at its measured 0.003.
@@ -520,13 +533,20 @@ Deliverable 4, run and pasted into this plan before any instance launches:
    dropped for, and the filter function is called with no access to `composes` or
    to any gold term (asserted by signature and by a test that passes a resolver and
    a type and nothing else).
+   *Amended by A1 — the first clause is provably false of §4.2's filter and is
+   replaced:* the check now asserts (a) the blindness clause unchanged, (b) the
+   typed row sets byte-match `experiment.addressability_audit --section
+   addressbook`'s recomputation, and (c) the per-task route-incompleteness table
+   from A1 (5 of 8 tasks route-incomplete; `reverseThen`, `sum`,
+   `selectNonNegative` complete) is reproduced and pasted into the report.
 3. `context_required` for each arm ≤ `n_ctx − max_tokens_per_draw`.
 4. Every gold term passes `run_funnel` and `score_semantic`, and none appears as a
    substring of any built prompt.
 5. Route-reference extraction, replayed over the 4,135 recorded held-out draws,
    reproduces the 12 / 4,135 baseline exactly.
 
-> **Note filed with Deliverable 2 (2026‑08‑25), unresolved — check 2 is not
+> **Note filed with Deliverable 2 (2026‑08‑25), resolved by Amendment A1 below
+> — check 2 is not
 > satisfiable by §4.2's filter as written.** §4.2 lists object *o* iff some
 > *k* ∈ {0,1,2,3} has *o*'s *k*-th codomain erasing to the task's **body goal**.
 > That is a body-goal test, not §2.4's spine-aware one, and under it a route
@@ -553,6 +573,74 @@ Deliverable 4, run and pasted into this plan before any instance launches:
 The arms, the metric, the tests, the correction and the thresholds are fixed above
 before any of the three runs launch. Whatever the three route-reference numbers turn
 out to be, §4.5's test is the one reported as primary.
+
+### Amendment A1 — `addr-typed` leaves the Holm family (2026‑08‑25, pre‑data)
+
+Filed before any GPU launch, on the Deliverable‑2 note above. This is a
+documented reselection under §4.9's own standard — what §4.9 forbids is a
+*quiet* one, or one made after data exist. No draw has been made under any arm.
+
+**The defect.** §4.2's filter is a body-goal test; the §4.8 note above shows it
+drops at least one route element for 5 of 8 tasks, so under §4.5's
+all-route-elements metric `addr-typed` is null-by-construction on those tasks
+(§2.4's own one-liner: a model cannot produce an address it has never seen).
+Keeping it in the Holm family costs `addr-full` half its α for a comparison
+known in advance to be handicapped, and §4.8 check 2 — the GPU gate — asserts a
+property the filter provably lacks. The plan was internally inconsistent and
+could not be executed as written; an amendment was forced either way.
+
+**The repair that does not work, measured before deciding.** A demand-driven
+closure filter (seed demands with the body goal; admit *o* when some *k*-th
+codomain erases to a demanded type; propagate admitted objects' first-*k*
+erased domain types; iterate to fixpoint — still resolver-and-declared-type
+only) was probed against the landed `prompts.py` machinery over all eight
+tasks (probe: `prototype/experiment/closure_filter_probe.py`):
+
+```
+task                               lit rows clo rows  lit-missing / clo-missing (route elements)
+heldout/list/concatLength                13       28  ['corpus/list/append'] / ok
+heldout/list/mapLength                   13       28  ['corpus/list/map'] / ok
+heldout/list/reverseThen                  7       28  ok / ok
+heldout/maybe/mapOrElse                  13       28  ['corpus/maybe/map'] / ok
+heldout/list/headOrElse                  13       28  ['corpus/list/uncons'] / ['corpus/list/uncons']
+heldout/list/sum                         13       28  ok / ok
+heldout/sample/stampedBytes               2        2  ['corpus/clock/now', 'corpus/rand/bytes'] / ['corpus/clock/now', 'corpus/rand/bytes']
+heldout/nat/selectNonNegative            13       28  ok / ok
+
+literal range 2-13, closure range 2-28 (full book = 35)
+```
+
+It recovers 4 of the 5 broken tasks but balloons to 28 of 35 rows — H3's
+premise (a small book vs a 35-row retrieval problem) evaporates at 28 — and it
+**still fails check 2** on `headOrElse` (exact erased equality cannot see
+through `list/uncons`'s polymorphic instantiation) and `stampedBytes`
+(effectful/cap-typed codomains never syntactically meet a demanded type).
+Repairing those needs unification-aware matching at selection time — a new
+design with its own leak surface, and exactly the spine-aware machinery the
+`mask-spine-refs` watch item already owns at *generation* time, where the
+checker's synthesized per-position goals do the instantiation for free. No
+simple sound selection-time filter satisfies check 2.
+
+**The decision.**
+
+1. **Primary (§4.5):** single comparison, `addr-full` vs `addr-none`, one-sided
+   Fisher at α = 0.05. No Holm. Strictly more primary power than the
+   pre-amendment family (§4.7's table, computed at 0.025, becomes a lower
+   bound).
+2. **`addr-typed` still runs, entirely exploratory,** on §4.2's literal filter,
+   unchanged — the landed implementation and its tests stand. Every comparison
+   involving it (vs `addr-none`, vs `addr-full`) is reported two-sided,
+   exploratory, and flagged with the route-incompleteness table above. The
+   handicap biases only *against* `addr-typed`, so an exploratory `addr-typed`
+   win over `addr-full` remains conservative evidence for promoting
+   `mask-spine-refs`; a loss is uninformative and licenses nothing.
+3. **Secondary (§4.6):** semantic success pre-registered comparison is
+   `addr-full` vs `addr-none` at α = 0.05 (≥ 5 successes vs 0 clears);
+   `addr-typed`'s counts reported with intervals only.
+4. **§4.8 check 2** is replaced as annotated in place: blindness clause
+   unchanged; row sets byte-match the audit's recomputation; the
+   route-incompleteness table is reproduced and carried into the report.
+5. Arms, cost, seeds, budgets, and every other §4 rule are unchanged.
 
 ---
 

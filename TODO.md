@@ -27,12 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T3] [next-lever-prompt] Address-book construction in `prompts.py` behind
-  `address_book: none|full|typed` + the codomain filter, with tests pinning that the
-  filter can never see `composes` or a gold term. T3 not T2: this is the experiment's
-  instrument — a leak silently invalidates the run, same class of defect as the one
-  being fixed. Plan §4.
-
 - [T2] [next-lever-gold] `heldout_gold.py` — verified gold term per held-out task
   (5 of 8 exist in the plan), funnel/rubric evidence, real-tokenizer check of the
   chars/1.37 estimates, drop record for any task without a ≤768-token solution.
@@ -64,7 +58,9 @@ Check conformance with `task todo:lint`.
 
 - [mask-spine-refs] Extend `GoalTypePruner` to `app`-spine head positions (sound
   codomain filter, 47 → 7–13 refs) — promote to Open if the address-book run's
-  `addr-typed` arm beats `addr-full`. See [next-lever plan](docs/plans/2026-08-24-next-lever.md) §2.
+  `addr-typed` arm beats `addr-full` (now exploratory and biased *against*
+  `addr-typed` per Amendment A1, so a win is conservative evidence). See
+  [next-lever plan](docs/plans/2026-08-24-next-lever.md) §2, A1.
 
 - [decomposition] Hole-directed decomposition design (next-lever plan §2.2) — the
   pre-committed next lever; promote to Open if the address-book primary comes back null.
@@ -98,6 +94,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-25 — [next-lever-prompt] Address book behind `address_book: none|full|typed` + blind codomain filter, 21 leak-pinning tests; escalation resolved by plan Amendment A1 (addr-typed → exploratory). See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [next-lever-audit] §1 diagnostics recomputed independently from repo data; every pasted block reproduces exactly (4,135-draw universe). See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [next-lever] Premise falsified: 7/8 held-out tasks unsolvable (addresses withheld) + 100% cell censoring; lever = address book, pre-registered 3-arm run. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-24 — [corpus-size-sweep] Mass-vs-quality still open: monotone acc/1k tok across 0/8/15/25/41 defs but LR p=0.128 at ≈38% power — underpowered, not refuted. See [report](docs/results/2026-08-24-corpus-size-sweep-report.md).

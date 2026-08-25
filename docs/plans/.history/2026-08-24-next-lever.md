@@ -1,9 +1,15 @@
 | Date | Change |
 |------|--------|
+| [2026-08-25](https://github.com/wbniv/loom/commit/10e0e5a) | Address book: the next-lever arms behind address_book: none|full|typed |
 | [2026-08-24](https://github.com/wbniv/loom/commit/c878b33) | Addressability audit: §1 diagnostics as a runnable script |
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 
 <!--history-meta v1
+10e0e5a	author	Will Norris
+10e0e5a	added	22
+10e0e5a	deleted	0
+10e0e5a	files	1
+10e0e5a	body	Deliverable 2 of docs/plans/2026-08-24-next-lever.md — §3's store address\nbook and §4.2's goal-type filter, plus the tests §4.8 asks for.\n\nprompts.py carries the construction: `ref_legal_objects` (35 of the curated\nresolver's 47 digests — definitions and externs, never a data or ability\nhash, since `(ref DATA_HASH)` is the illegal draw §1.2 measures the model\nmaking), `address_row` (an address, a name, a type — never a definition\nbody), and `address_book_block`, which `build_prompt` inserts between the\nexamples and `narrowing`. Before the narrowing, so condition 3's\nprefix-identity property survives the new block.\n\n`address_book: "none"` is the default and emits zero bytes, so every config\nalready on record is untouched and `addr-none` is a control arm rather than\na fourth thing. A test asserts that over every task and regime, and another\nasserts every shipped config is still on it.\n\nThe two leak invariants are pinned adversarially, because a leak here\nsilently invalidates the run rather than failing it:\n\n* `typed_address_rows(resolver, type_surface)` takes two arguments and\n  cannot be handed a Task, so it cannot read `composes` or a gold term.\n  Tests feed it fabricated routes (every name in the store; the empty\n  route; a nonexistent name) and assert the block does not move, give two\n  tasks one type and two routes and assert they are indistinguishable, and\n  assert `concatLength`'s real route element `corpus/list/append` stays\n  *excluded* — an implementation that consulted `composes` at all would\n  keep it.\n* No verified gold term reaches any prompt under any arm, checked over the\n  audit's five `HAND_SOLVED` solutions, whole and term-only. Leave-one-out\n  is carried into the book too, so a corpus task under `full` is not handed\n  the address of the definition the prompt is withholding.\n\naddressability_audit.py now calls the landed filter instead of carrying its\nown copy — one source of truth, and all six §1 blocks plus the 35-row /\n9,202-character / 2-13 sizing reproduce byte for byte.\n\nFiled as an open note in §4.8: check 2 asserts `addr-typed` contains every\nroute element, and §4.2's body-goal filter cannot satisfy that for 5 of the\n8 tasks. §4.2 is implemented literally and unchanged; the choice belongs to\nthe plan's owner and is open before any GPU spend.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 c878b33	author	Will Norris
 c878b33	added	70
 c878b33	deleted	0
