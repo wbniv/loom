@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-25](https://github.com/wbniv/loom/commit/8b0a649) | §4.3 margin correction (662-token real worst case); gold promoted |
 | [2026-08-25](https://github.com/wbniv/loom/commit/8b86e0c) | Deliverable 3: gold reference terms for all 8 held-out tasks (plan §4.4) |
 | [2026-08-25](https://github.com/wbniv/loom/commit/c42a8aa) | Amendment A1: addr-typed leaves the Holm family (pre-data) |
 | [2026-08-25](https://github.com/wbniv/loom/commit/10e0e5a) | Address book: the next-lever arms behind address_book: none|full|typed |
@@ -7,6 +8,11 @@
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 
 <!--history-meta v1
+8b0a649	author	Will Norris
+8b0a649	added	5
+8b0a649	deleted	0
+8b0a649	files	1
+8b0a649	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 8b86e0c	author	Will Norris
 8b86e0c	added	56
 8b86e0c	deleted	0

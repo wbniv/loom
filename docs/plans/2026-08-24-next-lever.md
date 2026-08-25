@@ -629,6 +629,107 @@ Deliverable 4, run and pasted into this plan before any instance launches:
 > family is a design decision for the plan's owner and is **open before any GPU
 > spend**. Nothing about `addr-none` or `addr-full` depends on it.
 
+**Deliverable 4 output (2026-08-25).** The §4.8 stub-backend dry-run, as amended
+by Amendment A1, landed in
+[`prototype/experiment/address_book_stub_check.py`](../../prototype/experiment/address_book_stub_check.py),
+run via `python3 -m experiment.address_book_stub_check` from `prototype/`
+(CPU only, no GPU, no network). All five checks (2 split into 2a/2b/2c per A1)
+print an explicit PASS/FAIL line and the script exits non-zero on any FAIL —
+this run exited 0. This is the gate on GPU spend; the complete raw output
+follows, unedited:
+
+```
+### Check 1 — arms differ from addr-none only by the inserted block
+
+addr-full  heldout/list/concatLength        block= 9333B  strip-and-compare=match
+addr-full  heldout/list/mapLength           block= 9333B  strip-and-compare=match
+addr-full  heldout/list/reverseThen         block= 9333B  strip-and-compare=match
+addr-full  heldout/maybe/mapOrElse          block= 9333B  strip-and-compare=match
+addr-full  heldout/list/headOrElse          block= 9333B  strip-and-compare=match
+addr-full  heldout/list/sum                 block= 9333B  strip-and-compare=match
+addr-full  heldout/sample/stampedBytes      block= 9333B  strip-and-compare=match
+addr-full  heldout/nat/selectNonNegative    block= 9333B  strip-and-compare=match
+addr-typed heldout/list/concatLength        block= 3637B  strip-and-compare=match
+addr-typed heldout/list/mapLength           block= 3637B  strip-and-compare=match
+addr-typed heldout/list/reverseThen         block= 2647B  strip-and-compare=match
+addr-typed heldout/maybe/mapOrElse          block= 3637B  strip-and-compare=match
+addr-typed heldout/list/headOrElse          block= 3637B  strip-and-compare=match
+addr-typed heldout/list/sum                 block= 3637B  strip-and-compare=match
+addr-typed heldout/sample/stampedBytes      block=  930B  strip-and-compare=match
+addr-typed heldout/nat/selectNonNegative    block= 3637B  strip-and-compare=match
+
+result: PASS — 2 arms x 8 tasks checked
+
+### Check 2a — typed_address_rows' blindness, by signature
+
+typed_address_rows(resolver, type_surface) parameters: ['resolver', 'type_surface']
+probe call with (resolver, type_surface) alone returns 13 rows
+result: PASS
+
+### Check 2b — typed row sets byte-match the audit's recomputation
+
+heldout/list/concatLength        built=13 rows  audit=13 rows  match
+heldout/list/mapLength           built=13 rows  audit=13 rows  match
+heldout/list/reverseThen         built= 7 rows  audit= 7 rows  match
+heldout/maybe/mapOrElse          built=13 rows  audit=13 rows  match
+heldout/list/headOrElse          built=13 rows  audit=13 rows  match
+heldout/list/sum                 built=13 rows  audit=13 rows  match
+heldout/sample/stampedBytes      built= 2 rows  audit= 2 rows  match
+heldout/nat/selectNonNegative    built=13 rows  audit=13 rows  match
+
+result: PASS
+
+### Check 2c — per-task route-incompleteness table (Amendment A1)
+
+Task.composes is read here, in the check, never by typed_address_rows (check 2a pins that by signature).
+
+heldout/list/concatLength        ROUTE-INCOMPLETE  missing=['list/append']
+heldout/list/mapLength           ROUTE-INCOMPLETE  missing=['list/map']
+heldout/list/reverseThen         complete          missing=[]
+heldout/maybe/mapOrElse          ROUTE-INCOMPLETE  missing=['maybe/map']
+heldout/list/headOrElse          ROUTE-INCOMPLETE  missing=['list/uncons']
+heldout/list/sum                 complete          missing=[]
+heldout/sample/stampedBytes      ROUTE-INCOMPLETE  missing=['clock/now', 'rand/bytes']
+heldout/nat/selectNonNegative    complete          missing=[]
+
+5 of 8 tasks route-incomplete (expected 5); complete: ['heldout/list/reverseThen', 'heldout/list/sum', 'heldout/nat/selectNonNegative'] (expected ['heldout/list/reverseThen', 'heldout/list/sum', 'heldout/nat/selectNonNegative'])
+result: PASS
+
+### Check 3 — context_required <= n_ctx - max_tokens_per_draw, every arm
+
+addr-none  longest prompt= 12123 tok  n_ctx(32768) - max_tokens_per_draw(768) =  32000  OK
+addr-full  longest prompt= 18346 tok  n_ctx(32768) - max_tokens_per_draw(768) =  32000  OK
+addr-typed longest prompt= 14545 tok  n_ctx(32768) - max_tokens_per_draw(768) =  32000  OK
+
+result: PASS
+
+### Check 4 — gold terms pass run_funnel/score_semantic; none leak into a prompt
+
+heldout/list/concatLength        funnel=accepted  mechfloor=True
+heldout/list/mapLength           funnel=accepted  mechfloor=True
+heldout/list/reverseThen         funnel=accepted  mechfloor=True
+heldout/maybe/mapOrElse          funnel=accepted  mechfloor=True
+heldout/list/headOrElse          funnel=accepted  mechfloor=True
+heldout/list/sum                 funnel=accepted  mechfloor=True
+heldout/sample/stampedBytes      funnel=accepted  mechfloor=True
+heldout/nat/selectNonNegative    funnel=accepted  mechfloor=True
+
+gold terms checked: 8/8, drops=0
+no gold surface appears in any built prompt (none/full/typed)
+result: PASS
+
+### Check 5 — route-reference extraction over the 4,135-draw baseline
+
+draws                       4135  (expected 4135)
+ref_to_ALL_required_defs      12  (expected 12)
+result: PASS
+
+### Deliverable 4 verdict: ALL CHECKS PASS
+```
+
+Every check passes. §4.8's gate is clear; nothing about this run authorizes a
+GPU launch by itself — that is a separate, explicit step per §5.
+
 ### 4.9 No peeking, no test-shopping
 
 The arms, the metric, the tests, the correction and the thresholds are fixed above
