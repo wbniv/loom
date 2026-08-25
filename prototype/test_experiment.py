@@ -305,13 +305,23 @@ class AddressBookTest(unittest.TestCase):
                 self.assertNotIn(prompts.ADDRESS_HEADER, plain, task.task_id)
         self.assertEqual(runner.Config().address_book, prompts.ADDRESS_BOOK_NONE)
 
-    def test_every_shipped_config_is_on_the_control_arm(self):
-        """No config already on record silently acquires an address book."""
+    #: The pre-registered §4.2 arm configs are the only shipped configs allowed
+    #: an address book, and each must carry exactly its declared arm.
+    ADDRESS_ARM_CONFIGS = {
+        "addr-full.config.json": "full",
+        "addr-typed.config.json": "typed",
+    }
+
+    def test_every_shipped_config_declares_its_registered_arm(self):
+        """No config on record silently acquires an address book: only the §4.2
+        arm files may carry one, and each must carry exactly its own."""
         for path in sorted(Path(runner.DEFAULT_CONFIG).parent.glob("*.config.json")):
             raw = json.loads(path.read_text(encoding="utf-8"))
+            expected = self.ADDRESS_ARM_CONFIGS.get(
+                path.name, prompts.ADDRESS_BOOK_NONE)
             self.assertEqual(
                 raw.get("address_book", prompts.ADDRESS_BOOK_NONE),
-                prompts.ADDRESS_BOOK_NONE,
+                expected,
                 path.name,
             )
 
