@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-25](https://github.com/wbniv/loom/commit/c42a8aa) | Amendment A1: addr-typed leaves the Holm family (pre-data) |
 | [2026-08-25](https://github.com/wbniv/loom/commit/10e0e5a) | Address book: the next-lever arms behind address_book: none|full|typed |
 | [2026-08-24](https://github.com/wbniv/loom/commit/c878b33) | Addressability audit: §1 diagnostics as a runnable script |
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 
 <!--history-meta v1
+c42a8aa	author	Will Norris
+c42a8aa	added	89
+c42a8aa	deleted	1
+c42a8aa	files	1
+c42a8aa	body	The T3 escalation on next-lever-prompt was upheld: §4.2's body-goal filter\nprovably drops route elements for 5 of 8 held-out tasks, so §4.8 check 2 (the\nGPU gate) asserted a property the pre-registered filter lacks — the plan could\nnot be executed as written. Before deciding, the obvious repair was measured:\na demand-driven closure filter (prototype/experiment/closure_filter_probe.py)\nrecovers 4 of 5 broken tasks but admits 28 of 35 rows, erasing H3's small-book\npremise, and still fails headOrElse (polymorphic instantiation) and\nstampedBytes (effectful codomains). No simple sound selection-time filter\nsatisfies check 2; unification-aware selection is mask-spine-refs territory at\ngeneration time.\n\nDecision, filed before any GPU draw exists: primary becomes the single\ncomparison addr-full vs addr-none at alpha=0.05 (strictly more power);\naddr-typed runs unchanged on the literal filter, entirely exploratory, its\nhandicap biasing only against itself; §4.8 check 2 replaced with the\nverifiable trio (blindness, audit byte-match, incompleteness table). Original\npre-registered text left intact with amendment pointers.\n\nnext-lever-prompt promoted to Done (implementation landed in 10e0e5a).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 10e0e5a	author	Will Norris
 10e0e5a	added	22
 10e0e5a	deleted	0

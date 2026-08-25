@@ -445,6 +445,62 @@ If the battery drops below six tasks, this plan pauses and the battery is redesi
 before any GPU spend — that is a stated stopping condition, not a judgment call at
 run time.
 
+**Deliverable 3 output (2026-08-25).** Landed in
+[`prototype/experiment/heldout_gold.py`](../../prototype/experiment/heldout_gold.py),
+run via `python3 -m experiment.heldout_gold` from `prototype/` (CPU only, no GPU, no
+network). Five gold terms reuse §1.1's `HAND_SOLVED` fixtures verbatim
+(`concatLength`, `mapLength`, `reverseThen`, `mapOrElse`, `sum`); three are newly
+authored (`headOrElse`, `stampedBytes`, `selectNonNegative`), each built from
+canonical IR helpers and checked against the real corpus hashes rather than
+hand-typed. `headOrElse`'s gold term literally calls both of its `composes` route
+elements (`list/uncons`, `maybe/getOrElse`) — the note above the task
+("the composition does not type by threading alone") holds: `uncons`'s
+`Maybe (Pair I64 (List I64))` is re-matched into a `Maybe I64` (discarding the
+tail) before `getOrElse`'s default application, rather than threaded directly.
+
+```
+### 4.4 Gold reference terms — funnel + semantic verdict
+
+heldout/list/concatLength        chars= 537  ~358 tok  funnel=accepted  mechfloor=True
+heldout/list/mapLength           chars= 409  ~273 tok  funnel=accepted  mechfloor=True
+heldout/list/reverseThen         chars= 613  ~409 tok  funnel=accepted  mechfloor=True
+heldout/maybe/mapOrElse          chars= 445  ~297 tok  funnel=accepted  mechfloor=True
+heldout/list/headOrElse          chars= 594  ~396 tok  funnel=accepted  mechfloor=True
+heldout/list/sum                 chars= 367  ~245 tok  funnel=accepted  mechfloor=True
+heldout/sample/stampedBytes      chars= 831  ~554 tok  funnel=accepted  mechfloor=True
+heldout/nat/selectNonNegative    chars= 844  ~563 tok  funnel=accepted  mechfloor=True
+
+no drops — all 8 held-out tasks have a gold term under the 768-token cap
+
+### Gold-term prompt-leak sanity check (all 3 arms, all 8 tasks)
+
+clean — no gold surface appears in any built prompt (none/full/typed)
+
+### Real-tokenizer check vs the chars/1.37 estimate
+
+heldout/list/concatLength        chars= 537  est(1.37)= 392  real= 420  delta=+28
+heldout/list/mapLength           chars= 409  est(1.37)= 299  real= 305  delta=+6
+heldout/list/reverseThen         chars= 613  est(1.37)= 447  real= 484  delta=+37
+heldout/maybe/mapOrElse          chars= 445  est(1.37)= 325  real= 328  delta=+3
+heldout/list/sum                 chars= 367  est(1.37)= 268  real= 284  delta=+16
+heldout/list/headOrElse          chars= 594  est(1.37)= 434  real= 448  delta=+14
+heldout/sample/stampedBytes      chars= 831  est(1.37)= 607  real= 662  delta=+55
+heldout/nat/selectNonNegative    chars= 844  est(1.37)= 616  real= 581  delta=-35
+```
+
+Real tokenizer: the pinned `qwen2.5-coder-7b-instruct-q4_k_m.gguf`
+(`/home/will/loom-tools/models-7b-only/`), loaded CPU-only (`n_gpu_layers=0`) through
+`experiment.llama_ffi.LlamaModel` purely to tokenize — no context beyond what the
+eight strings need, no decode, no GPU present on this machine (`nvidia-smi` is
+absent). The chars/1.37 estimate undercounts on 6 of 8 tasks (by up to 55 tokens,
+`stampedBytes`) and overcounts on 1 (`selectNonNegative`, by 35); it stays a
+reasonable planning figure but is not exact — real per-task worst case is
+`stampedBytes` at **662** real completion tokens, not the 447 §1.1 cites (that
+447 was the worst of the *original five*; adding the three newly-authored gold
+terms moves the eight-task worst case to 662). 662 still clears the §4.3 768-token
+per-draw cap, by 14 %, not 72 % — the 72 % figure in §4.3 is stale to the five-task
+gold set and should be read as such until §4.3 is amended.
+
 ### 4.5 Primary metric and test
 
 **Metric.** *Route-reference rate* — the share of a arm's held-out draws whose
