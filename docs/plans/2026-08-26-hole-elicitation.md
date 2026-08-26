@@ -345,8 +345,18 @@ argument under a known data type), replace that subtree with `(hole GOAL ())`, a
 send the repaired draft straight to the fill path. A pure function in `prompts.py`
 — `hole_at_error(source, error_path) -> str | None` — returning `None` when no such
 ancestor exists, in which case the round falls back to plain §8.3 narrowing.
-41 % of the banked arm's rejections carry a recoverable expected type at the failing
-node, which sizes it.
+Sized by `--section blame`:
+
+```
+arm       rejected  raw-IR note  expected type
+whole          734      271 37%        266 36%
+redraft        719      297 41%        286 40%
+holes          706      298 42%        291 41%
+```
+
+**41 % of the `holes` arm's rejections name an expected type at the failing node**, so
+a checker-holed seed has something to write into the hole that often. (The same column
+read the other way is §2.4's feedback-legibility defect.)
 
 B3 is **barred from the primary family, by pre-commitment, for a reason that is not
 about leakage.** The 2026‑08‑25 §2.1 states the property that makes this experiment
@@ -384,7 +394,8 @@ objection. **No part of this design needs to argue past §2.5, and none of it do
   soundness risk in exchange for an effect that is not the bottleneck.
 - **Improving the narrowing note.** 42 % of the banked arm's notes hand the model a
   raw Python `repr` of the type IR — `expected [0, 2], got [1, b'?\xf2\x10G…']` — in
-  an encoding it has never seen in the surface. That is a genuine defect and
+  an encoding it has never seen in the surface (`--section blame`, and it is 37–42 %
+  in all three arms, so it is not a `holes`-arm artefact). That is a genuine defect and
   probably a real lever, but it is a **feedback-legibility** lever that would move
   `redraft` and `holes` together and confound both. Filed for the plan owner as a
   separate item, not folded in here.

@@ -261,6 +261,25 @@ def blame() -> None:
           "  report's causal chain: writing a hole did not make a draft likelier to\n"
           "  be rejected. What rejects a draft is the structure around the hole.\n")
 
+    print("### What the checker knows about a rejection — B3's sizing\n")
+    print(f"{'arm':<9}{'rejected':>9}{'raw-IR note':>13}{'expected type':>15}")
+    for arm in ARMS:
+        rejected = [row for row in draws(load(arm))
+                    if row["funnel_outcome"] != "accepted"]
+        messages = [row.get("error_message") or "" for row in rejected]
+        raw = sum(1 for m in messages if re.search(r"expected \[|got \[|b'", m))
+        recoverable = sum(1 for m in messages if "type mismatch: expected" in m)
+        print(f"{arm:<9}{len(rejected):>9}{raw:>9} {raw / len(rejected):>3.0%}"
+              f"{recoverable:>11} {recoverable / len(rejected):>3.0%}")
+    print("\n  Two readings of the same column. **B3's sizing:** 41% of the `holes`\n"
+          "  arm's rejections name an expected type at the failing node, so a\n"
+          "  checker-holed seed has something to write into the hole that often.\n"
+          "  **The feedback-legibility defect (§2.4):** the same 42% of §8.3\n"
+          "  narrowing notes hand the model a raw Python `repr` of the type IR —\n"
+          "  `expected [0, 2], got [1, b'?\\xf2\\x10G...']` — in an encoding it has\n"
+          "  never seen in the surface. That is a real lever and a different one;\n"
+          "  it would move `redraft` and `holes` together and is not folded in here.\n")
+
 
 # --------------------------------------------------------------------------
 # gate — what §6 row 4's relaxation buys, counted
