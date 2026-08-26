@@ -29,21 +29,8 @@ Check conformance with `task todo:lint`.
 
 
 
-- [T3] [decomp-prompts] Hole machinery in `prompts.py`: `hole_obligations`,
-  `closed_subtask_type`, protocol + fill blocks behind `generation_protocol`,
-  adversarial blindness tests (two Tasks, same spec/type, different `composes`
-  → byte-identical prompts at every stage). Plan deliverable 3.
 
-- [T3] [decomp-runner] Protocol-aware cell loop in `runner.py`:
-  round/fill/splice/rollback, `generation_protocol: whole|redraft|holes`
-  (default `whole`), narrowing under typemask, per-draw telemetry. Escalate to
-  T4 if purse accounting proves subtler. **Sequence after [mask-spine-refs]
-  lands** — that agent has `runner.py` modified in its working tree. Plan
-  deliverable 4.
 
-- [T3] [decomp-stub] `decomposition_stub_check.py` — the plan's stub checks
-  incl. the gold-expressibility round-trip; output pasted into the plan.
-  **Gates the GPU spend.** Plan deliverable 5.
 
 
 - [T3] [decomp-run] Launch the runlist (spot ≈$3.07, on-demand ≈$10.39 with the
@@ -89,6 +76,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [decomp-stub] All 8 gate checks PASS (8/8 gold expressible via nested round-trip, no leaks, purse rules hold); output pasted into the plan; GPU gate open. Commit a6eadc5.
+- ✅ 2026-08-26 — [decomp-runner] Round loop landed: protocol-neutral purse (§4.3 intact), monotonicity enforced vs hole-bearing fills, crash-safe rounds, 3 configs validate, suite 849 green. Commit faeb0c7.
+- ✅ 2026-08-26 — [decomp-prompts] Hole machinery landed: obligations/closure/splice/fill+protocol blocks, whole pinned byte-identical (720 prompts vs HEAD~1), 33 tests, suite 821 green. Commit 7ad7dda.
 - ✅ 2026-08-26 — [decomp-floor-fix] Floor refuses hole-bearing defs (§5.4): 8 eta-skeletons fail-then-pass, archive replay 0 changes, decomp configs registered; suite 788 green. Commits bf0f053, 66d6481.
 - ✅ 2026-08-26 — [mask-spine-refs] `spine-goal` pruner landed: 204 soundness walks 0 exclusions, 47→6/4/5 exact (plan's 7/13/13 was the ∃k reading), +7.8% overhead, 24 tests. See [plan](docs/plans/2026-08-25-mask-spine-refs.md).
 - ✅ 2026-08-26 — [decomp-configs] Three decomp arm configs + runlist, byte-copies of addr-full with only plan fields changed; `generation_protocol` validation deferred to decomp-runner. Commit e04adb2.
