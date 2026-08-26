@@ -91,6 +91,32 @@ closed definition has no free variables to misalign. It refuses any fill whose
 lambda annotations are not that context, rather than splicing a term whose
 indices mean something else.
 
+Hole elicitation (2026-08-26 hole-elicitation plan §2.2, §4.2)
+----------------------------------------------------------------
+
+`hole_block` is the Stage-0 pilot's manipulated variable: which candidate a
+`generation_protocol="holes"` skeleton prompt carries, read only in that arm.
+
+``§3-block``      the banked block — `HOLE_PROTOCOL_BLOCK` alone. The default
+                   everywhere, pinned the way `address_book: "none"` is: a
+                   `holes` prompt at this value is exactly the bytes it was
+                   before this plan existed.
+``exemplar``       `§3-block` plus `hole_exemplar_block(resolver)` — two hole
+                   exemplars (§1.4's direct repair) built from corpus fixtures
+                   the prompt already shows complete: `corpus/bool/not` worked
+                   in full (draft, sub-task, fill) and `corpus/maybe/map` shown
+                   as draft + sub-task. No header, no prose — four lines of
+                   definition surface, 847 characters, ~565 tokens.
+``hole-required``  and ``checker-holed`` name runner-level mechanisms (a
+                   hole-demand note, and `hole_at_error` draft seeding) that
+                   this module does not implement; both build the same prompt
+                   bytes as `§3-block` until their own deliverables land.
+
+`hole_exemplar_block` is built the same blind way as the fill path above: a
+pure function of the resolver's own fixtures, never handed a `Task`, so it
+cannot carry a route, a gold surface, or a hash the four pinned few-shot
+definitions do not already show.
+
 **Leave-one-out is on by default.** A corpus-drawn task under `full_corpus`
 would otherwise carry its own answer verbatim in the prompt, and semantic
 success would measure transcription. `leave_one_out=False` restores the
@@ -143,6 +169,26 @@ PROTOCOL_REDRAFT = "redraft"
 PROTOCOL_HOLES = "holes"
 
 GENERATION_PROTOCOLS = (PROTOCOL_WHOLE, PROTOCOL_REDRAFT, PROTOCOL_HOLES)
+
+#: The hole-elicitation pre-registration's block-selection surface (2026-08-26
+#: plan §2.2, §4.2) — which candidate a `holes`-arm cell uses. `§3-block` is
+#: the banked block (§0's B0) and the default everywhere, pinned the way
+#: `address_book: "none"` is: at `hole_block="§3-block"` a `holes` prompt is
+#: exactly the bytes it was before this plan existed. Only `exemplar` (B1)
+#: changes what `build_prompt` emits here; `hole-required` (B2) and
+#: `checker-holed` (B3) name *runner*-level mechanisms — a hole-demand note
+#: appended to narrowing, and `hole_at_error` draft seeding — that this module
+#: does not implement, so they build the same prompt bytes as `§3-block` until
+#: their own deliverables land.
+HOLE_BLOCK_PROTOCOL = "§3-block"
+HOLE_BLOCK_EXEMPLAR = "exemplar"
+HOLE_BLOCK_HOLE_REQUIRED = "hole-required"
+HOLE_BLOCK_CHECKER_HOLED = "checker-holed"
+
+HOLE_BLOCKS = (
+    HOLE_BLOCK_PROTOCOL, HOLE_BLOCK_EXEMPLAR,
+    HOLE_BLOCK_HOLE_REQUIRED, HOLE_BLOCK_CHECKER_HOLED,
+)
 
 #: The small few-shot set: one boolean eliminator, one `match` over a nominal
 #: data type, one recursive `fix` with a measure and a cross-definition `ref`,
@@ -212,6 +258,7 @@ def estimated_tokens(text: str) -> int:
 def context_required(
     regimes, resolver, *, leave_one_out=True, draw_tokens=0,
     address_book=ADDRESS_BOOK_NONE, generation_protocol=PROTOCOL_WHOLE,
+    hole_block=HOLE_BLOCK_PROTOCOL,
 ) -> int:
     """Tokens the longest prompt over `regimes` needs, plus a draw's budget.
 
@@ -225,6 +272,10 @@ def context_required(
     it carries the draft too — and §4.8's check 5 sizes that separately, from a
     worst-case draft, because a bound computed over drafts nobody has drawn yet
     would be a guess rather than a measurement.
+
+    `hole_block` is threaded through unchanged, so a `"holes"` config's `n_ctx`
+    accounts for the ~565 tokens `"exemplar"` adds rather than sizing against
+    the `"§3-block"` figure it no longer runs with.
     """
     longest = 0
     for regime in regimes:
@@ -234,6 +285,7 @@ def context_required(
                 leave_one_out=leave_one_out,
                 address_book=address_book,
                 generation_protocol=generation_protocol,
+                hole_block=hole_block,
             )
             longest = max(longest, estimated_tokens(text))
     return longest + draw_tokens
@@ -1121,6 +1173,66 @@ def build_fill_prompt(
     return "\n\n".join(blocks) + "\n"
 
 
+# --------------------------------------------------------------------------
+# The `exemplar` block, B1 (2026-08-26 hole-elicitation plan §2.2, §4.7 check 9)
+# --------------------------------------------------------------------------
+
+
+def _corpus_source(name_path: str) -> str:
+    """A corpus fixture's canonical surface, by manifest name."""
+    return next(
+        entry for entry in corpus_registry.MANIFEST if entry.name_path == name_path
+    ).source_text().rstrip("\n")
+
+
+#: The store's own `Maybe` hash, read off the registry rather than pinned as a
+#: literal, so the shape exemplar cannot drift from what `corpus/maybe/map`
+#: itself already carries.
+_HOLE_EXEMPLAR_MAYBE_HASH = "0x" + corpus_registry.HASHES["Maybe"].hex()
+
+#: The worked exemplar: `corpus/bool/not` with its `then` branch holed. Chosen
+#: because it is 78 characters, carries no hash at all, and its round-trip —
+#: draft, sub-task, fill — is the entire protocol in three lines, teaching the
+#: fill-draw shape §1.4 found the model has never once been shown.
+HOLE_EXEMPLAR_NOT_SKELETON = (
+    "(def (fn Bool () Bool) (lam Bool (if (var 0) (hole Bool ()) "
+    "(lit bool true))))"
+)
+HOLE_EXEMPLAR_NOT_FILL = "(def (fn Bool () Bool) (lam Bool (lit bool false)))"
+
+#: The shape exemplar: `corpus/maybe/map` with its `Nothing` arm's body holed.
+#: Shown as draft + sub-task only (§2.2) — a fill line here would add 383
+#: characters of hashes to teach a shape the worked exemplar already taught.
+HOLE_EXEMPLAR_MAP_SKELETON = _corpus_source("corpus/maybe/map").replace(
+    f"(0 0 (con {_HOLE_EXEMPLAR_MAYBE_HASH} 0 ()))",
+    f"(0 0 (hole (data {_HOLE_EXEMPLAR_MAYBE_HASH} (I64)) ()))",
+)
+
+
+def hole_exemplar_block(resolver: ExperimentResolver) -> str:
+    """B1's addition to `HOLE_PROTOCOL_BLOCK` (§2.2): the two exemplars above,
+    joined as four lines of definition surface and nothing else — no header,
+    no prose — so its size (847 characters, ~565 tokens; §2.2, §4.7 check 9)
+    is exactly the definition surface it costs.
+
+    A pure function of the resolver's own fixtures, called with **no `Task`**,
+    for the same reason `hole_obligations` and `closed_subtask_type` are not:
+    the block is built once from corpus fixtures the prompt already shows in
+    full, so it cannot carry a route or a gold surface it was never handed
+    (§4.7 check 1c). `resolver` is accepted only because `hole_obligations`
+    takes one, for symmetry with `run_funnel`; the walk itself needs no store.
+    """
+    obligation, = hole_obligations(HOLE_EXEMPLAR_MAP_SKELETON, resolver)
+    subtask = closed_subtask_type(
+        declared_type_of(HOLE_EXEMPLAR_MAP_SKELETON), obligation)
+    return "\n".join([
+        HOLE_EXEMPLAR_NOT_SKELETON,
+        HOLE_EXEMPLAR_NOT_FILL,
+        HOLE_EXEMPLAR_MAP_SKELETON,
+        subtask,
+    ])
+
+
 def build_prompt(
     task: Task,
     regime: str,
@@ -1130,6 +1242,7 @@ def build_prompt(
     narrowing: str = "",
     address_book: str = ADDRESS_BOOK_NONE,
     generation_protocol: str = PROTOCOL_WHOLE,
+    hole_block: str = HOLE_BLOCK_PROTOCOL,
 ) -> str:
     """The full prompt for one (task, regime) pair.
 
@@ -1151,11 +1264,23 @@ def build_prompt(
     byte-identical across the two. So at the default this function's output is
     byte-for-byte what it was before holes existed, pinned exactly the way
     `address_book: "none"` is pinned.
+
+    `hole_block` (2026-08-26 plan §2.2, §4.2) selects which pilot candidate a
+    `"holes"` skeleton prompt carries, and is read only when
+    `generation_protocol == "holes"`. At the default `"§3-block"` it inserts
+    nothing beyond `HOLE_PROTOCOL_BLOCK` — today's bytes. `"exemplar"` inserts
+    `hole_exemplar_block(resolver)` immediately after it, still before
+    `narrowing`, so the prefix-identity property above extends to it too.
+    `"hole-required"` and `"checker-holed"` build the same bytes as
+    `"§3-block"`: both are runner-level mechanisms with nothing to add here.
     """
     if generation_protocol not in GENERATION_PROTOCOLS:
         raise ValueError(
             f"unknown generation_protocol {generation_protocol!r}; "
             f"known: {', '.join(GENERATION_PROTOCOLS)}")
+    if hole_block not in HOLE_BLOCKS:
+        raise ValueError(
+            f"unknown hole_block {hole_block!r}; known: {', '.join(HOLE_BLOCKS)}")
     blocks = [PREAMBLE]
     names = example_names(regime, task, resolver, leave_one_out=leave_one_out)
     if names:
@@ -1165,6 +1290,8 @@ def build_prompt(
         blocks.append(book)
     if generation_protocol == PROTOCOL_HOLES:
         blocks.append(HOLE_PROTOCOL_BLOCK)
+        if hole_block == HOLE_BLOCK_EXEMPLAR:
+            blocks.append(hole_exemplar_block(resolver))
     if narrowing:
         blocks.append(narrowing)
     blocks.append(f"Now write this definition.\n{task.spec}")
