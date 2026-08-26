@@ -1,0 +1,12 @@
+[
+  {
+    "config_key": "config/addr-full.config.json",
+    "output_dir": "runs/addr-full",
+    "run_id": "addr-full"
+  },
+  {
+    "config_key": "config/addr-typed.config.json",
+    "output_dir": "runs/addr-typed",
+    "run_id": "addr-typed"
+  }
+]
