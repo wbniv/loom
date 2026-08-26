@@ -33,38 +33,13 @@ Check conformance with `task todo:lint`.
 
 
 
-- [T2] [elicit-gate] Well-scoped fill gate (`fill_gate: accepted|well-scoped` —
-  parse/references/scope block, typecheck admits) + the bare-hole rule evaluated
-  unconditionally (runner.py:828's `funnel.accepted and` conjunct is a live bug
-  under a relaxed gate) + regression test. [Plan](docs/plans/2026-08-26-hole-elicitation.md) D2.
 
-- [T2] [elicit-block-b1] The `exemplar` block B1 (two corpus-fixture hole
-  exemplars; CPU-verified end to end, 0 gold surfaces, 0 new hashes) + its
-  checks 1b/1c/9. Plan D3.
 
-- [T2] [elicit-block-b2] The `hole-required` block B2. Plan D4.
 
-- [T3] [elicit-block-b3] `hole_at_error` + `checker-holed` B3 + check 10 —
-  pilot arm only, pre-committed OUT of the primary family (harness-chosen cuts
-  break §2.1's no-oracle property; if B3 alone clears E1 that is an escalation,
-  not a launch). Plan D5.
 
-- [T2] [narrowing-legibility] 37–42% of narrowing notes hand the model a raw
-  Python `repr` of the type IR (all three arms). Render them as canonical type
-  surfaces. **Land before the pilot** — it moves all arms identically there,
-  but folded into any single elicitation block it would confound the
-  comparison. Plan §2.4.
 
-- [T1] [elicit-backpointers] Back-pointer in the 08-25 plan §6 row 4 +
-  addendum on the 08-26 report (its "licensed but did not induce" and
-  starvation-causality readings are corrected by the new plan's §1 evidence).
-  Plan D8.
 
-- [T2] [elicit-configs] 7 configs + 2 runlists + `pilot_select.py`, byte-copy
-  discipline per the plan. Plan D7.
 
-- [T3] [elicit-stub] `hole_elicitation_stub_check.py` — **gates the pilot's
-  GPU spend.** Plan D6.
 
 - [T3] [elicit-pilot-run] Stage 0 pilot: 4 blocks × 16 cells, ≈$1.30, gated on
   [elicit-stub] + explicit launch go; E1 (fill-reaching ≥10% Wilson-lower) and
@@ -109,6 +84,14 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [elicit-stub] All 12 gate checks PASS (incl. check 10 over 1,851 banked rejections and §1 reproduction); output pasted into the plan; pilot GPU gate open. Commit cd30c1e.
+- ✅ 2026-08-26 — [elicit-configs] 4 pilot + 3 stage-1 configs + 2 runlists + pilot_select.py (E1/E2, B3 bar, --apply placeholder resolution), all validated, 16 tests; suite 928 green. Commit aaa19f9.
+- ✅ 2026-08-26 — [elicit-block-b3] `hole_at_error`/checker-holed landed, 4 fences, check 10 PASS (0 violations/1,851 banked rejections), 26 tests; probe STEP bug found+fixed (immaterial, replay-proven). Commits cd0f717, 154c863.
+- ✅ 2026-08-26 — [elicit-block-b2] `hole_required_rounds` append-only demand note landed, inert at default, gate-composition verified, 13 tests; suite 889 green. Commit f603922.
+- ✅ 2026-08-26 — [narrowing-legibility] Repr leak was typecheck.py's nine _fail sites; 37/41/42% → 0% on banked replay, 0 reclassifications, 4 tests; suite 880 green. Commit 8ed72cd.
+- ✅ 2026-08-26 — [elicit-gate] `fill_gate: accepted|well-scoped` landed, bare-hole conjunct bug fixed with fail-then-pass on banked data, 12 tests; suite 876 green. Commit 1b8086b.
+- ✅ 2026-08-26 — [elicit-block-b1] `exemplar` block landed behind `hole_block`, byte-identity pinned, 15 tests in new test_elicitation.py, probe imports it back; suite 864 green. Commits 4f7b450, 0eae0ae.
+- ✅ 2026-08-26 — [elicit-backpointers] Row-4-fired pointer on the 08-25 plan + correction addendum on the 08-26 report, append-only. Commit 5c7dbe8.
 - ✅ 2026-08-26 — [decomp-elicit-rerun] New pre-registration (2-stage: $1.30 pilot → $4.55 @ 96 cells): block induces at p=0.005 but 20× weak (prior, not mask); 9/10 rejects failed at siblings — gate alone buys 0. See [plan](docs/plans/2026-08-26-hole-elicitation.md).
 - ✅ 2026-08-26 — [decomp-run] Primary NULL but starved (§6 row 4: 5.5% skeleton acceptance, 0 fills); **first 2 genuine held-out semantic successes** incl. first real composition, verified by execution; ≈$2.75. See [report](docs/results/2026-08-26-decomposition-report.md).
 - ✅ 2026-08-26 — [decomp-stub] All 8 gate checks PASS (8/8 gold expressible via nested round-trip, no leaks, purse rules hold); output pasted into the plan; GPU gate open. Commit a6eadc5.
