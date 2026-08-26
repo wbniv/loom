@@ -223,6 +223,15 @@ class Config:
     #: `fills_per_round_max` / `fill_attempts_per_hole` for that round only; an
     #: accepted draft keeps those constants exactly as before.
     fill_gate: str = FILL_GATE_ACCEPTED
+    #: The 2026-08-26 hole-elicitation plan §2.2 B2 (`hole-required`): for the
+    #: first `hole_required_rounds` rounds of a cell, a round whose draft
+    #: carried no hole at all — or nothing but a bare one (§3's rule) — gets
+    #: the hole-demand note appended to, never substituted for, that round's
+    #: §8.3 narrowing note. `0` (default) means every config written before
+    #: this field existed runs byte for byte what it ran; the pilot's B2 arm
+    #: is the only one that sets it, to `3`. Read only by the `holes`
+    #: protocol's round loop — `whole` and `redraft` never see it.
+    hole_required_rounds: int = 0
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -347,6 +356,10 @@ class Config:
             raise SystemExit(
                 f"unknown fill_gate {self.fill_gate!r}; known fill gates: "
                 f"{', '.join(FILL_GATES)}")
+        if self.hole_required_rounds < 0:
+            raise SystemExit(
+                "hole_required_rounds must be >= 0; plan §2.2 B2's pilot arm "
+                "sets it to 3")
         if self.token_budget_per_task < 1 or self.max_tokens_per_draw < 1:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
@@ -594,6 +607,7 @@ class _CellRun:
             # exactly what it was before decomposition existed.
             "generation_protocol": self.config.generation_protocol,
             "fill_gate": self.config.fill_gate,
+            "hole_required_rounds": self.config.hole_required_rounds,
             "role": role,
             "round": round_index,
             "candidate": candidate,
@@ -680,6 +694,44 @@ MONOTONE_NOTE = (
     "The previous answer put another hole where the hole was, so the draft did "
     "not shrink.\nWrite a different definition that avoids this."
 )
+
+
+#: The 2026-08-26 plan §2.2 B2 (`hole-required`) hole-demand note, verbatim.
+#: Appended to — never substituted for — the round's §8.3 narrowing note for
+#: the first `config.hole_required_rounds` rounds of a cell, whenever that
+#: round's draft carried no hole at all or nothing but a bare one. Protocol
+#: enforcement, not persuasion: the same move the bare-hole rule already makes
+#: for §3's other sentence, applied here to its first one.
+HOLE_REQUIRED_NOTE = (
+    "The previous answer had no `(hole GOALTYPE ())` in it. Write the same "
+    "definition again, but replace the one subterm you are least sure of with "
+    "`(hole GOALTYPE ())`, where GOALTYPE is the type that subterm must have."
+)
+
+
+def _with_hole_required_note(narrowing, round_index, draft, census, config):
+    """§2.2 B2: append the hole-demand note when this round earns one.
+
+    Earns one iff three things all hold: the arm actually enforces it
+    (`hole_required_rounds > 0`), this round is inside the enforced window
+    (`round_index < hole_required_rounds` — the round that just ran, so the
+    note lands in the *next* round's prompt and the window closes exactly
+    after `hole_required_rounds` rounds), and the draft just drawn carried no
+    hole at all or nothing but a bare one. The bare-hole check is the same
+    structural rule §3 already enforces (`_is_bare_hole`), evaluated here
+    unconditionally — independent of `config.fill_gate` — because eliciting a
+    hole and admitting one to a fill are different questions.
+
+    Appended, never substituted: `narrowing_note`'s own text (or the empty
+    string, on an accepted draft) survives untouched, with the demand note on
+    its own line after it.
+    """
+    if not (config.hole_required_rounds and round_index < config.hole_required_rounds):
+        return narrowing, False
+    if census["holes"] > 0 and not _is_bare_hole(draft):
+        return narrowing, False
+    combined = f"{narrowing}\n{HOLE_REQUIRED_NOTE}" if narrowing else HOLE_REQUIRED_NOTE
+    return combined, True
 
 
 def _run_whole_protocol(cell):
@@ -888,12 +940,19 @@ def _run_holes_protocol(cell):
             bare = _is_bare_hole(draft)
         else:
             bare = funnel.accepted and _is_bare_hole(draft)
+        # §2.2 B2: computed from *this* draft, so it lands in the *next*
+        # round's prompt — same handoff point as `narrowing_note` above, and
+        # independent of the fill gate (a hole can be demanded whether or not
+        # this draft's holes, if any, ever reach a fill).
+        narrowing, hole_required_note_added = _with_hole_required_note(
+            narrowing, round_index, draft, census, config)
         cell.emit(
             role=ROLE_SKELETON, round_index=round_index, narrowed=narrowed,
             source=draft, funnel=funnel,
             semantic=score_semantic(cell.task, funnel, draft),
             cell_done=False, candidate=False, draw=draw,
-            extra={**census, "bare_hole_body": bare})
+            extra={**census, "bare_hole_body": bare,
+                   "hole_required_note_added": hole_required_note_added})
 
         attempted = spliced = rolled_back = 0
         if _fill_admitted(config, funnel, bare):
@@ -1154,6 +1213,13 @@ def _protocol_metrics(rows):
         "accepted_skeleton_rate": (
             round(len(accepted_skeletons) / len(skeletons), 4) if skeletons else 0.0),
         "bare_hole_drafts": sum(1 for row in skeletons if row.get("bare_hole_body")),
+        # §2.2 B2's own telemetry: how many skeleton rounds actually carried
+        # the hole-demand note forward. `0` on every arm but `hole-required`
+        # (or on `hole-required` once its `hole_required_rounds` window has
+        # closed for every cell), which is what makes this the mechanical
+        # check that B2 fired at all.
+        "hole_required_notes_added": sum(
+            1 for row in skeletons if row.get("hole_required_note_added")),
         "holes_per_accepted_skeleton": (
             round(holes_seen / len(accepted_skeletons), 3) if accepted_skeletons else 0.0),
         "fillable_hole_fraction": (
@@ -1434,6 +1500,9 @@ def _render_protocol(summary):
         f"({protocol['accepted_skeletons']} accepted, rate "
         f"{protocol['accepted_skeleton_rate']})  ",
         f"**Bare-hole drafts (§3, unfilled by rule):** {protocol['bare_hole_drafts']}  ",
+        *([f"**Hole-required notes added (§2.2 B2):** "
+           f"{protocol['hole_required_notes_added']}  "]
+          if protocol["hole_required_notes_added"] else []),
         f"**Holes per accepted skeleton:** {protocol['holes_per_accepted_skeleton']} "
         f"({protocol['fillable_hole_fraction']} of them fillable in v1)  ",
         f"**Fill draws:** {protocol['fill_draws']} "
