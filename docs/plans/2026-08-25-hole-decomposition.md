@@ -576,6 +576,174 @@ check prints an explicit PASS/FAIL and the script exits non-zero on any FAIL.
    path — so every arm number in the report shares a code path with the address-book
    report's.
 
+#### Deliverable 5 output — run 2026‑08‑26, CPU only, no GPU, no network
+
+[`prototype/experiment/decomposition_stub_check.py`](../../prototype/experiment/decomposition_stub_check.py),
+run as `python3 -m experiment.decomposition_stub_check` from `prototype/`;
+exit status **0**. Verbatim, unedited. Where a check's text above names a
+signature the landed code spells differently, the check tests the **landed**
+contract and says so in a `note:` line of its own output — the deviations are
+the ones §8's deliverable-3 and deliverable-4 notes already record.
+
+```
+### Check 1 — the arms differ only by §3's block
+
+heldout/list/concatLength        redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/list/mapLength           redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/list/reverseThen         redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/maybe/mapOrElse          redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/list/headOrElse          redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/list/sum                 redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/sample/stampedBytes      redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+heldout/nat/selectNonNegative    redraft==whole=yes  holes-minus-block==whole=yes  block=223B
+
+decomp-redraft   config fields differing from decomp-whole beyond ['generation_protocol', 'output_dir']: []
+decomp-holes     config fields differing from decomp-whole beyond ['generation_protocol', 'output_dir']: []
+decomp-whole     pruners=['goal-type', 'de-bruijn', 'ref-hash'] pinned
+decomp-redraft   pruners=['goal-type', 'de-bruijn', 'ref-hash'] pinned
+decomp-holes     pruners=['goal-type', 'de-bruijn', 'ref-hash'] pinned
+
+result: PASS — 8 tasks, 3 configs
+
+### Check 2a — the new surfaces take no Task, by signature
+
+note: §4.8 spells the closure `closed_subtask_type(…, context)`; the landed signature is
+      `(declared_type_surface, obligation)` — a `HoleObligation` *is* the hole's context
+      (§8 deliverable 3, first bullet). The pin below is against the landed spelling.
+
+hole_obligations       ['source', 'resolver']  as landed  no Task
+closed_subtask_type    ['declared_type_surface', 'obligation']  as landed  no Task
+fill_term_skeleton     ['obligation']  as landed  no Task
+splice_fill            ['draft_source', 'obligation', 'fill_source']  as landed  no Task
+build_fill_prompt      ['spec', 'regime', 'resolver', 'draft_source', 'obligation', 'narrowing', 'address_book', 'exclude_identity']  as landed  no Task
+
+result: PASS
+
+### Check 2b — adversarial: composes/expected_surface cannot reach a prompt
+
+two Tasks, identical spec and expected_type_surface:
+  adversary/a    composes=['corpus/list/uncons', 'corpus/maybe/getOrElse']
+  adversary/b    composes=['corpus/list/append', 'corpus/list/reverse']
+
+decomp-whole     41 prompts per cell  byte-identical
+decomp-redraft   41 prompts per cell  byte-identical
+decomp-holes     55 prompts per cell  byte-identical
+
+result: PASS
+
+### Check 3 — all eight gold answers round-trip through a NESTED draft
+
+note: §1.3 ran this for `reverseThen` alone. The subterm blanked here is chosen
+      mechanically — the largest argument of a `ref`-headed application spine, its
+      goal type read off the referenced object's own declared type — never from
+      `composes`. `nested=True` is `bare_hole_body(draft)` being False: the hole is
+      strictly inside the body, so the sub-goal is genuinely smaller than the task.
+
+heldout/list/concatLength        draft=accepted  type-preserved=True  nested=True  sub= 100ch closed= 255ch fill=accepted  identical=True  floor=True
+heldout/list/mapLength           draft=accepted  type-preserved=True  nested=True  sub= 100ch closed= 191ch fill=accepted  identical=True  floor=True
+heldout/list/reverseThen         draft=accepted  type-preserved=True  nested=True  sub=  86ch closed= 255ch fill=accepted  identical=True  floor=True
+heldout/maybe/mapOrElse          draft=accepted  type-preserved=True  nested=True  sub= 100ch closed= 203ch fill=accepted  identical=True  floor=True
+heldout/list/headOrElse          draft=accepted  type-preserved=True  nested=True  sub= 295ch closed= 179ch fill=accepted  identical=True  floor=True
+heldout/list/sum                 draft=accepted  type-preserved=True  nested=True  sub=  72ch closed= 115ch fill=accepted  identical=True  floor=True
+heldout/sample/stampedBytes      draft=accepted  type-preserved=True  nested=True  sub=   7ch closed= 379ch fill=accepted  identical=True  floor=True
+heldout/nat/selectNonNegative    draft=accepted  type-preserved=True  nested=True  sub=  86ch closed= 384ch fill=accepted  identical=True  floor=True
+
+tasks expressible: 8 of 8; dropped: none
+§4.4's stopping condition (battery below six tasks) does not fire.
+result: PASS
+
+### Check 4 — floor-rule regression: fail-then-pass on the eight eta-skeletons
+
+`would_have_met` is the *pre-fix* rule (accepted ∧ type-exact) recomputed here: it is
+True for every skeleton, which is what makes this a regression proof rather than a
+restatement. `floor_now` is the shipped `score_semantic`.
+
+heldout/list/concatLength        skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/list/mapLength           skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/list/reverseThen         skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/maybe/mapOrElse          skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/list/headOrElse          skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/list/sum                 skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/sample/stampedBytes      skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+heldout/nat/selectNonNegative    skeleton funnel=accepted  would_have_met=True  floor_now=False gold_floor=True
+
+refusal detail: term contains a hole (§5.4: draft/ only, never a binding target)
+result: PASS
+
+### Check 5 — context_required <= n_ctx - max_tokens_per_draw, every arm
+
+decomp-whole     skeleton= 18346 tok  worst-case fill= 19799 tok  threshold= 32000  OK
+decomp-redraft   skeleton= 18346 tok  worst-case fill= 19799 tok  threshold= 32000  OK
+decomp-holes     skeleton= 18496 tok  worst-case fill= 19799 tok  threshold= 32000  OK
+
+worst-case draft: heldout/sample/stampedBytes (906 chars), carried with a narrowing note
+result: PASS
+
+### Check 6 — no gold surface appears in any built prompt
+
+note: a fill prompt carries the *draft*, which in a run is the model's own. Both
+      draft shapes are checked: a model-writable one (the eta-skeleton, gold-free by
+      construction) and check 3's gold-derived one. In neither does any task's gold
+      surface appear — the harness adds nothing beyond the draft it was handed.
+
+skeleton prompts checked    24
+fill prompts checked        48
+gold surfaces searched for   8 (every task's, in every prompt)
+heldout_gold.prompt_leak_check(): no offenders
+
+result: PASS
+
+### Check 7 — a scripted stub drives one cell of each arm
+
+note: the cell runs at condition `gbnf` (the mask needs a real vocabulary); the
+      purse, the per-draw cap and the draw cap are the arm's own. `_CellRun` is the
+      same object under either condition, so the budget rule checked here is the
+      one that will bind on the GPU. §4.3.6's constants are config fields (§8
+      deliverable 4), so the round is driven to its limits without editing the
+      harness.
+
+decomp-whole     records= 41 draws= 41 candidates= 41 rounds= 41 tokens= 3888/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True candidate-cost-0=True
+                 bookkeeping: every draw is its own candidate=True  narrowed=False
+decomp-redraft   records= 41 draws= 41 candidates= 41 rounds= 41 tokens= 3888/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True candidate-cost-0=True
+                 bookkeeping: every draw is its own candidate=True  narrowed=True
+decomp-holes     records= 76 draws= 55 candidates= 21 rounds= 21 tokens= 3874/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True candidate-cost-0=True
+                 paths: accepted-draft=yes rejected-draft=yes bare-hole=yes unfillable-hole=yes spliced=yes assembly-rollback=yes
+                 bookkeeping: one skeleton + one candidate per round=True  a candidate met the floor=True
+
+result: PASS
+
+### Check 8 — route-reference extraction over the recorded addr-* arms
+
+Through `address_book_analysis.arm_stats`, which is the address-book report's own
+code path (it reuses the audit's `_route_hashes` / `_REF_RE`) — so every arm number
+in the decomposition report shares a code path with that report's.
+
+addr-none    draws= 320 (expected 320)  route-complete draws=  1 (expected  1)  match
+addr-full    draws= 320 (expected 320)  route-complete draws= 10 (expected 10)  match
+addr-typed   draws= 320 (expected 320)  route-complete draws= 21 (expected 21)  match
+
+result: PASS
+
+### Deliverable 5 verdict: ALL CHECKS PASS — the GPU gate is open
+```
+
+**Reading.** All eight checks pass; **no task is dropped from the battery**, so
+§4.4's stopping condition does not fire and the battery stays at eight. Three
+things are worth naming rather than leaving in the table. Check 3 is the
+all-eight nested round-trip §1.3 ran for `reverseThen` alone — the sub-tasks it
+derives run from 115 to 384 characters of closed type, and every one of the
+eight assemblies is byte-identical to gold and meets the floor. Check 7 drives
+all six protocol paths in one `holes` cell — accepted draft, rejected draft,
+bare-hole body, unfillable hole, a splice, and an assembly rollback — under the
+arms' own purse, and the purse binds in every arm (3,874–3,888 of 4,608 tokens
+spent, the cell ending when no whole cap still fits). Check 5's worst-case fill
+prompt is 19,799 tokens against a 32,000‑token threshold, so §4.3.3's assertion
+holds with 12k to spare. The remaining gate on launch is
+`[runlist-partial-fetch]` (§5).
+
 ### 4.9 No peeking, no test-shopping
 
 The arms, the metric, the unit, the tests, the α and the thresholds are fixed above
@@ -765,7 +933,15 @@ does not edit `TODO.md`.
 5. **`prototype/experiment/decomposition_stub_check.py`** — §4.8's eight checks on
    CPU, output pasted back into this plan. **This is the gate on GPU spend.**
    *(T3 — check 3, the expressibility round-trip, is the one Amendment A1 taught
-   us not to skip.)*
+   us not to skip.)* **Landed and run**, 2026‑08‑26: the raw output is pasted
+   under §4.8 and **all eight checks pass**, so the gate is open and no task is
+   dropped from the battery. Two adaptations, both to the *landed* contract §8's
+   deliverable-3/4 notes record rather than to §4.8's sketch, each stated in a
+   `note:` line of the check's own output: check 2 pins
+   `closed_subtask_type(declared_type_surface, obligation)`, and check 7's
+   scripted cell runs at condition `gbnf` because the type mask needs a real
+   vocabulary — `_CellRun` is the same object under either condition, so the
+   budget rule it checks is the one that will bind on the GPU.
 6. **Three configs (`decomp_whole`, `decomp_redraft`, `decomp_holes`) plus
    `decomposition-runlist.json`** — byte-copies of `addr-full.config.json` with only
    the §4.2/§4.3 fields changed, `pruners` pinned, all validating. *(T2.)*

@@ -1,9 +1,15 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/faeb0c7) | Protocol-aware cell loop: rounds, fills, splices and rollback |
 | [2026-08-26](https://github.com/wbniv/loom/commit/7ad7dda) | Hole machinery in prompts.py: obligations, closure, protocol and fill blocks |
 | [2026-08-25](https://github.com/wbniv/loom/commit/2e1cacc) | Plan: hole-directed decomposition, pre-registered (next-lever §2.2) |
 
 <!--history-meta v1
+faeb0c7	author	Will Norris
+faeb0c7	added	43
+faeb0c7	deleted	1
+faeb0c7	files	1
+faeb0c7	body	Deliverable 4 of docs/plans/2026-08-25-hole-decomposition.md. One\n`_CellRun` now holds a cell's purse, its draws and its records, and three\nprotocols share it:\n\n* `whole` — today's independent draws, unchanged in every respect. §4.3's\n  budget rule is the same object it was: a draw is granted only while a\n  *whole* cap fits, and every granted draw gets exactly that cap.\n* `redraft` — `whole` plus §8.3 narrowing on rejection, and nothing else,\n  so draw 0 of every cell is byte-identical across the two arms.\n* `holes` — §2.2's six-step round: skeleton draw, funnel, obligation\n  enumeration, closure, fill draw, splice, re-check, rollback. Every draw a\n  round makes, skeleton or fill, is an ordinary full-cap draw against the\n  one per-cell purse; the purse binds, not the draw cap.\n\nThe round's candidate is emitted as its own zero-token `role: "candidate"`\nrecord, because after a splice it is a definition the model never wrote in\none piece. Per-draw rates count `DRAW_ROLES` alone, so an assembly can\nnever inflate one, and every pre-decomposition summary and report renders\nbyte-identically.\n\n`generation_protocol` defaults to `whole`, so the three shipped arm\nconfigs load and validate and every older config is unmoved.\n\nSix implementation choices are recorded in the plan's §8 deliverable-4\nnotes. The load-bearing one: §2.2 states draft monotonicity as a property,\nbut `splice_fill` accepts a hole-bearing fill, so a hole could be filled\nwith a hole forever. An assembly with no fewer holes than the draft had is\nnow rolled back like any other failed re-check.\n\n28 new tests through the stub backend cover every path §4.8 check 7 names\n— accepted draft, rejected draft, bare hole, unfillable hole, assembly\nrollback — plus splice refusal, monotonicity, the purse, and crash-safe\nresume of a cell cut off mid-round. Suite: 849 green.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 7ad7dda	author	Will Norris
 7ad7dda	added	27
 7ad7dda	deleted	1
