@@ -319,6 +319,11 @@ class AddressBookTest(unittest.TestCase):
     ADDRESS_ARM_CONFIGS = {
         "addr-full.config.json": "full",
         "addr-typed.config.json": "typed",
+        # docs/plans/2026-08-25-hole-decomposition.md §4.2/4.3: byte-copies of
+        # addr-full.config.json for the three decomposition-experiment arms.
+        "decomp-whole.config.json": "full",
+        "decomp-redraft.config.json": "full",
+        "decomp-holes.config.json": "full",
     }
 
     def test_every_shipped_config_declares_its_registered_arm(self):
