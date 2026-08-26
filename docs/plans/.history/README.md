@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-25](https://github.com/wbniv/loom/commit/8d7cbb0) | Plan index: row for the spine-goal mask plan |
 | [2026-08-25](https://github.com/wbniv/loom/commit/d3429a6) | Plan index: row for the hole-decomposition plan |
 | [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 | [2026-08-24](https://github.com/wbniv/loom/commit/82529db) | Corpus-size sweep: results, §2.7 trend test, report |
@@ -54,6 +55,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+8d7cbb0	author	Will Norris
+8d7cbb0	added	1
+8d7cbb0	deleted	0
+8d7cbb0	files	1
+8d7cbb0	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 d3429a6	author	Will Norris
 d3429a6	added	1
 d3429a6	deleted	0
