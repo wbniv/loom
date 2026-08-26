@@ -173,7 +173,17 @@ OK (skipped=9)
 ```
 
 **PASS.** Baseline was 762; the 24 new tests are the ones listed in §6. Nothing
-existing changed verdict.
+existing changed verdict. Run twice at this commit, both `OK (skipped=9)`.
+
+**Not this plan's, recorded for whoever owns it.** A later run of the same command on
+the shared tree reports `FAILED (failures=1)`:
+`test_experiment.AddressBookTest.test_every_shipped_config_declares_its_registered_arm`
+— `AssertionError: 'full' != 'none' : decomp-holes.config.json`. Introduced by
+`e04adb2` ("Add decomposition experiment arm configs and runlist"), which lands three
+byte-copies of `addr-full.config.json` declaring `"address_book": "full"` without
+registering them as arms. Attributed by running that one test in a detached worktree at
+this plan's own commit `d2019ac`, where the decomp configs do not exist and it passes.
+Nothing in this plan touches a config file.
 
 ### 5.2 Soundness
 
