@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from declarations import DeclarationError, DeclarationRegistry
 from references import check_definition_references
 from scope import check_definition, forall_prefix
-from transcode import parse_source
+from transcode import SurfaceError, parse_source, type_to_surface
 
 #: Resolves a stored definition hash to the definition's Loom type. The match
 #: layer has no store, so the type of a `ref` is supplied the way `scope.py`
@@ -40,6 +40,29 @@ class TypingError(ValueError):
 
 def _fail(path: str, message: str) -> None:
     raise TypingError(path, message)
+
+
+def _render(node) -> str:
+    """Render a type-IR node into error text as its canonical surface, never
+    Python `repr`. `evaluate.narrowing_note` hands this text back to the model
+    unmodified (§8.3), and the surface is the only type encoding it has ever
+    seen — a raw `repr` (nested lists, `b'...'` bytes objects) is not.
+
+    Falls back to `repr` only when `node` is not itself a well-formed type-IR
+    node (defense in depth for the few call sites, e.g. malformed-input
+    diagnostics, where that is not guaranteed structurally).
+    """
+    try:
+        return type_to_surface(node)
+    except SurfaceError:
+        return repr(node)
+
+
+def _render_row(row) -> str:
+    """Render a closed effect row (a tuple of 32-byte ability digests) the
+    same way `type_to_surface` renders one inside a `fn` type: each ability
+    as `0x<hex>`, space-joined and parenthesized."""
+    return "(" + " ".join(f"0x{item.hex()}" for item in row) + ")"
 
 
 def _lookup_data(registry: DeclarationRegistry, digest: bytes, path: str) -> list:
@@ -240,7 +263,7 @@ class MatchChecker:
             return
         if self._subsume(actual, expected, path):
             return
-        _fail(path, f"type mismatch: expected {expected!r}, got {actual!r}")
+        _fail(path, f"type mismatch: expected {_render(expected)}, got {_render(actual)}")
 
     def _subsume(self, actual, expected, path: str) -> bool:
         """§3.3: `{x:T|φ} <: {x:T|ψ}` is the only subtyping in the language,
@@ -329,7 +352,7 @@ class MatchChecker:
             consequent = self.synth(term[2], environment, ambient, f"{path}.then")
             alternative = self.synth(term[3], environment, ambient, f"{path}.else")
             if consequent != alternative:
-                _fail(path, f"branch type {alternative!r} differs from {consequent!r}")
+                _fail(path, f"branch type {_render(alternative)} differs from {_render(consequent)}")
             return consequent
         _fail(path, f"type synthesis for term tag {tag} is not implemented in the partial type checker")
 
@@ -363,7 +386,7 @@ class MatchChecker:
                 if result_type is None:
                     result_type = arm_type
                 elif arm_type != result_type:
-                    _fail(arm_path, f"arm result type {arm_type!r} differs from {result_type!r}")
+                    _fail(arm_path, f"arm result type {_render(arm_type)} differs from {_render(result_type)}")
         missing = sorted(set(range(constructor_count)) - seen)
         if missing:
             _fail(path, f"non-exhaustive match; missing constructors {missing}")
@@ -425,24 +448,24 @@ class MatchChecker:
         the same subtree; anything else is a path-aware match failure.
         """
         if not isinstance(pattern, list) or not pattern:
-            _fail(path, f"malformed type node {pattern!r}")
+            _fail(path, f"malformed type node {_render(pattern)}")
         if pattern[0] == 5 and pattern[1] < depth:
             index = pattern[1]
             if bindings[index] is None:
                 bindings[index] = copy.deepcopy(target)
             elif bindings[index] != target:
-                _fail(path, f"type variable {index} matched both {bindings[index]!r} and {target!r}")
+                _fail(path, f"type variable {index} matched both {_render(bindings[index])} and {_render(target)}")
             return
         if not isinstance(target, list) or not target or target[0] != pattern[0]:
-            _fail(path, f"cannot match {pattern!r} against expected type {target!r}")
+            _fail(path, f"cannot match {_render(pattern)} against expected type {_render(target)}")
         tag = pattern[0]
         if tag == 0 or tag == 4:
             if pattern != target:
-                _fail(path, f"{pattern!r} does not match expected type {target!r}")
+                _fail(path, f"{_render(pattern)} does not match expected type {_render(target)}")
             return
         if tag == 1:
             if pattern[1] != target[1] or len(pattern[2]) != len(target[2]):
-                _fail(path, f"nominal type {pattern!r} does not match expected type {target!r}")
+                _fail(path, f"nominal type {_render(pattern)} does not match expected type {_render(target)}")
             for index, (pattern_arg, target_arg) in enumerate(zip(pattern[2], target[2])):
                 self._match_type(pattern_arg, target_arg, bindings, depth, f"{path}.args[{index}]")
             return
@@ -453,7 +476,7 @@ class MatchChecker:
             pattern_row = self._closed_row(pattern[2], f"{path}.pattern-row")
             target_row = self._closed_row(target[2], f"{path}.target-row")
             if pattern_row != target_row:
-                _fail(path, f"effect row {pattern_row!r} does not match expected row {target_row!r}")
+                _fail(path, f"effect row {_render_row(pattern_row)} does not match expected row {_render_row(target_row)}")
             self._match_type(pattern[3], target[3], bindings, depth, f"{path}.codomain")
             return
         if tag == 3:
@@ -472,7 +495,7 @@ class MatchChecker:
             # unreachable for a legitimately checked resolver result and is
             # handled only defensively.
             if pattern != target:
-                _fail(path, f"free type variable {pattern!r} does not match expected type {target!r}")
+                _fail(path, f"free type variable {_render(pattern)} does not match expected type {_render(target)}")
             return
         if tag == 6:
             _fail(path, "a stored type with a forall nested past the prenex cannot be instantiated by first-order matching")
@@ -505,7 +528,7 @@ class MatchChecker:
     def _check_fix(self, term, expected, environment, ambient, path):
         annotation = term[1]
         if expected is not None and annotation != expected:
-            _fail(path, f"fix annotation differs from the expected type: expected {expected!r}, got {annotation!r}")
+            _fail(path, f"fix annotation differs from the expected type: expected {_render(expected)}, got {_render(annotation)}")
         if annotation[0] != 2:
             # §2.5's measure maps the *selected* argument to a number, so a
             # recursive value with no argument has nothing to measure.

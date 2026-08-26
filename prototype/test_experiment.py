@@ -2509,5 +2509,119 @@ class HolesCrashSafetyTest(unittest.TestCase):
             self.assertEqual(len(records), 6)
 
 
+# --------------------------------------------------------------------------
+# Narrowing-note legibility (2026-08-26 hole-elicitation plan §2.4)
+# --------------------------------------------------------------------------
+
+from experiment.evaluate import narrowing_note  # noqa: E402 - keeps this file append-only
+
+#: A raw type-IR `repr` artefact, in either of the two shapes the banked
+#: `--section blame` regex (`expected \[|got \[|b'`) was built to catch: a
+#: bracketed Python list literal, or a Python `bytes` literal.
+_REPR_ARTEFACT = re.compile(r"expected \[|got \[|b'")
+
+#: `decomp-redraft`'s first `TypingError` rejection, byte for byte
+#: (`prototype/runs/decomp-redraft/records.jsonl`, `error_class ==
+#: "TypingError"`). Before this fix its `error_message` was:
+#:   "definition.term.body: type mismatch: expected [1, b'.\xe91\xa3ta2\x88,
+#:   \xdb\xc63\x85\xcc\xafs \xa5CrX\x9b&\r\xea\xa1\xc8Q\xa5\x9e\x8d\xba',
+#:   [[0, 2]]], got [2, [0, 2], [], [0, 1]]"
+#: — a raw `repr` of both a `data` type (with its 32-byte hash) and a `fn`
+#: type, which is what makes it a fixture that exercises both the bytes-digest
+#: and the compound-type-node halves of the rendering fix at once.
+_BANKED_TYPE_MISMATCH_SOURCE = (
+    "(def (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) "
+    "() (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64))) "
+    "(lam (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) "
+    "(app (ref 0x4fb7cc71149d69f56fb423f341abd7be1fe28c6e5d92fbdb22485498d1dea41d) "
+    "(app (ref 0x4bd80df0fc10754098795f5fe2bd676a20f933192622f10455b7f55dff5ad5ae) (var 0)))))"
+)
+
+
+class NarrowingNoteRenderingTest(unittest.TestCase):
+    """`[narrowing-legibility]` — §2.4 of the 2026-08-26 hole-elicitation plan.
+
+    37-42 % of the banked arms' narrowing notes handed the model a raw Python
+    `repr` of the type IR instead of its canonical surface. This is a
+    rendering fix at `typecheck.py`'s error-text construction (what
+    `narrowing_note` relays verbatim, per its own docstring) — not a
+    rewording, so every assertion here is "no repr leaked", never a specific
+    wording.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def test_broken_type_note_renders_the_canonical_surface_not_a_repr(self):
+        # BROKEN_TYPE = "(def Bool (lit i64 1))": a base-type mismatch,
+        # I64 checked against declared Bool — the simplest instance of
+        # typecheck.py's dominant `_fail` site (line ~243).
+        funnel = run_funnel(BROKEN_TYPE, self.resolver)
+        self.assertEqual(funnel.outcome, "typecheck")
+        note = narrowing_note(funnel)
+        self.assertNotRegex(note, _REPR_ARTEFACT)
+        self.assertNotIn("[0, 1]", note)
+        self.assertNotIn("[0, 2]", note)
+        self.assertIn(type_to_surface([0, 1]), note)  # "Bool"
+        self.assertIn(type_to_surface([0, 2]), note)  # "I64"
+
+    def test_function_and_data_type_note_renders_both_as_surfaces(self):
+        # A regression fixture drawn from a real banked note (see the module
+        # constant's docstring): a `fn` type mismatched against a `data`
+        # type whose bytes hash is exactly the artefact §2.4 names —
+        # `b'?\xf2\x10G...'` in an encoding the model has never seen.
+        funnel = run_funnel(_BANKED_TYPE_MISMATCH_SOURCE, self.resolver)
+        self.assertEqual(funnel.outcome, "typecheck")
+        note = narrowing_note(funnel)
+        self.assertNotRegex(note, _REPR_ARTEFACT)
+        self.assertNotIn("[2,", note)
+        self.assertNotIn("b'", note)
+        self.assertIn(
+            "(data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64))",
+            note)
+        self.assertIn("(fn I64 () Bool)", note)
+
+    def test_accepted_draws_carry_no_note_at_all(self):
+        # `narrowing_note` returns "" on acceptance (evaluate.py's own
+        # short-circuit) — confirms the rendering fix left that branch alone.
+        self.assertEqual(narrowing_note(run_funnel(BOOL_NOT, self.resolver)), "")
+
+    def test_banked_arms_replay_to_zero_repr_notes(self):
+        """§2.4's quantification, replayed rather than asserted: reconstruct
+        every rejected draw's `FunnelResult` from its banked `source` with
+        today's (fixed) checker, rebuild its narrowing note, and confirm the
+        banked-data repr fraction — 37-42 % before this fix, matching the
+        plan's `--section blame` table exactly — is 0 % after it, on all
+        three decomposition arms identically (this fix is deliberately not
+        gated by any elicitation block).
+        """
+        total_rejected = 0
+        total_raw = 0
+        for arm in ("whole", "redraft", "holes"):
+            path = HERE / "runs" / f"decomp-{arm}" / "records.jsonl"
+            with path.open(encoding="utf-8") as handle:
+                records = [json.loads(line) for line in handle]
+            rejected = [
+                r for r in records
+                if r.get("role") != "candidate" and r.get("funnel_outcome") not in (None, ACCEPTED)]
+            self.assertGreater(len(rejected), 0, arm)
+            # The banked `error_message` is what `--section blame` counted to
+            # get 37-42 % — reproduced here as the "before" figure.
+            before = sum(1 for r in rejected if _REPR_ARTEFACT.search(r.get("error_message") or ""))
+            self.assertGreater(before / len(rejected), 0.30, f"{arm}: banked repr fraction moved")
+            for record in rejected:
+                funnel = run_funnel(record["source"], self.resolver)
+                # The fix touches only rendering; the funnel's classification
+                # of each banked draw must reproduce exactly.
+                self.assertEqual(funnel.outcome, record["funnel_outcome"], (arm, record.get("draw")))
+                note = narrowing_note(funnel)
+                if _REPR_ARTEFACT.search(note):
+                    total_raw += 1
+                total_rejected += 1
+        self.assertEqual(total_raw, 0, "every arm must move identically, to exactly 0 raw-IR notes")
+        self.assertGreater(total_rejected, 2000, "sanity: all three banked arms were replayed")
+
+
 if __name__ == "__main__":
     unittest.main()
