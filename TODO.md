@@ -27,22 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] [mask-spine-refs] <!-- agent:a0df00f751e7914b6 --> Extend `GoalTypePruner` to `app`-spine head positions —
-  the §2.4 sound codomain filter at decode time. Promoted from Watch: the
-  address-book run's exploratory `addr-typed` beat `addr-full` in point estimate
-  on both metric variants (21 vs 10 route-complete draws; two-sided p=0.064/0.041)
-  *despite* being route-incomplete for 5/8 tasks — conservative evidence that
-  retrieval, not presence, is the constraint (§6 row 5). T4: masker soundness is
-  the invariant that cannot break. See [report](docs/results/2026-08-25-address-book-report.md).
 
-- [T2] [decomp-floor-fix] `score_semantic` must refuse a hole-bearing definition
-  (SPEC §5.4): the decomposition probe showed the eta-skeleton — all lambdas, one
-  hole — passes all four funnel layers AND today's mechanical floor for all 8
-  held-out tasks; one archived draw was funnel-accepted this way. Fail-then-pass
-  proof against the eight eta-skeletons; `evaluate.py` + `test_experiment.py`
-  only; no-op on the archive (0 of 62 hole-bearing recorded draws met the floor).
-  **Blocks every other decomposition deliverable.**
-  [Plan](docs/plans/2026-08-25-hole-decomposition.md) deliverable 2.
 
 - [T3] [decomp-prompts] Hole machinery in `prompts.py`: `hole_obligations`,
   `closed_subtask_type`, protocol + fill blocks behind `generation_protocol`,
@@ -60,9 +45,6 @@ Check conformance with `task todo:lint`.
   incl. the gold-expressibility round-trip; output pasted into the plan.
   **Gates the GPU spend.** Plan deliverable 5.
 
-- [T1] [decomp-configs] Three arm configs (`whole|redraft|holes`) +
-  `decomposition-runlist.json`, byte-copies of `addr-full.config.json` with only
-  the plan's fields changed. Plan deliverable 6.
 
 - [T3] [decomp-run] Launch the runlist (spot ≈$3.07, on-demand ≈$10.39 with the
   pre-committed drop to 48 cells), fetch (per-arm fetch fix landed, ac7094e),
@@ -107,6 +89,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [decomp-floor-fix] Floor refuses hole-bearing defs (§5.4): 8 eta-skeletons fail-then-pass, archive replay 0 changes, decomp configs registered; suite 788 green. Commits bf0f053, 66d6481.
+- ✅ 2026-08-26 — [mask-spine-refs] `spine-goal` pruner landed: 204 soundness walks 0 exclusions, 47→6/4/5 exact (plan's 7/13/13 was the ∃k reading), +7.8% overhead, 24 tests. See [plan](docs/plans/2026-08-25-mask-spine-refs.md).
+- ✅ 2026-08-26 — [decomp-configs] Three decomp arm configs + runlist, byte-copies of addr-full with only plan fields changed; `generation_protocol` validation deferred to decomp-runner. Commit e04adb2.
 - ✅ 2026-08-26 — [decomposition] Designed + pre-registered hole-directed decomposition (3 arms, composed-definition primary, 91% power @ 0.20); probe found the residual is a retention conjunction AND a floor defect. See [plan](docs/plans/2026-08-25-hole-decomposition.md).
 - ✅ 2026-08-26 — [runlist-partial-fetch] Driver now fetches every runlist entry's per-arm prefix on all exit paths, with per-arm verdict summary; simulated-partial-run tested. Commit ac7094e.
 - ✅ 2026-08-26 — [next-lever-run] Primary SIGNIFICANT: addr-full 10/320 vs none 1/320, p=0.0055; semantic 0 after rubric; typed 21/320 despite handicap; ≈$1.31. See [report](docs/results/2026-08-25-address-book-report.md).
