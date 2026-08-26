@@ -33,10 +33,14 @@ Check conformance with `task todo:lint`.
 
 
 
-- [T3] [decomp-run] Launch the runlist (spot ≈$3.07, on-demand ≈$10.39 with the
-  pre-committed drop to 48 cells), fetch (per-arm fetch fix landed, ac7094e),
-  tear down root + bucket, write the results report per the pre-registration.
-  Plan deliverable 7. Gated on [decomp-stub].
+- [T4] [decomp-elicit-rerun] Design the §6 row-4 re-run: the decomposition
+  protocol was starved (skeleton acceptance 5.5% < 20%; holes written in only
+  1.6% of skeletons; zero fills ever reached). Row 4 pre-commits relaxing the
+  fill gate `accepted`→`parses`; that alone cannot help while the model does
+  not write holes, so the design must also change hole *elicitation* (the §3
+  block licenses but does not induce). Amendment-or-new-plan decision included.
+  T4: protocol design where a wrong turn burns another GPU run. See
+  [report](docs/results/2026-08-26-decomposition-report.md).
 
 
 
@@ -76,6 +80,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [decomp-run] Primary NULL but starved (§6 row 4: 5.5% skeleton acceptance, 0 fills); **first 2 genuine held-out semantic successes** incl. first real composition, verified by execution; ≈$2.75. See [report](docs/results/2026-08-26-decomposition-report.md).
 - ✅ 2026-08-26 — [decomp-stub] All 8 gate checks PASS (8/8 gold expressible via nested round-trip, no leaks, purse rules hold); output pasted into the plan; GPU gate open. Commit a6eadc5.
 - ✅ 2026-08-26 — [decomp-runner] Round loop landed: protocol-neutral purse (§4.3 intact), monotonicity enforced vs hole-bearing fills, crash-safe rounds, 3 configs validate, suite 849 green. Commit faeb0c7.
 - ✅ 2026-08-26 — [decomp-prompts] Hole machinery landed: obligations/closure/splice/fill+protocol blocks, whole pinned byte-identical (720 prompts vs HEAD~1), 33 tests, suite 821 green. Commit 7ad7dda.
