@@ -27,7 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T4] [mask-spine-refs] Extend `GoalTypePruner` to `app`-spine head positions —
+- [wip T4] [mask-spine-refs] <!-- agent:a0df00f751e7914b6 --> Extend `GoalTypePruner` to `app`-spine head positions —
   the §2.4 sound codomain filter at decode time. Promoted from Watch: the
   address-book run's exploratory `addr-typed` beat `addr-full` in point estimate
   on both metric variants (21 vs 10 route-complete draws; two-sided p=0.064/0.041)
@@ -35,18 +35,12 @@ Check conformance with `task todo:lint`.
   retrieval, not presence, is the constraint (§6 row 5). T4: masker soundness is
   the invariant that cannot break. See [report](docs/results/2026-08-25-address-book-report.md).
 
-- [T4] [decomposition] Hole-directed decomposition design (next-lever plan §2.2) —
+- [wip T4] [decomposition] <!-- agent:a75ac295fe4801f1f --> Hole-directed decomposition design (next-lever plan §2.2) —
   promoted from Watch per §6 row 2: primary significant, semantic zero — the model
   reaches the right definitions but cannot assemble them; composition is the
   residual. Companion to [mask-spine-refs] (every hole is a checking-mode position).
   See [report](docs/results/2026-08-25-address-book-report.md).
 
-- [T2] [runlist-partial-fetch] The GCP driver's runlist-mode fetch reads only
-  `results/<driver-run-id>/` — which the instance populates with logs only (arm
-  data lands under each entry's `results/<arm-run-id>/`) — so both the timeout
-  path AND the success path miss the arm results (2026-08-25/26: both fetches
-  came back empty; addr-none and then full+typed needed hand rescue). Teach the
-  driver to rsync each runlist entry's per-arm prefix.
 
 
 
@@ -85,6 +79,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [runlist-partial-fetch] Driver now fetches every runlist entry's per-arm prefix on all exit paths, with per-arm verdict summary; simulated-partial-run tested. Commit ac7094e.
 - ✅ 2026-08-26 — [next-lever-run] Primary SIGNIFICANT: addr-full 10/320 vs none 1/320, p=0.0055; semantic 0 after rubric; typed 21/320 despite handicap; ≈$1.31. See [report](docs/results/2026-08-25-address-book-report.md).
 - ✅ 2026-08-25 — [next-lever-stub] §4.8 dry-run (as amended by A1): all 5 checks PASS, output pasted into the plan; GPU gate open. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [next-lever-gold] All 8 gold terms verified (funnel+mechfloor, real tokenizer), none dropped; worst case 662 tok < 768 cap; §4.3's stale 447/72% corrected. See [plan](docs/plans/2026-08-24-next-lever.md).
