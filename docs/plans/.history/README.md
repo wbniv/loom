@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-24](https://github.com/wbniv/loom/commit/3525fed) | Plan: next capability lever for the corpus loop |
 | [2026-08-24](https://github.com/wbniv/loom/commit/82529db) | Corpus-size sweep: results, §2.7 trend test, report |
 | [2026-08-24](https://github.com/wbniv/loom/commit/704035c) | Add corpus-size-sweep row to the plan index |
 | [2026-08-23](https://github.com/wbniv/loom/commit/e585160) | Record verification steps 1-6 and 8; step 7 (the GPU runs) stays outstanding |
@@ -52,6 +53,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+3525fed	author	Will Norris
+3525fed	added	1
+3525fed	deleted	0
+3525fed	files	1
+3525fed	body	The dispatching item's premise — "the ceiling is the pool's content" — does\nnot survive a look at the recorded draws. Three findings, all reproducible\nfrom the working tree with no GPU:\n\n1. The pool already contains the compositions. Five of the eight held-out\n   tasks were solved by hand today from curated definitions only; all five\n   pass run_funnel and the mechanical floor.\n\n2. The prompt withholds the addresses. A canonical `(def TYPE TERM)` surface\n   does not contain its own content hash, so a definition's 64-hex identity\n   reaches the model only when another shown definition happens to ref it.\n   That is 2 of 26 curated definitions, and 7 of 8 held-out tasks are\n   therefore unsolvable from the prompt they were asked with. Growing the\n   store 26 -> 67 objects adds zero reachable addresses. Only 0.3% of 4,135\n   recorded held-out draws ref every definition their route needs.\n\n3. Every held-out cell is terminated by a truncated draw. token_budget_per_task\n   is cumulative per cell and was 512 in every run; gold answers cost 268-447\n   tokens. 1,952 of 1,952 cells end on a truncation; 1.12 usable draws per\n   cell, median 1.\n\nRecommended lever: a store address book — one row per ref-legal object,\nidentity + name + type — inserted between the examples and the ask. Rejected\nin its favour: a spine-aware goal-type mask over `app` heads, which soundly\ncuts the ref universe 47 -> 7-13 but cannot supply an address the model has\nnever seen.\n\nPre-registers three arms (addr-none / addr-full / addr-typed) at 320 draws\neach on a curated-only store, primary = route-reference rate by one-sided\nFisher with Holm correction, 72% power against 3% and 98% against 5%.\nConfound removal (6144-token cell budget, 768/draw, 8 draws/cell) applies to\nall arms. One runlist instance, ~5.1 h, ~$1.29 Spot / ~$4.35 on-demand.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01FX7iKXCbZLs6s8sPQ5J8hX
 82529db	author	Will Norris
 82529db	added	1
 82529db	deleted	1

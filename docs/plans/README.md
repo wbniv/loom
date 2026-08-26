@@ -2,6 +2,7 @@
 
 | Date | Plan | Status |
 |---|---|---|
+| 2026-08-25 | [Hole-directed decomposition: commit the type, then fill the holes](2026-08-25-hole-decomposition.md) | Designed and pre-registered; diagnostic run — acceptance (10 % of cells) and type-exactness (37.5 %) are each reached and almost never together (2.5 %). GPU arms pending deliverables 2–6 |
 | 2026-08-24 | [The next capability lever: the store has never been addressable](2026-08-24-next-lever.md) | Designed and pre-registered; diagnostic run — 7 of 8 held-out tasks unsolvable from their own prompt, 1.12 usable draws/cell. GPU arms pending deliverables 1–4 |
 | 2026-08-24 | [Corpus-size sweep: does acceptance track definition count, or content?](2026-08-24-corpus-size-sweep.md) | Complete; four arms run, §2.7 LR trend test p = 0.128 — no trend detected, underpowered, not refuted |
 | 2026-08-23 | [A diversity-seeking harvest](2026-08-23-diversity-harvest.md) | Built and stub-verified; three structural gates cut 58 candidates to 15, GPU arms pending |
