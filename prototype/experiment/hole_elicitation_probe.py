@@ -436,9 +436,16 @@ def exemplars() -> None:
               f"  identical-to-fixture={assembled == fixtures[name]}")
 
     print("\n### Leak checks on the block's bytes\n")
-    block = "\n".join([NOT_SKELETON, NOT_FILL, skeleton,
+    # The landed constructor (prompts.hole_exemplar_block, commit 4f7b450) is
+    # the single source of the block's bytes; this probe's local pieces must
+    # reproduce it exactly, so the plan's pasted numbers cannot drift from
+    # what the arm actually ships.
+    from experiment.prompts import hole_exemplar_block
+    block = hole_exemplar_block(resolver)
+    local = "\n".join([NOT_SKELETON, NOT_FILL, skeleton,
                        closed_subtask_type(declared_type_of(skeleton),
                                            hole_obligations(skeleton, resolver)[0])])
+    assert block == local, "probe's exemplar pieces diverge from prompts.hole_exemplar_block"
     surfaces = {t.task_id: (t.expected_surface, t.expected_type_surface) for t in tasks}
     leaks = [task for task, (term, _type) in surfaces.items() if term and term in block]
     type_leaks = [task for task, (_term, type_) in surfaces.items() if type_ in block]
