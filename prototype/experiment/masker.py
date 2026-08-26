@@ -29,6 +29,14 @@ arms and `handle` clauses inherit it, `fix` forces its annotation to be it.
 Where the checker switches to synthesis (`app`, `let`, a match scrutinee) the
 goal is simply unknown and the layer abstains.
 
+One of those abstentions has since been closed, on an **opt-in** layer:
+`SpineGoalPruner` (`spine-goal`, not in `PRUNER_NAMES`). An `app` still
+propagates no goal, but the frame chain says how many arguments a head is about
+to be given, and `synth` tag 4 says the spine's type is the head's *k*-th
+codomain — so a `ref` heading a *k*-ary spine can be filtered by codomain even
+though the position itself has no goal. See `docs/plans/2026-08-25-mask-spine-
+refs.md`.
+
 Phase A's profile is why this is the first thing B2 built: `typecheck` killed
 590 of 1,671 grammar-constrained draws — more than any other layer — and its
 error localization is dominated by `definition.term` (×330), which is precisely
@@ -348,13 +356,19 @@ _FEASIBLE_HEADS: dict[tuple, frozenset] = {}
 _HEAD_PREFIXES: dict[tuple, frozenset] = {}
 
 
-def _feasible_heads(erased_tag: int, ref_ok: bool = True) -> frozenset:
+def _feasible_heads(erased_tag: int | None, ref_ok: bool = True) -> frozenset:
     """The term heads that can check against a goal erasing to this tag.
 
     `ref_ok` is `False` when the resolver holds no digest whose type could meet
     this goal — then `(ref …)` cannot be written here at all, and refusing the
     head is what keeps the mask from walking into a hash position where it would
     have to refuse every digit and fall back for liveness instead.
+
+    `erased_tag=None` means *no tag constraint at all*: the position's own type
+    is unknown, so every head stays feasible and only `ref_ok` narrows the set.
+    That is `SpineGoalPruner`'s case — a spine head has no goal of its own, and
+    the only thing that layer can prove about it is whether some digest could
+    stand there.
     """
     key = (erased_tag, ref_ok)
     try:
@@ -363,13 +377,13 @@ def _feasible_heads(erased_tag: int, ref_ok: bool = True) -> frozenset:
         pass
     heads = frozenset(
         head.encode("ascii") for head in TERM_HEADS
-        if HEAD_REQUIRES_TAG.get(head, erased_tag) == erased_tag
+        if (erased_tag is None or HEAD_REQUIRES_TAG.get(head, erased_tag) == erased_tag)
         and (ref_ok or head != "ref"))
     _FEASIBLE_HEADS[key] = heads
     return heads
 
 
-def _head_prefixes(erased_tag: int, ref_ok: bool = True) -> frozenset:
+def _head_prefixes(erased_tag: int | None, ref_ok: bool = True) -> frozenset:
     """Every prefix of every term head that can check against this goal tag."""
     key = (erased_tag, ref_ok)
     try:
@@ -443,6 +457,41 @@ def part_goal(kind: str, goal_in: bytes, part: int) -> tuple:
     if kind == P_OP:
         return (goal_in, b"") if part == 1 else (b"", b"")
     return (b"", b"")
+
+
+def spine_context(stack: tuple, index: int) -> tuple:
+    """`(k, goal)` for the term position that `stack[index]` fills.
+
+    `k` is the arity of the application spine this position heads and `goal` is
+    the type the *whole* spine is checked against — the two halves of §2.4's
+    rule. Both come from the frame chain, which survives even where the goal
+    does not: `_open` stamps every frame with the `goal_in` of the position it
+    fills whether or not the checker is in checking mode there, and `app`'s own
+    parts propagate no goal at all (which is exactly why `GoalTypePruner`
+    abstains here).
+
+    A `(app F A)` frame sits at `part == 1` while `F` is being written and at
+    `part == 2` while `A` is. So walking up through consecutive `part == 1`
+    ancestors counts the spine, and stops dead at an argument slot::
+
+        (app (app (ref 0x…) a) b)   ->  k = 2, goal = the outer app's goal_in
+        (app f (app (ref 0x…) a))   ->  k = 1, goal = b"" (the argument abstains)
+
+    `k == 0` means this is not a spine head at all — `GoalTypePruner`'s veto 5
+    already owns that position — and an empty goal means there is nothing to
+    prune against. Both are abstentions for every caller.
+    """
+    k = 0
+    goal = b""
+    cursor = index - 1
+    while cursor >= 0:
+        frame = stack[cursor]
+        if frame.kind != "app" or frame.part != 1:
+            break
+        k += 1
+        goal = frame.goal_in
+        cursor -= 1
+    return k, goal
 
 
 @dataclass(frozen=True)
@@ -746,6 +795,28 @@ class Pruner:
         raise NotImplementedError
 
 
+def digest_trie(digests, admit) -> tuple:
+    """`(prefix set, complete set)` over the digests `admit` keeps.
+
+    The one shape every hash veto in this module uses: a hex atom is refused
+    when extending it leaves the prefix set, and a *finished* hex atom is
+    refused when it is not in the complete set. `b"0"` seeds the prefix set so
+    the leading `0` of `0x…` survives even when nothing is admitted, which
+    keeps the veto to "this digest", never "no hash may start here" — the head
+    layer is what refuses the position itself.
+    """
+    prefixes: set[bytes] = {b"", b"0"}
+    complete: set[bytes] = set()
+    for digest in digests:
+        if not admit(digest):
+            continue
+        text = b"0x" + digest.hex().encode("ascii")
+        complete.add(text)
+        for length in range(1, len(text) + 1):
+            prefixes.add(text[:length])
+    return frozenset(prefixes), frozenset(complete)
+
+
 class ReferenceHashPruner(Pruner):
     """Hash atoms must stay prefixes of a hash the resolver can resolve.
 
@@ -997,16 +1068,8 @@ class GoalTypePruner(Pruner):
         info = type_info(goal)
         if info is None or self._reference_type is None:
             return None
-        prefixes: set[bytes] = {b"", b"0"}
-        complete: set[bytes] = set()
-        for digest in self._digests:
-            if not self._compatible(digest, info.erased):
-                continue
-            text = b"0x" + digest.hex().encode("ascii")
-            complete.add(text)
-            for length in range(1, len(text) + 1):
-                prefixes.add(text[:length])
-        return frozenset(prefixes), frozenset(complete)
+        return digest_trie(
+            self._digests, lambda digest: self._compatible(digest, info.erased))
 
     def _compatible(self, digest: bytes, erased_goal: tuple) -> bool:
         """Could a `ref` to `digest` check against a goal erasing to this?
@@ -1027,6 +1090,228 @@ class GoalTypePruner(Pruner):
             return True
         try:
             return _freeze(_erase_refinements(resolved)) == erased_goal
+        except Exception:       # noqa: BLE001 - an unreadable type stays in
+            return True
+
+
+#: What peeling `k` arrows off a resolved type concluded. `_ABSTAIN` is the
+#: only value that must never become a veto.
+_PEELED = "peeled"        # the k-th codomain, in hand
+_ABSTAIN = "abstain"      # instantiation, or a shape this layer will not judge
+_NOT_A_FUNCTION = "not-a-function"   # ran out of arrows before k
+
+
+def peel_codomain(resolved, k: int) -> tuple:
+    """`(verdict, k-th codomain)` for `resolved` applied to `k` arguments.
+
+    Mirrors `MatchChecker.synth` tag 4, which is the whole proof: an
+    application synthesizes `copy.deepcopy(function_type[3])` after refusing
+    anything whose tag is not 2, and the innermost `synth` of a `(ref …)` is
+    `_resolve_reference` **verbatim** — synthesis position never instantiates.
+    So the type a `k`-ary spine synthesizes *is* the `k`-th codomain here.
+
+    Stops at `_ABSTAIN` on a `forall`: §3.1.3 instantiation is the one shape
+    the language gives a second life to, and deciding it here would mean
+    re-implementing `_instantiate`. (`synth` tag 4 in fact rejects a `forall`
+    head outright, before instantiation is ever considered — so this
+    abstention leaves precision on the table on purpose.)
+
+    Everything else that is not a `fn` — a base type, a nominal, a `cap`, a
+    `tyvar`, **and a `refine`** — cannot be applied at all: `synth` tag 4's
+    `function_type[0] != 2` is unconditional, and *function* position never
+    consults subsumption, which is the only rule that ever looks through a
+    refinement. `_NOT_A_FUNCTION` is therefore a proof, and it is a
+    load-bearing one: three of the corpus's function types return a `refine`
+    (`list/lengthNat`, `math/abs`, `nat/widenPos`), so abstaining on that tag
+    would keep every one of them admissible at every over-long spine and cost
+    roughly a third of the filter. `test_masker` pins the coupling
+    behaviourally — an over-applied `refine`-returning definition is put
+    through the real funnel and has to be rejected.
+    """
+    node = resolved
+    for _ in range(k):
+        if not isinstance(node, list) or not node:
+            return _ABSTAIN, None
+        tag = node[0]
+        if tag == 2:
+            node = node[3]
+            continue
+        if tag == 6:
+            return _ABSTAIN, None
+        return _NOT_A_FUNCTION, None
+    if not isinstance(node, list) or not node:
+        return _ABSTAIN, None
+    if node[0] == 6:
+        # The spine's result is itself quantified, so `check`'s instantiation
+        # branch is live and no erased comparison decides anything.
+        return _ABSTAIN, None
+    return _PEELED, node
+
+
+def _contains_tyvar(node) -> bool:
+    """Defensive: a free `tyvar` outside a `forall` this layer already saw."""
+    if not isinstance(node, list) or not node:
+        return False
+    if node[0] == 5:
+        return True
+    return any(_contains_tyvar(child) for child in node[1:]
+               if isinstance(child, list))
+
+
+class SpineGoalPruner(Pruner):
+    """§2.4: a `ref` heading a *k*-ary application spine, filtered by codomain.
+
+    `GoalTypePruner`'s veto 5 filters a `ref`'s digest by the goal *at that
+    position* — and abstains wherever the checker synthesizes, which includes
+    `app`'s function slot, which is where every held-out composition lives.
+    This layer is that hole, closed at the only place it can be closed
+    soundly: at decode time, where the open `(app` parentheses have already
+    fixed *k*, and the checker's own per-position goals do the instantiation
+    that a selection-time filter provably cannot (Amendment A1).
+
+    **The proof.** `MatchChecker.check` does not special-case tag 4, so
+    `check(spine, G)` is `synth(spine)` and then exactly one of: structural
+    equality; `_instantiate`, live only when the synthesized type is a
+    `forall`; or `_subsume`, whose own precondition is that the two types are
+    equal once §3.2.1 refinements are erased. `synth` of a *k*-ary spine is the
+    *k*-th codomain of the head's resolved type (`peel_codomain`). So a digest
+    whose *k*-th codomain is not quantified **and** erases differently from `G`
+    cannot appear at this position in any accepted definition. Same one-sided
+    shape as veto 5, one position further in.
+
+    **Effects do not enter it.** `synth` tag 4 returns the codomain whatever
+    the call row is; the row feeds `_require_allowed`, which can make an
+    application *fail* and never makes it succeed at a different type. So
+    `corpus/clock/now : (fn (cap C) (C) I64)` is admitted precisely and
+    soundly at `k = 1, G = I64`. The effectful positions Amendment A1 flagged
+    (`stampedBytes`) abstain here for an unrelated reason — they are `con`
+    field arguments, which carry no goal at all.
+
+    **Abstains** at `k = 0` (veto 5's position), wherever the spine's goal is
+    unknown (an argument slot, a `let` bound term, a `match` scrutinee, a `con`
+    field), on a `forall`-typed head, on a `forall` or `refine` met while
+    peeling, on a quantified result, and on any resolved type carrying a free
+    `tyvar`. A `forall`-typed head is in fact rejected outright by the checker
+    (`synth` tag 4 fails on `function_type[0] != 2` before instantiation is
+    ever considered), so abstaining there leaves precision on the table
+    deliberately: soundness beats precision wherever they meet.
+
+    Two vetoes. The digest is the point; the head veto exists for liveness —
+    with an empty admissible set and no head veto the mask walks into a hash
+    position, refuses every digit, empties, and takes R4's syntax-only
+    fallback, which throws the whole step's pruning away. Only `ref` is
+    refused there; every other head reaches its goal through synthesis and
+    stays feasible.
+    """
+
+    name = "spine-goal"
+
+    TERMINATORS = frozenset({0x28, 0x29, 0x20})
+
+    def __init__(self, digests=(), reference_type=None) -> None:
+        self._digests = tuple(digests)
+        self._reference_type = reference_type
+        #: `(k, goal surface) -> (prefix set, complete set) | None`. A run sees
+        #: a handful of distinct spine positions, so this is a few tries over a
+        #: few dozen digests, not a per-step cost.
+        self._sets: dict[tuple, tuple | None] = {}
+        #: `digest -> resolved type | None`, so a peel never re-resolves.
+        self._resolved: dict[bytes, list | None] = {}
+
+    # -- veto ------------------------------------------------------------
+
+    def veto(self, state: TypeState, byte: int) -> bool:
+        if state.forced:
+            # A position whose bytes the checker has already fixed is
+            # `GoalTypePruner`'s, and it is not a spine head.
+            return False
+        kind = state.atom_kind
+        if kind == P_HASH:
+            return self._veto_hash(state, byte)
+        if kind == P_HEAD:
+            return self._veto_head(state, byte)
+        return False
+
+    def _veto_hash(self, state: TypeState, byte: int) -> bool:
+        frame = state.top
+        if frame.kind != "ref" or frame.goal:
+            # A goal of its own means the position is veto 5's, not this one's.
+            return False
+        sets = self._sets_for(state)
+        if sets is None:
+            return False
+        prefixes, complete = sets
+        atom = state.atom
+        if byte in self.TERMINATORS:
+            return bool(atom) and atom not in complete
+        return atom + bytes((byte,)) not in prefixes
+
+    def _veto_head(self, state: TypeState, byte: int) -> bool:
+        frame = state.top
+        if frame.expected != P_TERM or frame.goal_in:
+            return False
+        sets = self._sets_for(state)
+        if sets is None or sets[1]:
+            return False
+        # Nothing the resolver holds can head this spine, so `(ref …)` cannot
+        # be written here — and only `(ref …)`.
+        atom = state.atom
+        if byte in self.TERMINATORS:
+            return (atom in ALL_HEAD_BYTES
+                    and atom not in _feasible_heads(None, ref_ok=False))
+        return atom + bytes((byte,)) not in _head_prefixes(None, ref_ok=False)
+
+    # -- the spine-filtered digest universe --------------------------------
+
+    def _sets_for(self, state: TypeState):
+        """The admissible digest trie at this position, or `None` to abstain."""
+        k, goal = spine_context(state.stack, len(state.stack) - 1)
+        if k == 0 or not goal or self._reference_type is None:
+            return None
+        key = (k, goal)
+        try:
+            return self._sets[key]
+        except KeyError:
+            pass
+        info = type_info(goal)
+        built = None if info is None else digest_trie(
+            self._digests, lambda digest: self._admits(digest, k, info.erased))
+        self._sets[key] = built
+        return built
+
+    def _resolve(self, digest: bytes):
+        try:
+            return self._resolved[digest]
+        except KeyError:
+            pass
+        try:
+            resolved = self._reference_type(digest)
+        except Exception:       # noqa: BLE001 - an unresolvable ref dies anyway
+            resolved = None
+        if not isinstance(resolved, list) or not resolved:
+            resolved = None
+        self._resolved[digest] = resolved
+        return resolved
+
+    def _admits(self, digest: bytes, k: int, erased_goal: tuple) -> bool:
+        """Could `(ref digest)` head a `k`-ary spine checked against this goal?
+
+        Anything undecidable comes back `True`: keeping a digest is the safe
+        side of R4 and dropping one is not.
+        """
+        resolved = self._resolve(digest)
+        if resolved is None:
+            # `_resolve_reference` fails, so no accepted definition names it.
+            return False
+        if resolved[0] == 6 or _contains_tyvar(resolved):
+            return True
+        verdict, codomain = peel_codomain(resolved, k)
+        if verdict is _ABSTAIN:
+            return True
+        if verdict is _NOT_A_FUNCTION:
+            return False
+        try:
+            return _freeze(_erase_refinements(codomain)) == erased_goal
         except Exception:       # noqa: BLE001 - an unreadable type stays in
             return True
 
@@ -1470,6 +1755,18 @@ class Masker:
 #: the mask itself: a byte any enabled pruner refuses is refused.
 PRUNER_NAMES = ("goal-type", "de-bruijn", "ref-hash")
 
+#: Every pruner `build_pruners` knows how to build, default set **plus** the
+#: opt-in ones. `spine-goal` is deliberately not in `PRUNER_NAMES`: adding it
+#: there would silently change every config that takes the default, and the
+#: whole point of an opt-in layer is that the configs already on record run
+#: byte-identically without it. A config opts in by naming it::
+#:
+#:     "pruners": ["goal-type", "spine-goal", "de-bruijn", "ref-hash"],
+#:
+#: after `goal-type`, so `mask_pruned_by_layer` attribution keeps reading in
+#: Phase A's failure-distribution order.
+KNOWN_PRUNER_NAMES = PRUNER_NAMES + ("spine-goal",)
+
 
 def build_pruners(resolver, names=PRUNER_NAMES) -> list:
     """The named pruners, wired to the experiment resolver's hash universe."""
@@ -1486,8 +1783,11 @@ def build_pruners(resolver, names=PRUNER_NAMES) -> list:
             built.append(DeBruijnPruner())
         elif name == "goal-type":
             built.append(GoalTypePruner(digests, reference_type))
+        elif name == "spine-goal":
+            built.append(SpineGoalPruner(digests, reference_type))
         else:
-            raise KeyError(f"unknown pruner {name!r}; known pruners: {', '.join(PRUNER_NAMES)}")
+            raise KeyError(
+                f"unknown pruner {name!r}; known pruners: {', '.join(KNOWN_PRUNER_NAMES)}")
     return built
 
 

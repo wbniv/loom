@@ -42,8 +42,10 @@ from experiment.backends import (
 )
 from experiment.evaluate import ACCEPTED, run_funnel
 from experiment.gbnf import Grammar, GrammarError, loom_grammar
+from experiment.heldout_gold import GOLD_TERMS
 from experiment.masker import (
     ATOM_READ,
+    KNOWN_PRUNER_NAMES,
     LIT_KIND_NAMES,
     PRUNABLE,
     PRUNER_NAMES,
@@ -51,11 +53,17 @@ from experiment.masker import (
     GoalTypePruner,
     Masker,
     ReferenceHashPruner,
+    SpineGoalPruner,
     StaticVocabulary,
     TypeState,
     build_masker,
+    peel_codomain,
+    spine_context,
 )
 from experiment.resolver import ExperimentResolver
+
+#: The `spine-goal` opt-in, in the position a config names it.
+SPINE_PRUNERS = ("goal-type", "spine-goal", "de-bruijn", "ref-hash")
 
 HERE = Path(__file__).resolve().parent
 
@@ -68,6 +76,17 @@ BOOL_NOT = (HERE / "corpus" / "bool_not.loom.sexpr").read_text(encoding="utf-8")
 #: A definition that *does* carry hashes — the reference pruner's target.
 HASHED = (HERE / "corpus" / "maybe_is_nothing_i64.loom.sexpr").read_text(
     encoding="utf-8").strip()
+
+#: The eight gold terms (§4.4), every one a funnel-accepted definition built
+#: out of `app` spines of arity 1 to 3. They join the soundness corpus because
+#: `corpus/` alone barely reaches a binary spine, which is the position
+#: `spine-goal` exists for.
+GOLD_NAMES = tuple(sorted(GOLD_TERMS))
+GOLD_SURFACES = tuple(GOLD_TERMS[name] for name in GOLD_NAMES)
+
+#: `List I64`, the goal at the spine head of half the gold terms.
+LIST_TYPE = (b"(data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a"
+             b"59e8dba (I64))")
 
 
 def chunk(data: bytes, size: int):
@@ -630,21 +649,324 @@ class GoalTypePrunerTest(unittest.TestCase):
         self.assertNotIn("obligation", source)
 
 
+class SpineContextTest(unittest.TestCase):
+    """The stack walk `spine-goal` reads: where `k` and the goal come from.
+
+    `app` propagates no goal (that is `part_goal`'s abstention and it stays),
+    but the *frame chain* survives, and it is what says how many arguments the
+    head is about to be given and what the whole spine is checked against.
+    """
+
+    def context(self, prefix: str):
+        state = TypeState().feed(prefix.encode("utf-8"))
+        return spine_context(state.stack, len(state.stack) - 1)
+
+    def test_the_spine_arity_is_the_open_app_chain(self):
+        goal = b"(fn Bool () Bool)"
+        self.assertEqual(self.context("(def (fn Bool () Bool) ("), (0, b""))
+        self.assertEqual(self.context("(def (fn Bool () Bool) (app ("), (1, goal))
+        self.assertEqual(self.context("(def (fn Bool () Bool) (app (app ("), (2, goal))
+        self.assertEqual(
+            self.context("(def (fn Bool () Bool) (app (app (app ("), (3, goal))
+
+    def test_an_argument_slot_breaks_the_chain(self):
+        # `(app f A)`: `A` is part 2, which is a synthesis position with no
+        # goal, so a spine rooted there carries none either.
+        self.assertEqual(self.context("(def Bool (app (var 0) ("), (0, b""))
+        self.assertEqual(self.context("(def Bool (app (var 0) (app ("), (1, b""))
+
+    def test_the_goal_is_the_outermost_apps_own_goal(self):
+        # `lam` splits the goal, so the body's spine carries the codomain.
+        self.assertEqual(
+            self.context("(def (fn Bool () I64) (lam Bool (app (app ("),
+            (2, b"I64"))
+
+    def test_the_positions_with_no_goal_stay_that_way(self):
+        for name, prefix in {
+            "let bound": "(def Bool (let Bool (app (",
+            "let body": "(def Bool (let Bool (var 0) (app (",
+            "match scrutinee": "(def Bool (match (app (",
+            "con field": ("(def (data 0x" + "ab" * 32 + " ()) (con 0x" + "ab" * 32
+                          + " 0 ((app ("),
+        }.items():
+            with self.subTest(position=name):
+                arity, goal = self.context(prefix)
+                self.assertEqual(goal, b"", name)
+                self.assertGreaterEqual(arity, 1, name)
+
+    def test_peeling_mirrors_the_synthesis_rule(self):
+        binary = [2, [0, 2], [], [2, [0, 2], [], [0, 2]]]      # I64 -> I64 -> I64
+        self.assertEqual(peel_codomain(binary, 0), ("peeled", binary))
+        self.assertEqual(peel_codomain(binary, 2), ("peeled", [0, 2]))
+        # One argument too many: `synth` tag 4 fails on `function_type[0] != 2`.
+        self.assertEqual(peel_codomain(binary, 3), ("not-a-function", None))
+        # A quantified type is §3.1.3's business, not this layer's.
+        self.assertEqual(peel_codomain([6, binary], 1), ("abstain", None))
+        self.assertEqual(peel_codomain([2, [0, 2], [], [6, binary]], 1),
+                         ("abstain", None))
+
+
+class SpineGoalPrunerTest(unittest.TestCase):
+    """§2.4's codomain filter, probed where it proves and where it abstains."""
+
+    LIST = ("(data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8"
+            "dba (I64))")
+    CLOCK_CAP = "0xe6eb1adefeb5a68998deb5f6840f95be2bd5540650fda7b31e79e7440ba2a51d"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.spine = SpineGoalPruner(cls.resolver.digests(), cls.resolver.reference_type)
+        #: No `reference_type`, so there is nothing to peel and no opinion.
+        cls.blind = SpineGoalPruner(cls.resolver.digests())
+        cls.polymorphic = tuple(
+            found.digest for found in cls.resolver.definitions()
+            if found.type_ir and found.type_ir[0] == 6)
+        #: The same layer over a store with no quantified definition in it —
+        #: the only way to reach an *empty* admissible set, since a `forall`
+        #: is always kept.
+        cls.monomorphic = SpineGoalPruner(
+            [d for d in cls.resolver.digests() if d not in cls.polymorphic],
+            cls.resolver.reference_type)
+
+    def hex_of(self, name: str) -> str:
+        return self.resolver.digest_for(name).hex()
+
+    def veto(self, prefix: str, char: str, pruner=None) -> bool:
+        pruner = pruner or self.spine
+        return pruner.veto(TypeState().feed(prefix.encode("utf-8")), ord(char))
+
+    def survives(self, prefix: str, digest_hex: str, pruner=None) -> bool:
+        return not any(self.veto(prefix + digest_hex[:index], digest_hex[index], pruner)
+                       for index in range(len(digest_hex)))
+
+    def dies_early(self, prefix: str, digest_hex: str, digits: int = 8) -> bool:
+        return any(self.veto(prefix + digest_hex[:index], digest_hex[index])
+                   for index in range(digits))
+
+    def spine_prefix(self, goal: str, arity: int, binder: str | None = None) -> str:
+        body = "(app " * arity + "(ref 0x"
+        if binder is None:
+            return f"(def {goal} {body}"
+        return f"(def (fn {binder} () {goal}) (lam {binder} {body}"
+
+    # -- the veto, at k = 1, 2, 3 ------------------------------------------
+
+    def test_a_unary_spine_head_must_return_the_goal(self):
+        prefix = self.spine_prefix("I64", 1, self.LIST)
+        self.assertTrue(self.survives(prefix, self.hex_of("corpus/list/lengthNat")))
+        # `list/reverse` returns a `List`, not an `I64`, so it cannot head this.
+        self.assertTrue(self.dies_early(prefix, self.hex_of("corpus/list/reverse")))
+
+    def test_a_binary_spine_head_must_have_a_second_codomain(self):
+        prefix = self.spine_prefix(self.LIST, 2, self.LIST)
+        self.assertTrue(self.survives(prefix, self.hex_of("corpus/list/append")))
+        # This is the whole difference from §2.4's estimate: `list/reverse`'s
+        # *first* codomain is the goal, but it has no second one, and at `k=2`
+        # `synth` fails on `function_type[0] != 2`.
+        self.assertTrue(self.dies_early(prefix, self.hex_of("corpus/list/reverse")))
+
+    def test_a_ternary_spine_head_must_have_a_third_codomain(self):
+        prefix = self.spine_prefix("I64", 3, self.LIST)
+        self.assertTrue(self.survives(prefix, self.hex_of("corpus/list/foldLeft")))
+        # `maybe/getOrElse` is binary; a third argument is one too many.
+        self.assertTrue(self.dies_early(prefix, self.hex_of("corpus/maybe/getOrElse")))
+
+    def test_the_same_digest_flips_with_the_arity_alone(self):
+        """The proof is position-dependent, which is the point of the layer."""
+        digest = self.hex_of("corpus/list/reverse")
+        self.assertTrue(self.survives(
+            self.spine_prefix(self.LIST, 1, self.LIST), digest))
+        self.assertTrue(self.dies_early(self.spine_prefix(self.LIST, 2, self.LIST), digest))
+
+    # -- the abstentions ---------------------------------------------------
+
+    def test_a_polymorphic_head_abstains(self):
+        """§3.1.3's instantiation is not re-implemented here.
+
+        `synth` tag 4 in fact rejects a `forall` head outright, so a veto would
+        be sound — this abstention is deliberate precision left on the table,
+        because soundness beats precision wherever the two could ever meet.
+        """
+        if not self.polymorphic:
+            self.skipTest("the corpus holds no polymorphic definition")
+        digest = self.polymorphic[0].hex()
+        for arity in (1, 2, 3):
+            for goal in ("I64", self.LIST, "Bool"):
+                with self.subTest(k=arity, goal=goal):
+                    self.assertTrue(self.survives(
+                        self.spine_prefix(goal, arity, self.LIST), digest))
+
+    def test_an_effectful_head_is_admitted_not_abstained(self):
+        """An effect row does not change what an application synthesizes.
+
+        `synth` tag 4 returns `function_type[3]` whatever the row is; the row
+        only feeds `_require_allowed`, which can make an application *fail* and
+        never makes it succeed at some other type. So the codomain test stays
+        exact in the presence of effects rather than needing an abstention —
+        and the definition below really is accepted, checked here through the
+        real funnel so the claim is not an argument.
+        """
+        now = self.hex_of("corpus/clock/now")
+        surface = (f"(def (fn (cap {self.CLOCK_CAP}) ({self.CLOCK_CAP}) I64)"
+                   f" (lam (cap {self.CLOCK_CAP}) (app (ref 0x{now}) (var 0))))")
+        self.assertEqual(run_funnel(surface, self.resolver).outcome, ACCEPTED)
+        prefix = surface.split("(ref 0x")[0] + "(ref 0x"
+        self.assertTrue(self.survives(prefix, now))
+        # ... and it is a real filter at that position, not a blanket pass:
+        # a pure `Bool -> Bool` cannot stand where an `I64` is demanded.
+        self.assertTrue(self.dies_early(prefix, self.hex_of("corpus/bool/not")))
+
+    def test_an_effectful_spine_in_a_con_field_abstains(self):
+        """`stampedBytes`'s shape — Amendment A1's effectful case.
+
+        It abstains, but not because of the effects: a `con` field argument is
+        a synthesis position with no goal at all, so there is nothing to peel
+        against. Pinned so that a later change which starts propagating
+        constructor field types has to come past this line.
+        """
+        pair = "0x98c7ee8d97ddf2707f45d89ac56c68cd24d0d7c7d6b093241b1ab84c88de4d2a"
+        prefix = f"(def (data {pair} (I64 Bytes)) (con {pair} 0 ((app (ref 0x"
+        state = TypeState().feed(prefix.encode("utf-8"))
+        self.assertEqual(spine_context(state.stack, len(state.stack) - 1)[1], b"")
+        for name in ("corpus/clock/now", "corpus/bool/not", "corpus/list/reverse"):
+            with self.subTest(digest=name):
+                self.assertTrue(self.survives(prefix, self.hex_of(name)))
+
+    def test_the_k_zero_position_is_left_to_the_goal_type_layer(self):
+        # `(ref d)` written straight into a goal position is veto 5's; this
+        # layer must have no opinion there, or the two would double-count.
+        prefix = f"(def (fn Bool () Bool) (ref 0x"
+        for name in ("corpus/bool/not", "corpus/list/reverse", "corpus/list/append"):
+            with self.subTest(digest=name):
+                self.assertTrue(self.survives(prefix, self.hex_of(name)))
+
+    def test_a_pruner_with_no_resolver_abstains_everywhere(self):
+        prefix = self.spine_prefix(self.LIST, 2, self.LIST)
+        for name in ("corpus/list/reverse", "corpus/bool/not"):
+            with self.subTest(digest=name):
+                self.assertTrue(self.survives(prefix, self.hex_of(name), self.blind))
+
+    def test_an_unreadable_goal_abstains(self):
+        # Rank-2: `forall_prefix` refuses it, so the term carries no goal.
+        prefix = "(def (fn (forall Bool) () Bool) (app (ref 0x"
+        self.assertTrue(self.survives(prefix, self.hex_of("corpus/list/reverse")))
+
+    # -- the coupling the `refine` veto rests on ----------------------------
+
+    def test_an_over_applied_refinement_returning_definition_is_rejected(self):
+        """`peel_codomain` treats a `refine` as not-a-function, and vetoes.
+
+        That is worth a behavioural pin rather than an argument: `synth` tag 4's
+        `function_type[0] != 2` is unconditional and *function* position never
+        consults subsumption, which is the only rule that looks through a
+        refinement. Three corpus definitions return a `refine`, so if this ever
+        stopped being true the layer would be unsound for all three.
+        """
+        length = self.hex_of("corpus/list/lengthNat")
+        surface = (f"(def I64 (lam {self.LIST} "
+                   f"(app (app (ref 0x{length}) (var 0)) (lit i64 0))))")
+        self.assertEqual(run_funnel(surface, self.resolver).outcome, "typecheck")
+        self.assertTrue(self.dies_early(self.spine_prefix("I64", 2, self.LIST), length))
+        # A `refine` as the spine's *result* is a different matter -- there the
+        # comparison is on erasure, exactly as subsumption's precondition is.
+        select = self.hex_of("corpus/nat/select")
+        nat = ("(refine I64 (app (app (ref 0x0e2c1cacb65ffacb2219b4954360798ecebf7b4"
+               "c43e6e5107f171acf3d562965) (lit i64 -1)) (var 0)))")
+        self.assertTrue(self.survives(self.spine_prefix(nat, 3, "Bool"), select))
+
+    # -- the head veto, which exists for liveness --------------------------
+
+    def test_an_empty_admissible_set_refuses_the_ref_head_and_only_that(self):
+        """Without this the mask walks into a hash position it must then empty.
+
+        An empty mask takes R4's syntax-only fallback, which throws the whole
+        step's pruning away -- so the layer refuses the head instead. Reached
+        here with the polymorphic definitions removed, because a `forall` is
+        always kept and one is enough to keep the set non-empty.
+        """
+        prefix = "(def Bool (app (app (app ("
+        self.assertTrue(self.veto(prefix, "r", self.monomorphic))
+        for char in "vlacmphif":
+            with self.subTest(head=char):
+                self.assertFalse(self.veto(prefix, char, self.monomorphic), char)
+        # ... and it is the emptiness that does it, not the arity.
+        self.assertFalse(self.veto("(def Bool (app (", "r", self.monomorphic))
+        # The full store keeps `maybe/mapPoly`, so nothing is refused there.
+        self.assertFalse(self.veto(prefix, "r"))
+
+    def test_the_head_veto_does_not_fire_where_there_is_no_spine(self):
+        for prefix in ("(def Bool (", "(def Bool (let Bool (", "(def Bool (match ("):
+            with self.subTest(prefix=prefix):
+                for char in "rvlacmphif":
+                    self.assertFalse(self.veto(prefix, char, self.monomorphic))
+
+
+class SpinePrunerRegistrationTest(unittest.TestCase):
+    """`spine-goal` is opt-in, and every shipped config still runs without it."""
+
+    def test_the_default_pruner_set_is_unchanged(self):
+        self.assertEqual(PRUNER_NAMES, ("goal-type", "de-bruijn", "ref-hash"))
+        self.assertNotIn("spine-goal", PRUNER_NAMES)
+        self.assertIn("spine-goal", KNOWN_PRUNER_NAMES)
+        self.assertEqual(KNOWN_PRUNER_NAMES[:len(PRUNER_NAMES)], PRUNER_NAMES)
+
+    def test_every_shipped_config_runs_the_default_set(self):
+        """Byte-unchanged behaviour for everything already on record."""
+        seen = 0
+        for path in sorted((HERE / "experiment").glob("*.config.json")):
+            config = json.loads(path.read_text(encoding="utf-8"))
+            if "pruners" not in config:
+                continue
+            seen += 1
+            with self.subTest(config=path.name):
+                self.assertNotIn("spine-goal", config["pruners"])
+                self.assertTrue(set(config["pruners"]) <= set(PRUNER_NAMES))
+        self.assertGreater(seen, 0)
+
+    def test_the_config_accepts_the_opt_in_and_still_refuses_nonsense(self):
+        runner.Config(pruners=list(SPINE_PRUNERS)).validate()
+        with self.assertRaises(SystemExit) as raised:
+            runner.Config(pruners=["spine_goal"]).validate()
+        self.assertIn("spine-goal", str(raised.exception))
+
+    def test_building_the_opt_in_set_yields_the_layer_in_order(self):
+        resolver = ExperimentResolver()
+        masker = build_masker(
+            scripted_vocabulary(SURFACES, max_piece=4), resolver,
+            names=list(SPINE_PRUNERS))
+        self.assertEqual(masker.enabled_pruners, SPINE_PRUNERS)
+        masker.enable("spine-goal", False)
+        self.assertNotIn("spine-goal", masker.enabled_pruners)
+
+
 class MaskSoundnessTest(unittest.TestCase):
     """R4. The property the whole of Phase B rests on.
 
     Every corpus fixture, under four tokenizations, with the full mask stack
     active: the fixture's own next token is in the mask at every step, and the
     walk finishes on a grammar state that may end.
+
+    Since `spine-goal` the walked corpus is the 26 fixtures **plus the eight
+    gold terms**. The fixtures barely exercise an `app` spine — the deepest is
+    binary — and every held-out composition is a spine of arity 1 to 3, so
+    walking the fixtures alone would have proved the new layer sound over
+    positions it never fires at. The gold terms are accepted definitions
+    (`heldout_gold.verify` puts each through the real funnel), which is the
+    only property a soundness fixture needs.
     """
 
     @classmethod
     def setUpClass(cls):
         cls.resolver = ExperimentResolver()
-        cls.vocabulary = scripted_vocabulary(SURFACES, max_piece=4)
+        cls.walked = SURFACES + GOLD_SURFACES
+        cls.walked_names = NAMES + GOLD_NAMES
+        cls.vocabulary = scripted_vocabulary(cls.walked, max_piece=4)
         # One masker for the whole suite: its caches are the reason this is
         # affordable, and sharing them is exactly what a real run does.
         cls.masker = build_masker(cls.vocabulary, cls.resolver)
+        cls.spine_masker = build_masker(
+            cls.vocabulary, cls.resolver, names=list(SPINE_PRUNERS))
 
     def walk(self, surface: str, pieces, masker=None):
         masker = masker or self.masker
@@ -663,30 +985,69 @@ class MaskSoundnessTest(unittest.TestCase):
         self.assertTrue(masker.can_end, "the fixture did not end on a complete state")
 
     def test_every_fixture_byte_by_byte(self):
-        for name, surface in zip(NAMES, SURFACES):
+        for name, surface in zip(self.walked_names, self.walked):
             with self.subTest(fixture=name, tokenization="1 byte"):
                 self.walk(surface, chunk(surface.encode("utf-8"), 1))
 
     def test_every_fixture_in_atom_straddling_chunks(self):
-        for name, surface in zip(NAMES, SURFACES):
+        for name, surface in zip(self.walked_names, self.walked):
             with self.subTest(fixture=name, tokenization="3 bytes"):
                 self.walk(surface, chunk(surface.encode("utf-8"), 3))
 
     def test_every_fixture_under_longest_match_tokenization(self):
-        for name, surface in zip(NAMES, SURFACES):
+        for name, surface in zip(self.walked_names, self.walked):
             with self.subTest(fixture=name, tokenization="greedy"):
                 self.walk(surface, greedy(surface.encode("utf-8"), self.vocabulary))
+
+    def test_every_fixture_with_the_spine_layer_enabled(self):
+        """R4 for `spine-goal`: the same walk, the same assertion, layer on.
+
+        Three tokenizations over 34 definitions. A veto this layer takes on a
+        position some accepted definition really uses would show up here as an
+        excluded continuation, which is the only failure mode that matters.
+        """
+        for name, surface in zip(self.walked_names, self.walked):
+            data = surface.encode("utf-8")
+            for label, pieces in (("1 byte", chunk(data, 1)),
+                                  ("3 bytes", chunk(data, 3)),
+                                  ("greedy", greedy(data, self.vocabulary))):
+                with self.subTest(fixture=name, tokenization=label):
+                    self.walk(surface, pieces, masker=self.spine_masker)
+        self.assertEqual(
+            self.spine_masker.fallbacks, 0,
+            "a fallback means `spine-goal` emptied a mask it should not have")
 
     def test_soundness_holds_for_every_pruner_subset(self):
         # Fewer pruners can only widen the mask, but the subsets are where a
         # toggle bug would hide, so they are walked rather than argued about.
-        subsets = ([], ["ref-hash"], ["de-bruijn"], list(PRUNER_NAMES))
+        subsets = ([], ["ref-hash"], ["de-bruijn"], ["spine-goal"],
+                   list(PRUNER_NAMES), list(SPINE_PRUNERS))
         for names in subsets:
             masker = build_masker(self.vocabulary, self.resolver, names=names)
             with self.subTest(pruners=tuple(names)):
-                for surface in SURFACES[:3]:
+                for surface in self.walked[:3] + GOLD_SURFACES[:3]:
                     self.walk(surface, greedy(surface.encode("utf-8"), self.vocabulary),
                               masker=masker)
+
+    def test_the_spine_layer_prunes_where_the_goal_layer_abstains(self):
+        """Evidence that the abstention really was the hole §2.4 named.
+
+        At the head of a binary spine under a `List` goal the goal layer says
+        nothing at all (no goal descends into `app`), so with it alone the mask
+        is whatever `ref-hash` leaves — every digest in the store. `spine-goal`
+        cuts that to the digests with a second codomain.
+        """
+        prefix = (b"(def (fn " + LIST_TYPE + b" () " + LIST_TYPE + b") (lam "
+                  + LIST_TYPE + b" (app (app (ref 0x")
+        sizes = {}
+        for label, names in (("off", PRUNER_NAMES), ("on", SPINE_PRUNERS)):
+            masker = build_masker(self.vocabulary, self.resolver, names=list(names))
+            masker.accept_bytes(prefix)
+            step = masker.step()
+            self.assertTrue(step.allowed)
+            self.assertFalse(step.fallback)
+            sizes[label] = step.size
+        self.assertLess(sizes["on"], sizes["off"])
 
     def test_no_fixture_walk_needed_a_liveness_fallback(self):
         self.assertEqual(

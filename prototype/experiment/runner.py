@@ -69,7 +69,7 @@ from .evaluate import (
     run_funnel,
     score_semantic,
 )
-from .masker import PRUNER_NAMES, build_masker
+from .masker import KNOWN_PRUNER_NAMES, PRUNER_NAMES, build_masker
 from .prompts import (
     ADDRESS_BOOK_NONE,
     ADDRESS_BOOK_TYPED,
@@ -236,9 +236,14 @@ class Config:
                     f"unknown condition {condition!r}; known conditions: "
                     f"{', '.join(ALL_CONDITIONS)}")
         for pruner in self.pruners:
-            if pruner not in PRUNER_NAMES:
+            # Validated against the *known* set, not the default one: the
+            # default is what a config that says nothing gets, and `spine-goal`
+            # is opt-in precisely so that stays unchanged (§2.4's follow-up,
+            # `docs/plans/2026-08-25-mask-spine-refs.md`).
+            if pruner not in KNOWN_PRUNER_NAMES:
                 raise SystemExit(
-                    f"unknown pruner {pruner!r}; known pruners: {', '.join(PRUNER_NAMES)}")
+                    f"unknown pruner {pruner!r}; known pruners: "
+                    f"{', '.join(KNOWN_PRUNER_NAMES)}")
         for regime in self.regimes:
             if regime not in REGIMES:
                 raise SystemExit(f"unknown regime {regime!r}; known regimes: {', '.join(REGIMES)}")
