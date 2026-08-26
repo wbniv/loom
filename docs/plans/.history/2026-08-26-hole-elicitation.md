@@ -1,9 +1,15 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/154c863) | B3 review notes: STEP fix-body correction (immaterial to §1, replay-verified) + arm-rewrite cut-site note |
 | [2026-08-26](https://github.com/wbniv/loom/commit/2519e72) | Probe: size B3 and the feedback-legibility defect from the same column |
 | [2026-08-26](https://github.com/wbniv/loom/commit/e0073bd) | Design: hole-elicitation re-run, pre-registered as a new plan |
 
 <!--history-meta v1
+154c863	author	Will Norris
+154c863	added	13
+154c863	deleted	0
+154c863	files	1
+154c863	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 2519e72	author	Will Norris
 2519e72	added	14
 2519e72	deleted	3

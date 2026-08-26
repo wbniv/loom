@@ -664,6 +664,306 @@ design does not touch. Re-run and extended:
 **Nothing launches until check 1, 7 and 9's output is in this file**, and Stage 1
 launches only on Stage 0's gates.
 
+#### Deliverable 6 — run and pasted, 2026‑08‑26
+
+Run on CPU with the stub backend, no GPU and no network:
+`python3 -m experiment.hole_elicitation_stub_check` from `prototype/`, exit code
+**0**. The script is
+[`prototype/experiment/hole_elicitation_stub_check.py`](../../prototype/experiment/hole_elicitation_stub_check.py).
+Checks **2, 5** and **6** appear in *extended* form — the 2026‑08‑25 §4.8 versions
+are cited above and stand unchanged; what runs here is their re-run over the four
+pilot blocks and the surfaces this plan added. Check **11** is beyond §4.7's list
+and is here because §4.7's citation argument rests on §1's pasted numbers: if
+those stopped reproducing from the banked records, the premises would have moved
+and the gate should not open on them.
+
+**Every check passes. The gate on GPU spend is open** — check 1, 7 and 9's output
+is now in this file, as §4.7 requires. Stage 1 still launches only on Stage 0's
+gates, via deliverable 7's selector.
+
+```
+### Check 1a — the four pilot arms differ from `whole` only by their block
+
+Byte-level where the mechanism is prompt-side, byte-*identical* where it is
+runner-side. `whole` is the reference the 2026-08-25 §4.8 check 1 used, so the
+chain is the same one: strip the arm's added block and what is left must be the
+control's prompt, byte for byte.
+
+heldout/list/concatLength        minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/list/mapLength           minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/list/reverseThen         minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/maybe/mapOrElse          minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/list/headOrElse          minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/list/sum                 minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/sample/stampedBytes      minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+heldout/nat/selectNonNegative    minus-block==whole: §3-block=ok exemplar=ok hole-required=ok checker-holed=ok  B2/B3==B0=yes  B1==B0+exemplar=yes
+
+  §3-block         adds  223 B of block (~149 tokens)
+  exemplar         adds 1072 B of block (~715 tokens)
+  hole-required    adds  223 B of block (~149 tokens)
+  checker-holed    adds  223 B of block (~149 tokens)
+
+result: PASS — 8 tasks x 4 blocks
+
+### Check 1b — the closure still reads the DRAFT's own declared type
+
+Pinned two ways: against the signature, the way 2026-08-25 §4.8 check 2 pins the
+other fill-path surfaces; and against the runner's single call site, which must
+pass `declared_type_of(draft)` and must never mention a task's type surface.
+
+closed_subtask_type('declared_type_surface', 'obligation')  as landed  no Task
+runner.py call sites (1): ['closed = closed_subtask_type(declared_type_of(draft), obligation)']
+lines naming both the closure and a task's type surface: 0
+draft (def (fn Bool () Bool) (lam Bool (… -> closed sub-task (fn Bool () Bool) (the task's own type is (fn (data 0x2ee931a3746132882cdbc6…)
+
+result: PASS
+
+### Check 1c — no gold surface and no unseen hash in any block
+
+The exemplar block is the only block with bytes to leak. It introduces zero new
+store content (§2.2) — only a new *form* of content already in every prompt — and
+that is what this pins: every hash in it is already in the four pinned few-shot
+definitions, and no held-out gold term or type surface appears in it.
+
+§3-block          223B  hashes=0  unseen=0  gold-term-leaks=0  gold-type-leaks=0  clean
+exemplar         1072B  hashes=1  unseen=0  gold-term-leaks=0  gold-type-leaks=0  clean
+hole-required     223B  hashes=0  unseen=0  gold-term-leaks=0  gold-type-leaks=0  clean
+checker-holed     223B  hashes=0  unseen=0  gold-term-leaks=0  gold-type-leaks=0  clean
+
+heldout_gold.prompt_leak_check(): no offenders
+result: PASS
+
+### Check 1d — the seven shipped configs, field by field
+
+§9 names an unpinned config as a thing that would change this plan, so the pins
+are asserted rather than assumed. The Stage-1 `holes` config's `hole_block` is
+checked to be still in its PLACEHOLDER state (`§3-block`, the banked block and
+the field's default): Stage 0 has not run, so nothing may have selected yet, and
+`pilot_select --apply` is the only thing licensed to write that field.
+
+pilot_b0         hole_block=§3-block       hole_required_rounds=0  beyond-exceptions=[]  unpinned=[]  ok
+pilot_b1         hole_block=exemplar       hole_required_rounds=0  beyond-exceptions=[]  unpinned=[]  ok
+pilot_b2         hole_block=hole-required  hole_required_rounds=3  beyond-exceptions=[]  unpinned=[]  ok
+pilot_b3         hole_block=checker-holed  hole_required_rounds=0  beyond-exceptions=[]  unpinned=[]  ok
+
+decomp2_whole    protocol=whole    fill_gate=accepted     hole_block=§3-block   seeds=12  beyond-exceptions=[]  ok
+decomp2_redraft  protocol=redraft  fill_gate=accepted     hole_block=§3-block   seeds=12  beyond-exceptions=[]  ok
+decomp2_holes    protocol=holes    fill_gate=well-scoped  hole_block=§3-block   seeds=12  beyond-exceptions=[]  ok
+
+Stage-1 `holes` hole_block placeholder intact ('§3-block', nothing selected yet): True
+
+elicitation-pilot-runlist.json       4 entries  points at the shipped configs
+elicitation-stage1-runlist.json      3 entries  points at the shipped configs
+
+result: PASS
+
+### Check 2 (extended) — the new surfaces take no Task, by signature
+
+note: 2026-08-25 §4.8 check 2 pins `hole_obligations` / `closed_subtask_type` /
+      `fill_term_skeleton` / `splice_fill` / `build_fill_prompt` and is cited, not
+      re-run (§4.7). These are the surfaces this plan added. `build_prompt` and
+      `context_required` do take a `Task` and always have — they are the ask —
+      so the new `hole_block` argument is checked below to be a plain string in
+      the pinned vocabulary rather than anything that reads one.
+
+prompts.hole_exemplar_block      ['resolver']  as landed  no Task
+prompts.checker_holed_cut        ['draft_source', 'error_path', 'resolver']  as landed  no Task
+prompts.hole_at_error            ['draft_source', 'error_path', 'resolver']  as landed  no Task
+runner._fill_admitted           ['config', 'funnel', 'bare']  as landed  no Task
+runner._with_hole_required_note ['narrowing', 'round_index', 'draft', 'census', 'config']  as landed  no Task
+runner._checker_holed_seed      ['config', 'draft', 'funnel', 'resolver']  as landed  no Task
+probe.check_ten_verdict('draft_source', 'error_path', 'resolver')  as landed  no Task
+build_prompt(hole_block=…) default='§3-block'  the banked block, so pre-plan configs are byte-identical
+context_required(hole_block=…) default='§3-block'  the banked block, so pre-plan configs are byte-identical
+HOLE_BLOCKS=['§3-block', 'exemplar', 'hole-required', 'checker-holed']  the four §4.2 blocks
+hole_exemplar_block(resolver) stable across calls: True
+
+result: PASS
+
+### Check 5 (extended) — context_required <= n_ctx - max_tokens_per_draw
+
+note: extended to all seven configs this plan ships, because B1's exemplar block
+      is ~565 tokens of prompt the 2026-08-25 figure did not carry. The worst-case
+      *fill* prompt is built from the largest gold-derived nested draft — the same
+      fixture the 2026-08-25 check 5 used, imported from `decomposition_stub_check`
+      rather than rebuilt, so the two gates cannot drift. A fill prompt carries no
+      block, so its figure is block-independent by construction.
+
+pilot_b0         block=§3-block       skeleton= 18496 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+pilot_b1         block=exemplar       skeleton= 19062 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+pilot_b2         block=hole-required  skeleton= 18496 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+pilot_b3         block=checker-holed  skeleton= 18496 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+decomp2_whole    block=§3-block       skeleton= 18346 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+decomp2_redraft  block=§3-block       skeleton= 18346 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+decomp2_holes    block=§3-block       skeleton= 18496 tok  worst-case fill= 19795 tok  threshold= 32000  OK
+
+exemplar block costs 566 prompt tokens on the longest held-out prompt (18496 -> 19062, +3.1%)
+worst-case draft: heldout/sample/stampedBytes (906 chars), carried with a narrowing note
+result: PASS
+
+### Check 6 (extended) — no gold surface appears in any pilot prompt
+
+note: extended over the four blocks rather than the one banked block. Fill prompts
+      are built from two draft shapes, as in 2026-08-25 §4.8 check 6: a
+      model-writable one (the eta-skeleton, gold-free by construction) and the
+      gold-derived nested draft. The harness adds nothing beyond the draft it is
+      handed, and a fill prompt carries no block, so B1 adds no fill-side surface.
+
+skeleton prompts checked    32 (4 blocks x 8 tasks)
+fill prompts checked        64
+gold surfaces searched for   8 (every task's, in every prompt)
+
+result: PASS
+
+### Check 7 — a scripted stub drives one cell of each pilot arm
+
+note: the cell runs at condition `gbnf` (the mask needs a real vocabulary); the
+      purse, the caps, the gate and the block are the arm's own. Rounds 2-6 are
+      the §2.1 four-layer gate, one layer each; round 1 is the accepted path and
+      Gate E2's event; round 3 is the relaxation, capped at one fill draw by §2.1
+      consequence 4. B2's window is read out of the NEXT round's prompt bytes,
+      not out of the record field that claims the note was added.
+
+§3-block         records= 126 draws= 64 rounds= 62 fills= 2 tokens=  815/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True one-cell_done=True
+                 §2.1 four-layer gate:
+                   round 2  funnel=typecheck   bare=True  fill-draws=0  expected=block  ok   bare hole — §3's rule refuses it
+                   round 3  funnel=typecheck   bare=False fill-draws=1  expected=admit  ok   the relaxation: reached the typecheck layer
+                   round 4  funnel=scope       bare=False fill-draws=0  expected=block  ok   blocked — the binder context folded into the closed type is wrong
+                   round 5  funnel=references  bare=False fill-draws=0  expected=block  ok   blocked — an unresolvable hash in the declared type surface
+                   round 6  funnel=parse       bare=False fill-draws=0  expected=block  ok   blocked — no IR, so no obligations and no path
+                 §2.1 consequence 4: accepted round fill-draws=1 (caps 6/2)  relaxed round fill-draws=1 (capped at 1)  ok
+                 splice outcomes: spliced=1 rolled-back=1 — the same good fill, two outcomes, decided by the draft (§1.3)  ok
+                 §3's rule, unconditional: round 2 funnel=typecheck bare_hole_body=True, fill-draws=0  ok
+                 B2: no hole-demand note anywhere (hole_required_rounds=0)  ok
+                 B3: no `hole_at_error` seeding (this arm is not B3)  ok
+exemplar         records= 126 draws= 64 rounds= 62 fills= 2 tokens=  815/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True one-cell_done=True
+                 §2.1 four-layer gate:
+                   round 2  funnel=typecheck   bare=True  fill-draws=0  expected=block  ok   bare hole — §3's rule refuses it
+                   round 3  funnel=typecheck   bare=False fill-draws=1  expected=admit  ok   the relaxation: reached the typecheck layer
+                   round 4  funnel=scope       bare=False fill-draws=0  expected=block  ok   blocked — the binder context folded into the closed type is wrong
+                   round 5  funnel=references  bare=False fill-draws=0  expected=block  ok   blocked — an unresolvable hash in the declared type surface
+                   round 6  funnel=parse       bare=False fill-draws=0  expected=block  ok   blocked — no IR, so no obligations and no path
+                 §2.1 consequence 4: accepted round fill-draws=1 (caps 6/2)  relaxed round fill-draws=1 (capped at 1)  ok
+                 splice outcomes: spliced=1 rolled-back=1 — the same good fill, two outcomes, decided by the draft (§1.3)  ok
+                 §3's rule, unconditional: round 2 funnel=typecheck bare_hole_body=True, fill-draws=0  ok
+                 B2: no hole-demand note anywhere (hole_required_rounds=0)  ok
+                 B3: no `hole_at_error` seeding (this arm is not B3)  ok
+hole-required    records= 126 draws= 64 rounds= 62 fills= 2 tokens=  815/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True one-cell_done=True
+                 §2.1 four-layer gate:
+                   round 2  funnel=typecheck   bare=True  fill-draws=0  expected=block  ok   bare hole — §3's rule refuses it
+                   round 3  funnel=typecheck   bare=False fill-draws=1  expected=admit  ok   the relaxation: reached the typecheck layer
+                   round 4  funnel=scope       bare=False fill-draws=0  expected=block  ok   blocked — the binder context folded into the closed type is wrong
+                   round 5  funnel=references  bare=False fill-draws=0  expected=block  ok   blocked — an unresolvable hash in the declared type surface
+                   round 6  funnel=parse       bare=False fill-draws=0  expected=block  ok   blocked — no IR, so no obligations and no path
+                 §2.1 consequence 4: accepted round fill-draws=1 (caps 6/2)  relaxed round fill-draws=1 (capped at 1)  ok
+                 splice outcomes: spliced=1 rolled-back=1 — the same good fill, two outcomes, decided by the draft (§1.3)  ok
+                 §3's rule, unconditional: round 2 funnel=typecheck bare_hole_body=True, fill-draws=0  ok
+                 B2: note in rounds [1, 3] prompts, none after (window=3 rounds)  ok
+                 B3: no `hole_at_error` seeding (this arm is not B3)  ok
+checker-holed    records= 126 draws= 64 rounds= 62 fills= 2 tokens=  815/4608
+                 budget: full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True one-cell_done=True
+                 §2.1 four-layer gate:
+                   round 2  funnel=typecheck   bare=True  fill-draws=0  expected=block  ok   bare hole — §3's rule refuses it
+                   round 3  funnel=typecheck   bare=False fill-draws=1  expected=admit  ok   the relaxation: reached the typecheck layer
+                   round 4  funnel=scope       bare=False fill-draws=0  expected=block  ok   blocked — the binder context folded into the closed type is wrong
+                   round 5  funnel=references  bare=False fill-draws=0  expected=block  ok   blocked — an unresolvable hash in the declared type surface
+                   round 6  funnel=parse       bare=False fill-draws=0  expected=block  ok   blocked — no IR, so no obligations and no path
+                 §2.1 consequence 4: accepted round fill-draws=1 (caps 6/2)  relaxed round fill-draws=1 (capped at 1)  ok
+                 splice outcomes: spliced=2 rolled-back=0 — B3 cut the sibling error out, so the assembly the other arms roll back is accepted here  ok
+                 §3's rule, unconditional: round 2 funnel=typecheck bare_hole_body=True, fill-draws=0  ok
+                 B2: no hole-demand note anywhere (hole_required_rounds=0)  ok
+                 B3: eligible=2 cut=1 refused=1; round 3 cut at '2.2.3' goal='Bool'; round 2 refused: the nearest holeable ancestor is the whole body; §3's bare-hole rule refuses it  ok
+
+result: PASS
+
+### Check 7e — the E1/E2 computation path, through `pilot_select` itself
+
+The pilot's selection is executed by a committed script, not judged (§4.8), so the
+script's own functions are what compute here — `block_stats`, `assembly_liveness`,
+`selection_verdict` — over check 7's stub records. This is a check of the
+MECHANICS, not a result: one scripted cell per block, identical by construction,
+so the verdict below is arithmetic on a fixture and says nothing about any model.
+
+block                         draws  qualify  draw_rate  wilson_lo   cells  cell_rate    E1
+§3-block (B0, reference)         62        2     3.23%      1.07%   1/1      100.00%  fail
+exemplar (B1)                    62        2     3.23%      1.07%   1/1      100.00%  fail
+hole-required (B2)               62        2     3.23%      1.07%   1/1      100.00%  fail
+checker-holed (B3, diagnostic)     62        2     3.23%      1.07%   1/1      100.00%  fail
+
+Gate E2 (assembly liveness, pooled): CLEAR — 5 fill draw(s) spliced into a four-layer-accepted assembly
+selection_verdict kind='no_launch_e1' block='-'
+  No block clears Gate E1 (§6 row 1). Hole-directed decomposition is not elicitable at this scale under prompt or feedback pressure. Stage 1 is not launched.
+  (a fixture, not a result: 3.2 % against a 10 % bar, so `no_launch_e1`
+   is the correct answer and any other would mean the bar had moved)  ok
+
+§4.2's selection rule itself, over constructed stats — every branch:
+
+  no block clears E1                           -> kind=no_launch_e1   block=-              ok
+  only B3 clears E1 (§6 row 3)                 -> kind=escalate       block=-              ok
+  B1 and B2 clear, E2 does not (§6 row 2)      -> kind=no_launch_e2   block=-              ok
+  B1 and B2 tie -> the fixed order B1 < B2     -> kind=select         block=exemplar       ok
+  B2 strictly higher cell rate -> B2           -> kind=select         block=hole-required  ok
+
+result: PASS
+
+### Check 9 — both §2.2 exemplars round-trip to their corpus fixture
+
+Driven through the landed constants in `prompts.py` — the single source of the
+block's bytes — and the landed protocol functions, never a second copy. The
+`maybe/map` fill is not in the block (§2.2 shows that exemplar as draft +
+sub-task only); it is reconstructed here from `fill_term_skeleton` so the
+round-trip can be checked end to end all the same.
+
+corpus/bool/not
+  draft      chars=  78  funnel=accepted  holes=1 fillable=1
+  sub-task   chars=  17  (derived from the draft's own declared type)
+  fill       chars=  51  funnel=accepted
+  assembled  funnel=accepted  identical-to-fixture=True
+corpus/maybe/map
+  draft      chars= 524  funnel=accepted  holes=1 fillable=1
+  sub-task   chars= 191  (derived from the draft's own declared type)
+  fill       chars= 383  funnel=accepted
+  assembled  funnel=accepted  identical-to-fixture=True
+
+block size: 847 characters of definition surface, ~565 tokens
+result: PASS
+
+### Check 10 — `hole_at_error` refuses rather than guesses
+
+Over every banked typecheck-rejected skeleton in all three arms, through the
+probe's own `check_ten_rows` / `check_ten_verdict` / `CHECK_TEN_ALLOWED` —
+imported, not restated, so this gate and the probe cannot answer differently.
+A verdict outside the allowed two is a violation and is printed with the draft.
+
+whole     typecheck-rejected  628   cut   91   refused  537   violations 0
+redraft   typecheck-rejected  626   cut   70   refused  556   violations 0
+holes     typecheck-rejected  597   cut   72   refused  525   violations 0
+
+total     cut  233   refused 1618   violations 0
+
+result: PASS
+
+### Check 11 (new) — §1's pasted numbers still reproduce
+
+§4.7's argument is that checks 2-6 and 8 can be *cited* because the machinery they
+pin is untouched. That citation is only as good as §1's numbers, which are the
+premises the whole design rests on. Each line below is a substring the plan pastes
+in §1, matched against today's output of the probe section that produced it.
+
+--section census    7 pinned lines  all reproduce
+--section gate      9 pinned lines  all reproduce
+--section mask      2 pinned lines  all reproduce
+
+result: PASS
+
+### Deliverable 6 verdict: ALL CHECKS PASS — the GPU gate is open
+```
+
+---
+
 ### 4.8 No peeking, no test-shopping
 
 The blocks, the gates, the bars, the tie-breaks, the arms, the metric, the unit, the
