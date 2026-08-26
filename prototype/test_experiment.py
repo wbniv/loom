@@ -24,7 +24,9 @@ import declarations
 from experiment import prompts, runner
 from experiment.addressability_audit import HAND_SOLVED
 from experiment.backends import BackendUnavailable, StubBackend, make_backend
+from experiment.decomposition_probe import eta_skeleton
 from experiment.evaluate import ACCEPTED, LAYERS, OUTCOMES, extract_definition, run_funnel, score_semantic
+from experiment.heldout_gold import GOLD_TERMS
 from experiment.prompts import KIND_CORPUS, KIND_HELD_OUT, REGIME_HELD_OUT, REGIMES
 from experiment.resolver import KIND_ABILITY, KIND_DATA, KIND_DEFINITION, KIND_EXTERN, ExperimentResolver
 from transcode import type_to_surface
@@ -40,14 +42,21 @@ BROKEN_REFERENCES = f"(def (data {UNKNOWN_HASH} ()) (hole (data {UNKNOWN_HASH} (
 BROKEN_TYPE = "(def Bool (lit i64 1))"
 
 SUM_TASK = next(t for t in prompts.HELD_OUT_TASKS if t.task_id == "heldout/list/sum")
+#: A bare hole at `SUM_TASK`'s declared type — accepted and type-exact by
+#: construction, and the [decomp-floor-fix] regression fixture: `score_semantic`
+#: must refuse it (§5.4), never a stand-in for a genuine held-out success.
 HELD_OUT_HOLE = f"(def {SUM_TASK.expected_type_surface} (hole {SUM_TASK.expected_type_surface} ()))"
+#: A genuine, hole-free `SUM_TASK` answer — the stub's one held-out success
+#: case, so `test_semantic_success_is_scored_by_task_kind` exercises the real
+#: floor rather than the eta-skeleton defect it now refuses.
+HELD_OUT_GOOD = GOLD_TERMS[SUM_TASK.task_id]
 
 #: Without a grammar the model may emit anything, syntax errors included.
-STUB_OUTPUTS = [BOOL_NOT, BROKEN_SYNTAX, BROKEN_SCOPE, BROKEN_REFERENCES, BROKEN_TYPE, HELD_OUT_HOLE]
+STUB_OUTPUTS = [BOOL_NOT, BROKEN_SYNTAX, BROKEN_SCOPE, BROKEN_REFERENCES, BROKEN_TYPE, HELD_OUT_GOOD]
 #: Under `loom.gbnf` a syntax failure is impossible by construction, so the
 #: grammar script is the same list with the syntax break removed. That is the
 #: whole of what condition 2 buys, modelled exactly.
-STUB_GRAMMAR_OUTPUTS = [BOOL_NOT, BROKEN_SCOPE, BROKEN_REFERENCES, BROKEN_TYPE, HELD_OUT_HOLE]
+STUB_GRAMMAR_OUTPUTS = [BOOL_NOT, BROKEN_SCOPE, BROKEN_REFERENCES, BROKEN_TYPE, HELD_OUT_GOOD]
 
 
 def stub_config(**overrides):
@@ -665,7 +674,7 @@ class FunnelTest(unittest.TestCase):
         self.assertFalse(bad.success)
 
     def test_held_out_semantic_success_is_checked_plus_type_exact(self):
-        good = score_semantic(SUM_TASK, run_funnel(HELD_OUT_HOLE, self.resolver), HELD_OUT_HOLE)
+        good = score_semantic(SUM_TASK, run_funnel(HELD_OUT_GOOD, self.resolver), HELD_OUT_GOOD)
         self.assertTrue(good.success)
         self.assertEqual(good.rule, "checked+type-exact")
         self.assertTrue(good.rubric_pending, "R3's hand-scored half must stay visible")
@@ -675,6 +684,46 @@ class FunnelTest(unittest.TestCase):
         unchecked = score_semantic(SUM_TASK, run_funnel(BROKEN_TYPE, self.resolver), BROKEN_TYPE)
         self.assertFalse(unchecked.success)
         self.assertFalse(unchecked.rubric_pending)
+
+    def test_held_out_floor_refuses_a_bare_hole_at_the_task_type(self):
+        # HELD_OUT_HOLE is accepted and type-exact by construction — the
+        # narrowest instance of the eta-skeleton defect below — so this pins
+        # the refusal on the one fixture that isolates it from every other
+        # held-out task's declared type.
+        holed = score_semantic(SUM_TASK, run_funnel(HELD_OUT_HOLE, self.resolver), HELD_OUT_HOLE)
+        self.assertFalse(holed.success)
+        self.assertEqual(holed.rule, "checked+type-exact")
+        self.assertIn("hole", holed.detail)
+        self.assertFalse(holed.rubric_pending)
+
+    def test_eta_skeleton_no_longer_meets_the_floor_for_any_held_out_task(self):
+        """`[decomp-floor-fix]` regression proof, docs/plans/
+        2026-08-25-hole-decomposition.md deliverable 2 / SPEC §5.4.
+
+        The eta-skeleton for a task's declared type — all lambdas, one bare
+        `(hole GOAL ())` — passes the whole funnel and is type-exact by
+        construction, so before this fix `score_semantic` scored it a
+        mechanical-floor success for all 8 held-out tasks (confirmed by
+        running `python3 -m experiment.decomposition_probe --section skeleton`
+        against the pre-fix `evaluate.py`: every task printed
+        `floor_today=True`). A hole-bearing definition lives in `draft/` and
+        can never be the target of a binding (§5.4), so every one of the
+        eight must now be refused.
+        """
+        self.assertEqual(len(prompts.HELD_OUT_TASKS), 8, "the plan's eight held-out tasks")
+        for task in prompts.HELD_OUT_TASKS:
+            skeleton = eta_skeleton(task.expected_type_surface)
+            funnel = run_funnel(skeleton, self.resolver)
+            # The funnel and the type still pass — isolating the hole clause
+            # as the one thing standing between this skeleton and a false
+            # "success".
+            self.assertEqual(funnel.outcome, ACCEPTED, task.task_id)
+            self.assertEqual(funnel.type_surface, task.expected_type_surface, task.task_id)
+            result = score_semantic(task, funnel, skeleton)
+            self.assertFalse(result.success, task.task_id)
+            self.assertEqual(result.rule, "checked+type-exact", task.task_id)
+            self.assertIn("hole", result.detail, task.task_id)
+            self.assertFalse(result.rubric_pending, task.task_id)
 
 
 class BackendTest(unittest.TestCase):

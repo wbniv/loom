@@ -184,6 +184,47 @@ class SemanticResult:
     rubric_pending: bool = False
 
 
+#: `hole`'s term-IR tag (SPEC §2.1 row 11) — the node §5.4 confines to the
+#: draft region and forbids as a binding target.
+_HOLE_TAG = 11
+
+
+def _term_has_hole(node) -> bool:
+    """True if the term-IR node `node` is a hole, or has one anywhere in its
+    subterms.
+
+    Walks exactly the child positions `transcode.term_to_surface` recurses
+    into, tag by tag, so it can never wander into a type-IR position (a
+    disjoint tag namespace) by accident. A single hit anywhere is enough —
+    §5.4 confines a hole-bearing definition to `draft/` regardless of what
+    else the term contains or how deep the hole sits.
+    """
+    tag = node[0]
+    if tag == _HOLE_TAG:
+        return True
+    if tag == 3:  # lam: body
+        return _term_has_hole(node[2])
+    if tag == 4:  # app: function, argument
+        return _term_has_hole(node[1]) or _term_has_hole(node[2])
+    if tag == 5:  # let: bound value, body
+        return _term_has_hole(node[2]) or _term_has_hole(node[3])
+    if tag in (6, 8):  # con, perform: field/argument terms
+        return any(_term_has_hole(field) for field in node[3])
+    if tag == 7:  # match: scrutinee, each arm's body
+        if _term_has_hole(node[1]):
+            return True
+        return any(_term_has_hole(body) for _, _, body in node[2])
+    if tag == 9:  # handle: handled term, each op's body, continuation
+        if _term_has_hole(node[2]) or _term_has_hole(node[4]):
+            return True
+        return any(_term_has_hole(body) for _, body in node[3])
+    if tag == 10:  # fix: body, continuation
+        return _term_has_hole(node[3]) or _term_has_hole(node[4])
+    if tag == 12:  # if: condition, then, else
+        return any(_term_has_hole(node[i]) for i in (1, 2, 3))
+    return False  # var, ref, lit carry no subterms
+
+
 def score_semantic(task: Task, funnel: FunnelResult, source: str) -> SemanticResult:
     """Did the generation produce the *asked-for* definition, not just a valid one."""
     if task.kind == KIND_CORPUS:
@@ -205,6 +246,21 @@ def score_semantic(task: Task, funnel: FunnelResult, source: str) -> SemanticRes
             success=False,
             rule="checked+type-exact",
             detail=f"funnel stopped at {funnel.outcome}",
+            rubric_pending=False,
+        )
+    # §5.4: a term containing a hole lives in `draft/` and can never be the
+    # target of a binding — so it can never be this floor's success case,
+    # whatever its type. Checked before type-exactness because a hole makes
+    # the type comparison moot: an eta-skeleton (all lambdas, one bare
+    # `(hole GOAL ())`) is accepted and type-exact by construction for any
+    # task, so without this clause the floor is met by a definition with no
+    # term at all.
+    term_ir, _, _ = transcode_source(source)
+    if _term_has_hole(term_ir[2]):
+        return SemanticResult(
+            success=False,
+            rule="checked+type-exact",
+            detail="term contains a hole (§5.4: draft/ only, never a binding target)",
             rubric_pending=False,
         )
     if funnel.type_surface != task.expected_type_surface:
