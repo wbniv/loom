@@ -1,0 +1,22 @@
+[
+  {
+    "config_key": "config/pilot_b0.config.json",
+    "output_dir": "runs/pilot-b0",
+    "run_id": "pilot-b0"
+  },
+  {
+    "config_key": "config/pilot_b1.config.json",
+    "output_dir": "runs/pilot-b1",
+    "run_id": "pilot-b1"
+  },
+  {
+    "config_key": "config/pilot_b2.config.json",
+    "output_dir": "runs/pilot-b2",
+    "run_id": "pilot-b2"
+  },
+  {
+    "config_key": "config/pilot_b3.config.json",
+    "output_dir": "runs/pilot-b3",
+    "run_id": "pilot-b3"
+  }
+]

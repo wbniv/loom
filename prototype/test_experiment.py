@@ -324,6 +324,16 @@ class AddressBookTest(unittest.TestCase):
         "decomp-whole.config.json": "full",
         "decomp-redraft.config.json": "full",
         "decomp-holes.config.json": "full",
+        # docs/plans/2026-08-26-hole-elicitation.md §4.2 pilot / §4.3 Stage 1:
+        # byte-copies of the decomposition-experiment arms above, address_book
+        # unchanged at "full".
+        "pilot_b0.config.json": "full",
+        "pilot_b1.config.json": "full",
+        "pilot_b2.config.json": "full",
+        "pilot_b3.config.json": "full",
+        "decomp2_whole.config.json": "full",
+        "decomp2_redraft.config.json": "full",
+        "decomp2_holes.config.json": "full",
     }
 
     def test_every_shipped_config_declares_its_registered_arm(self):

@@ -1,0 +1,17 @@
+[
+  {
+    "config_key": "config/decomp2_whole.config.json",
+    "output_dir": "runs/decomp2-whole",
+    "run_id": "decomp2-whole"
+  },
+  {
+    "config_key": "config/decomp2_redraft.config.json",
+    "output_dir": "runs/decomp2-redraft",
+    "run_id": "decomp2-redraft"
+  },
+  {
+    "config_key": "config/decomp2_holes.config.json",
+    "output_dir": "runs/decomp2-holes",
+    "run_id": "decomp2-holes"
+  }
+]

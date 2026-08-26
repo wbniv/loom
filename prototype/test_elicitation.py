@@ -13,7 +13,9 @@ and §4.7 for what each numbered check pins.
 from __future__ import annotations
 
 import inspect
+import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,6 +32,20 @@ from experiment.hole_elicitation_probe import (
     check_ten_verdict,
 )
 from experiment.hole_elicitation_probe import load as load_banked
+from experiment.pilot_select import (
+    BLOCK_RUN_DIRS,
+    CANDIDATE_BLOCKS,
+    EXIT_ESCALATE,
+    EXIT_NO_LAUNCH_E1,
+    EXIT_NO_LAUNCH_E2,
+    EXIT_SELECT,
+    apply_selection,
+    assembly_liveness,
+    block_stats,
+    load_block,
+    main as pilot_select_main,
+    selection_verdict,
+)
 from experiment.prompts import (
     FEW_SHOT_NAMES,
     HELD_OUT_TASKS,
@@ -1019,6 +1035,206 @@ class CheckerHoledBlockTest(unittest.TestCase):
             [_THEN_BRANCH_REJECTED], max_draws_per_task=1,
             hole_block=HOLE_BLOCK_PROTOCOL)[2].skeleton_prompts
         self.assertEqual(under_b3, under_b0)
+
+
+class PilotSelectTest(unittest.TestCase):
+    """Deliverable 7's selector: `docs/plans/2026-08-26-hole-elicitation.md`
+    §4.2's Stage-0 selection rule, run over fabricated records shaped exactly
+    like `runner.py`'s emitted fields rather than over a live run — the rule
+    itself is what is under test, not the harness that produces its inputs.
+    """
+
+    @staticmethod
+    def _skeleton(task, seed, *, outcome="typecheck", bare=False, fillable=1):
+        return {"role": runner.ROLE_SKELETON, "task": task, "seed": seed,
+                "funnel_outcome": outcome, "bare_hole_body": bare,
+                "holes_fillable": fillable}
+
+    @staticmethod
+    def _fill(task, seed, round_index, *, spliced):
+        return {"role": runner.ROLE_FILL, "task": task, "seed": seed,
+                "round": round_index,
+                "splice_outcome": runner.SPLICE_SPLICED if spliced
+                                   else runner.SPLICE_ROLLED_BACK}
+
+    # -- block_stats -----------------------------------------------------
+
+    def test_block_stats_counts_only_qualifying_skeleton_draws(self):
+        """(a) reached typecheck, (b) not bare, (c) >= 1 fillable hole — all
+        three, per §4.2. One row fails each condition; only the fourth and
+        fifth (two cells) count toward both the draw rate and the cell rate."""
+        records = [
+            self._skeleton("t1", 1, outcome="parse"),               # (a) fails
+            self._skeleton("t1", 2, bare=True),                      # (b) fails
+            self._skeleton("t2", 1, fillable=0),                     # (c) fails
+            self._skeleton("t2", 2),                                 # qualifies
+            self._skeleton("t3", 1),                                 # qualifies
+            {"role": runner.ROLE_FILL, "task": "t2", "seed": 2},     # not a skeleton
+        ]
+        stats = block_stats(records)
+        self.assertEqual(stats["draws"], 5)
+        self.assertEqual(stats["qualifying"], 2)
+        self.assertAlmostEqual(stats["draw_rate"], 0.4)
+        self.assertEqual(stats["cells_total"], 5)
+        self.assertEqual(stats["cells_qualifying"], 2)
+        self.assertAlmostEqual(stats["cell_rate"], 0.4)
+        # accepted also counts as "reached typecheck"
+        accepted_only = block_stats([self._skeleton("t1", 1, outcome=ACCEPTED)])
+        self.assertEqual(accepted_only["qualifying"], 1)
+
+    def test_block_stats_e1_gate_is_the_wilson_lower_bound_not_the_point_estimate(self):
+        """§4.2's own worked example, reproduced through `block_stats` rather
+        than `hole_elicitation_probe.wilson_lower` directly: at n=180, an
+        observed 10% point estimate has a lower bound of 6.9% (below the 10%
+        bar — 'a lucky pilot cannot promote a block'), while an observed 15%
+        clears it at 11.1%."""
+        def rows(n, k):
+            return [self._skeleton("t", i, outcome=("typecheck" if i < k else "parse"))
+                    for i in range(n)]
+
+        stats = block_stats(rows(180, 18))  # obs=10%
+        self.assertAlmostEqual(stats["wilson_lower"], 0.069, places=3)
+        self.assertFalse(stats["e1_pass"], "the plan's own bar: 10% observed does not clear")
+
+        stats = block_stats(rows(180, 27))  # obs=15%
+        self.assertAlmostEqual(stats["wilson_lower"], 0.111, places=3)
+        self.assertTrue(stats["e1_pass"])
+
+    # -- assembly_liveness -------------------------------------------------
+
+    def test_assembly_liveness_pools_across_blocks_and_ignores_rollbacks(self):
+        all_records = {
+            prompts.HOLE_BLOCK_PROTOCOL: [self._fill("t1", 1, 0, spliced=False)],
+            prompts.HOLE_BLOCK_EXEMPLAR: [self._fill("t2", 1, 0, spliced=False),
+                                          self._fill("t2", 1, 1, spliced=True)],
+        }
+        e2 = assembly_liveness(all_records)
+        self.assertTrue(e2["cleared"])
+        self.assertEqual(len(e2["hits"]), 1)
+        self.assertEqual(e2["hits"][0]["block"], prompts.HOLE_BLOCK_EXEMPLAR)
+
+    def test_assembly_liveness_not_cleared_when_every_fill_rolls_back(self):
+        all_records = {
+            prompts.HOLE_BLOCK_PROTOCOL: [self._fill("t1", 1, 0, spliced=False)],
+        }
+        self.assertFalse(assembly_liveness(all_records)["cleared"])
+
+    # -- selection_verdict ---------------------------------------------------
+
+    def _stats_all(self, *, e1_pass):
+        """`{block: {"e1_pass": ..., "cell_rate": 0.0, "draw_rate": 0.0}}` for
+        every block, `e1_pass` a `{block: bool}` override."""
+        base = {"cell_rate": 0.0, "draw_rate": 0.0, "e1_pass": False}
+        stats = {b: dict(base) for b in
+                 (prompts.HOLE_BLOCK_PROTOCOL, *CANDIDATE_BLOCKS, prompts.HOLE_BLOCK_CHECKER_HOLED)}
+        for block, passed in e1_pass.items():
+            stats[block]["e1_pass"] = passed
+        return stats
+
+    def test_no_block_clears_e1(self):
+        stats = self._stats_all(e1_pass={})
+        result = selection_verdict(stats, assembly_liveness({}))
+        self.assertEqual(result["kind"], "no_launch_e1")
+
+    def test_only_checker_holed_clears_e1_is_an_escalation(self):
+        stats = self._stats_all(e1_pass={prompts.HOLE_BLOCK_CHECKER_HOLED: True})
+        result = selection_verdict(stats, assembly_liveness({}))
+        self.assertEqual(result["kind"], "escalate")
+
+    def test_e1_clears_but_e2_does_not_blocks_stage_one(self):
+        stats = self._stats_all(e1_pass={prompts.HOLE_BLOCK_EXEMPLAR: True})
+        e2 = {"cleared": False, "hits": []}
+        result = selection_verdict(stats, e2)
+        self.assertEqual(result["kind"], "no_launch_e2")
+
+    def test_selects_highest_cell_rate_among_e1_passers(self):
+        stats = self._stats_all(
+            e1_pass={prompts.HOLE_BLOCK_EXEMPLAR: True, prompts.HOLE_BLOCK_HOLE_REQUIRED: True})
+        stats[prompts.HOLE_BLOCK_EXEMPLAR]["cell_rate"] = 0.25
+        stats[prompts.HOLE_BLOCK_HOLE_REQUIRED]["cell_rate"] = 0.50
+        e2 = {"cleared": True, "hits": [{"block": prompts.HOLE_BLOCK_HOLE_REQUIRED,
+                                          "task": "t", "seed": 1, "round": 1}]}
+        result = selection_verdict(stats, e2)
+        self.assertEqual(result["kind"], "select")
+        self.assertEqual(result["block"], prompts.HOLE_BLOCK_HOLE_REQUIRED)
+
+    def test_ties_break_to_b1_over_b2(self):
+        """§4.2: 'ties broken by draw rate, then by the order B1 < B2.'"""
+        stats = self._stats_all(
+            e1_pass={prompts.HOLE_BLOCK_EXEMPLAR: True, prompts.HOLE_BLOCK_HOLE_REQUIRED: True})
+        for block in CANDIDATE_BLOCKS:
+            stats[block]["cell_rate"] = 0.25
+            stats[block]["draw_rate"] = 0.20
+        e2 = {"cleared": True, "hits": [{"block": prompts.HOLE_BLOCK_EXEMPLAR,
+                                          "task": "t", "seed": 1, "round": 1}]}
+        result = selection_verdict(stats, e2)
+        self.assertEqual(result["block"], prompts.HOLE_BLOCK_EXEMPLAR)
+
+    def test_reference_block_b0_is_never_selected_even_if_it_clears_e1(self):
+        """B0 is the pilot's reference (§2.2), not a Stage-1 candidate — a
+        pathological pilot where only B0 clears E1 must not select it."""
+        stats = self._stats_all(e1_pass={prompts.HOLE_BLOCK_PROTOCOL: True})
+        result = selection_verdict(stats, assembly_liveness({}))
+        self.assertNotEqual(result.get("block"), prompts.HOLE_BLOCK_PROTOCOL)
+        self.assertEqual(result["kind"], "no_launch_e1")
+
+    # -- load_block / apply_selection / main --------------------------------
+
+    def test_load_block_missing_records_names_the_runlist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(SystemExit) as raised:
+                load_block(prompts.HOLE_BLOCK_PROTOCOL, Path(directory))
+            self.assertIn("elicitation-pilot-runlist.json", str(raised.exception))
+
+    def test_apply_selection_patches_hole_block_and_revalidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "decomp2_holes.config.json"
+            config_path.write_text(
+                (Path(__file__).resolve().parent / "experiment"
+                 / "decomp2_holes.config.json").read_text(encoding="utf-8"),
+                encoding="utf-8")
+            apply_selection(config_path, prompts.HOLE_BLOCK_HOLE_REQUIRED)
+            patched = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(patched["hole_block"], prompts.HOLE_BLOCK_HOLE_REQUIRED)
+            # Still a config `runner.Config` accepts and validates.
+            runner.Config.load(config_path)
+
+    def _write_pilot_run(self, runs_dir, block, records):
+        block_dir = runs_dir / BLOCK_RUN_DIRS[block]
+        block_dir.mkdir(parents=True)
+        with (block_dir / "records.jsonl").open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record) + "\n")
+
+    def test_main_end_to_end_selects_and_applies(self):
+        """A whole pilot on disk: B0 (reference) and B3 stay low, B1 clears E1
+        with the higher cell rate, B2 clears E1 too but lower — `main` prints
+        a `select` verdict for B1, exits 0, and (with `--apply`) patches a
+        Stage-1 holes config to it."""
+        with tempfile.TemporaryDirectory() as directory:
+            runs_dir = Path(directory) / "runs"
+            low = [self._skeleton("t", i, outcome="parse") for i in range(20)]
+            self._write_pilot_run(runs_dir, prompts.HOLE_BLOCK_PROTOCOL, low)
+            self._write_pilot_run(runs_dir, prompts.HOLE_BLOCK_CHECKER_HOLED, low)
+            b2_rows = [self._skeleton("t", i, outcome=("typecheck" if i < 6 else "parse"))
+                       for i in range(20)]  # 6/20 cells qualify = 30%, clears E1 but well below B1
+            self._write_pilot_run(runs_dir, prompts.HOLE_BLOCK_HOLE_REQUIRED, b2_rows)
+            b1_rows = ([self._skeleton(f"t{i}", 1) for i in range(8)]
+                       + [self._skeleton(f"t{i}", 2) for i in range(8)])  # 16 cells, all qualify
+            b1_rows.append(self._fill("t0", 1, 1, spliced=True))
+            self._write_pilot_run(runs_dir, prompts.HOLE_BLOCK_EXEMPLAR, b1_rows)
+
+            config_path = Path(directory) / "decomp2_holes.config.json"
+            config_path.write_text(
+                (Path(__file__).resolve().parent / "experiment"
+                 / "decomp2_holes.config.json").read_text(encoding="utf-8"),
+                encoding="utf-8")
+
+            exit_code = pilot_select_main([
+                "--runs-dir", str(runs_dir), "--apply", str(config_path)])
+            self.assertEqual(exit_code, EXIT_SELECT)
+            patched = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(patched["hole_block"], prompts.HOLE_BLOCK_EXEMPLAR)
 
 
 if __name__ == "__main__":  # pragma: no cover
