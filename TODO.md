@@ -27,9 +27,26 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T2] [next-lever-run] Launch the runlist instance (spot ≈$1.29, on-demand fallback
-  ≈$4.35), fetch results, tear down root + bucket, write
-  `docs/results/2026-08-25-address-book-report.md` per the pre-registration.
+- [T4] [mask-spine-refs] Extend `GoalTypePruner` to `app`-spine head positions —
+  the §2.4 sound codomain filter at decode time. Promoted from Watch: the
+  address-book run's exploratory `addr-typed` beat `addr-full` in point estimate
+  on both metric variants (21 vs 10 route-complete draws; two-sided p=0.064/0.041)
+  *despite* being route-incomplete for 5/8 tasks — conservative evidence that
+  retrieval, not presence, is the constraint (§6 row 5). T4: masker soundness is
+  the invariant that cannot break. See [report](docs/results/2026-08-25-address-book-report.md).
+
+- [T4] [decomposition] Hole-directed decomposition design (next-lever plan §2.2) —
+  promoted from Watch per §6 row 2: primary significant, semantic zero — the model
+  reaches the right definitions but cannot assemble them; composition is the
+  residual. Companion to [mask-spine-refs] (every hole is a checking-mode position).
+  See [report](docs/results/2026-08-25-address-book-report.md).
+
+- [T2] [runlist-partial-fetch] The GCP driver's runlist-mode fetch reads only
+  `results/<driver-run-id>/` — which the instance populates with logs only (arm
+  data lands under each entry's `results/<arm-run-id>/`) — so both the timeout
+  path AND the success path miss the arm results (2026-08-25/26: both fetches
+  came back empty; addr-none and then full+typed needed hand rescue). Teach the
+  driver to rsync each runlist entry's per-arm prefix.
 
 
 
@@ -38,15 +55,6 @@ Check conformance with `task todo:lint`.
 
 
 ## Watch
-
-- [mask-spine-refs] Extend `GoalTypePruner` to `app`-spine head positions (sound
-  codomain filter, 47 → 7–13 refs) — promote to Open if the address-book run's
-  `addr-typed` arm beats `addr-full` (now exploratory and biased *against*
-  `addr-typed` per Amendment A1, so a win is conservative evidence). See
-  [next-lever plan](docs/plans/2026-08-24-next-lever.md) §2, A1.
-
-- [decomposition] Hole-directed decomposition design (next-lever plan §2.2) — the
-  pre-committed next lever; promote to Open if the address-book primary comes back null.
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
   the single-stream question is **measured and closed** (3.15 ms/token warm,
@@ -77,6 +85,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-26 — [next-lever-run] Primary SIGNIFICANT: addr-full 10/320 vs none 1/320, p=0.0055; semantic 0 after rubric; typed 21/320 despite handicap; ≈$1.31. See [report](docs/results/2026-08-25-address-book-report.md).
 - ✅ 2026-08-25 — [next-lever-stub] §4.8 dry-run (as amended by A1): all 5 checks PASS, output pasted into the plan; GPU gate open. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [next-lever-gold] All 8 gold terms verified (funnel+mechfloor, real tokenizer), none dropped; worst case 662 tok < 768 cap; §4.3's stale 447/72% corrected. See [plan](docs/plans/2026-08-24-next-lever.md).
 - ✅ 2026-08-25 — [budget-regression] §4.3 budget fix landed (T2 escalation: it was never implemented) + guard with fail-then-pass proof; full-cap-or-no-draw for any config. See [plan](docs/plans/2026-08-24-next-lever.md).
