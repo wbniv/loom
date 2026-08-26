@@ -1729,6 +1729,44 @@ _UNFILLABLE_DRAFT = GOLD_TERMS[_HEAD.task_id].replace(_INNER_MATCH, f"(hole {_MA
 #: splice and then re-enumerate against the *new* draft.
 _TWO_HOLE_DRAFT = "(def (fn I64 () I64) (lam I64 (let I64 (hole I64 ()) (hole I64 ()))))"
 
+#: Real banked data: `heldout/nat/selectNonNegative` seed 7, round 0, from
+#: `prototype/runs/decomp-holes/records.jsonl` — the 2026-08-26 hole-elicitation
+#: plan §2.1 consequence 1's exhibit. Typecheck-rejected at `definition.term`:
+#: the body is a **bare** hole under zero lambdas while the declared type wants
+#: two. Under the pre-fix guard `funnel.accepted and _is_bare_hole(draft)` this
+#: carries `False` — the funnel rejected it, so the conjunct never even asks
+#: whether it is a bare hole — even though it plainly is one.
+_BANKED_BARE_HOLE_REJECTED = (
+    "(def (fn Bool () (fn (refine I64 (app (app (ref "
+    "0x0e2c1cacb65ffacb2219b4954360798ecebf7b4c43e6e5107f171acf3d562965) "
+    "(lit i64 0)) (var 0))) () (refine I64 (app (app (ref "
+    "0x0e2c1cacb65ffacb2219b4954360798ecebf7b4c43e6e5107f171acf3d562965) "
+    "(lit i64 -1)) (var 0))))) (hole Bool ()))"
+)
+
+#: Also real banked data: `heldout/list/sum` seed 6, round 0. Typecheck-rejected
+#: at a sibling `let`-bound argument, nine steps away from the one fillable
+#: `I64` hole in tail position — §1.2's "committed sibling, not the hole" case,
+#: and what the well-scoped gate's "typecheck layer admits" test is built on.
+_BANKED_SIBLING_REJECTED = (
+    "(def (fn (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba "
+    "(I64)) () I64) (lam (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba "
+    "(I64)) (let (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba "
+    "(I64)) (con 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba 0 ()) "
+    "(let (data 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba (I64)) "
+    "(con 0x2ee931a3746132882cdbc63385ccaf7320a54372589b260deaa1c851a59e8dba 1 "
+    "((app (ref 0x2509a18eb5e81726042a2cef5cd5444955a71c9dce18221ff8a49d0f93c82893) "
+    "(var 0)) (var 1))) (hole I64 ())))))"
+)
+
+#: A typecheck-rejected draft with **two** fillable holes, the error at the
+#: `if` condition — away from both. `_fill_for`'s first obligation is the
+#: `then` branch; used to show a relaxed-gate round never exceeds one fill
+#: draw even when a second fillable hole is sitting right there.
+_TWO_HOLE_SIBLING_REJECTED = (
+    "(def (fn I64 () I64) (lam I64 (if (lit i64 5) (hole I64 ()) (hole I64 ()))))"
+)
+
 
 def _fill_for(draft, body, *, resolver, index=0):
     """The fill definition a well-behaved model would write for one hole.
@@ -2209,6 +2247,181 @@ class HolesProtocolTest(unittest.TestCase):
         self.assertNotIn("Protocol telemetry", plain_report)
         self.assertNotIn("Generation protocol", plain_report)
         self.assertNotIn("protocol", plain_summary)
+
+
+class FillGateTest(unittest.TestCase):
+    """Deliverable 2, 2026-08-26 hole-elicitation plan §2.1: the fill gate that
+    discharges row 4. `"accepted"` (default) is the pre-existing rule, pinned
+    byte for byte; `"well-scoped"` is the relaxation — parse, scope and
+    references block, typecheck admits — with §3's bare-hole rule evaluated
+    unconditionally (consequence 1) and relaxed rounds capped at one fill draw
+    (consequence 4). Every fixture that stands in for "a rejected draft with a
+    fillable hole" is real banked data from `runs/decomp-holes/records.jsonl`,
+    not hand-built, so the gate is proven against the shapes it actually has
+    to handle.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def _run(self, skeletons, fills=(), **overrides):
+        config = protocol_config(prompts.PROTOCOL_HOLES, **overrides)
+        backend = _ScriptedBackend(skeletons, fills)
+        records, summary = runner.run(config, resolver=self.resolver, backend=backend)
+        return records, summary, backend
+
+    @staticmethod
+    def _by_role(records, role):
+        return [r for r in records if r["role"] == role]
+
+    # -- the default, pinned ------------------------------------------------
+
+    def test_fill_gate_defaults_to_accepted(self):
+        self.assertEqual(runner.Config().fill_gate, runner.FILL_GATE_ACCEPTED)
+        for name in ("decomp-whole.config.json", "decomp-redraft.config.json",
+                     "decomp-holes.config.json"):
+            config = runner.Config.load(HERE / "experiment" / name)
+            self.assertEqual(config.fill_gate, runner.FILL_GATE_ACCEPTED, name)
+
+    def test_an_unknown_fill_gate_is_refused_by_name(self):
+        with self.assertRaises(SystemExit) as raised:
+            runner.Config(fill_gate="parses").validate()
+        self.assertIn("parses", str(raised.exception))
+        self.assertIn("well-scoped", str(raised.exception))
+
+    def test_default_gate_is_byte_identical_to_explicit_accepted(self):
+        """Item 1: 'existing behavior byte-identical under the default.'"""
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        default_records, _, _ = self._run([_DRAFT], [fill], max_draws_per_task=2)
+        explicit_records, _, _ = self._run(
+            [_DRAFT], [fill], max_draws_per_task=2, fill_gate=runner.FILL_GATE_ACCEPTED)
+        self.assertEqual(default_records, explicit_records)
+
+    def test_default_gate_still_refuses_a_typecheck_rejected_hole(self):
+        """The default gate is exactly the old rule: only a *funnel-accepted*
+        draft's holes reach a fill — a typecheck-rejected draft never does,
+        even one with a perfectly fillable hole (real banked data, §1.2's
+        "committed sibling, not the hole" case)."""
+        records, _, backend = self._run([_BANKED_SIBLING_REJECTED], max_draws_per_task=1)
+        self.assertEqual(backend.fill_prompts, [])
+        self.assertEqual(records[0]["funnel_outcome"], "typecheck")
+        self.assertEqual(records[0]["holes_fillable"], 1)
+        self.assertFalse(records[0]["bare_hole_body"])
+
+    # -- each blocking layer blocks, under well-scoped -----------------------
+
+    def test_well_scoped_gate_blocks_at_parse(self):
+        records, _, backend = self._run(
+            [BROKEN_SYNTAX], max_draws_per_task=1, fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(backend.fill_prompts, [], "no IR, so no obligations (§2.1's table)")
+        self.assertEqual(records[0]["funnel_outcome"], "parse")
+
+    def test_well_scoped_gate_blocks_at_scope(self):
+        records, _, backend = self._run(
+            [BROKEN_SCOPE], max_draws_per_task=1, fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(backend.fill_prompts, [],
+                         "a de Bruijn index out of range voids splice_fill's alignment claim")
+        self.assertEqual(records[0]["funnel_outcome"], "scope")
+
+    def test_well_scoped_gate_blocks_at_references(self):
+        records, _, backend = self._run(
+            [BROKEN_REFERENCES], max_draws_per_task=1, fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(backend.fill_prompts, [],
+                         "an unresolvable hash in the declared type surface never fills")
+        self.assertEqual(records[0]["funnel_outcome"], "references")
+
+    # -- typecheck admits, under well-scoped ---------------------------------
+
+    def test_well_scoped_gate_admits_a_typecheck_rejected_draft(self):
+        """§2.1's relaxation, on real banked data: a draft that dies at
+        typecheck — nine steps from its own hole (§1.2) — still gets a fill
+        draw, where the default gate above refused it outright."""
+        fill = _fill_for(_BANKED_SIBLING_REJECTED, "(lit i64 0)", resolver=self.resolver)
+        records, _, backend = self._run(
+            [_BANKED_SIBLING_REJECTED], [fill], max_draws_per_task=2,
+            fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(len(backend.fill_prompts), 1)
+        skeleton = records[0]
+        self.assertEqual(skeleton["funnel_outcome"], "typecheck")
+        self.assertEqual(skeleton["fill_gate"], runner.FILL_GATE_WELL_SCOPED)
+        fills = self._by_role(records, "fill")
+        self.assertEqual(len(fills), 1)
+        # §2.1 consequence 3: the re-check stays the authority. The sibling
+        # error the fill never touched (§1.2) rejects the assembly too.
+        self.assertEqual(fills[0]["splice_outcome"], "rolled-back")
+        self.assertEqual(fills[0]["assembled_outcome"], "typecheck")
+
+    # -- the bare-hole rule, unconditional (consequence 1) -------------------
+
+    def test_bare_hole_rule_is_evaluated_unconditionally_under_well_scoped(self):
+        """Fail-then-pass on real banked data: `heldout/nat/selectNonNegative`
+        seed 7 round 0 — `runner.py`'s own pre-fix docstring exhibit. FAIL
+        first: replay the old guard and show its verdict is wrong. PASS
+        second: the fixed runner refuses the fill anyway."""
+        draft = _BANKED_BARE_HOLE_REJECTED
+        funnel = run_funnel(draft, self.resolver)
+        self.assertEqual(funnel.outcome, "typecheck", "the banked outcome, pinned")
+        self.assertFalse(funnel.accepted)
+        self.assertTrue(prompts.bare_hole_body(draft), "the draft IS a bare hole")
+
+        # FAIL: `funnel.accepted and _is_bare_hole(draft)`, replayed exactly.
+        # It reports "not bare" for every rejected draft, whatever its shape —
+        # including this one, which plainly is one.
+        old_guard_verdict = funnel.accepted and prompts.bare_hole_body(draft)
+        self.assertFalse(
+            old_guard_verdict,
+            "documents the bug this test guards against: the pre-fix conjunct "
+            "misreports a genuinely bare, rejected draft as not bare")
+
+        # PASS: the fixed runner evaluates the rule unconditionally — under
+        # the one gate that can even reach this draft — and refuses the fill.
+        records, _, backend = self._run(
+            [draft], max_draws_per_task=1, fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(backend.fill_prompts, [], "the fixed gate must refuse the fill")
+        skeleton = records[0]
+        self.assertTrue(skeleton["bare_hole_body"], "recomputed unconditionally")
+        self.assertEqual(skeleton["funnel_outcome"], "typecheck")
+
+    def test_accepted_gate_bare_hole_telemetry_is_unchanged(self):
+        """Item 1's byte-identity at the field level, not just the admission
+        decision: under the default gate the same banked draft's
+        `bare_hole_body` still reads `False`, exactly as it always has —
+        the unconditional rule is `well-scoped`-only, by design (§2.1)."""
+        records, _, _ = self._run([_BANKED_BARE_HOLE_REJECTED], max_draws_per_task=1)
+        self.assertFalse(records[0]["bare_hole_body"])
+
+    # -- the 1-fill cap on a relaxed-gate round (consequence 4) --------------
+
+    def test_relaxed_gate_round_never_exceeds_one_fill_draw(self):
+        """§2.1 consequence 4: 'relaxed-gate rounds are capped at one fill
+        draw.' Two fillable holes are on offer and the model's fill is
+        rejected outright, so an uncapped round (6 fills/round, 2
+        attempts/hole, §4.3.6) would try hole 0 twice before ever reaching
+        hole 1. The relaxed round tries once, period."""
+        records, _, backend = self._run(
+            [_TWO_HOLE_SIBLING_REJECTED], [BROKEN_TYPE], max_draws_per_task=2,
+            fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(len(backend.fill_prompts), 1)
+        fills = self._by_role(records, "fill")
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["splice_outcome"], "fill-rejected")
+        candidate, = self._by_role(records, "candidate")
+        self.assertEqual(candidate["fills_attempted"], 1)
+        self.assertEqual(candidate["holes"], 2, "neither hole was touched")
+
+    def test_an_accepted_draft_keeps_the_normal_caps_under_well_scoped(self):
+        """The relaxation is per-*round*, not per-gate: a funnel-accepted
+        draft under the well-scoped gate still gets the full §4.3.6 retry
+        budget, exactly as it does under the default gate."""
+        first, second = prompts.hole_obligations(_DRAFT, self.resolver)[0].binders
+        wrong = (f"(def (fn {first} () (fn {second} () {second})) "
+                 f"(lam {first} (lam {second} (var 0))))")
+        self.assertEqual(run_funnel(wrong, self.resolver).outcome, ACCEPTED)
+        records, _, backend = self._run(
+            [_DRAFT], [wrong], max_draws_per_task=3, fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        fills = self._by_role(records, "fill")
+        self.assertEqual(len(fills), 2, "an accepted draft keeps both retry attempts")
 
 
 class HolesCrashSafetyTest(unittest.TestCase):

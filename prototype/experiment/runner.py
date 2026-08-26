@@ -145,6 +145,16 @@ SPLICE_ROLLED_BACK = "rolled-back"
 SPLICE_ERROR = "splice-error"
 SPLICE_FILL_REJECTED = "fill-rejected"
 
+#: The 2026-08-26 hole-elicitation plan §2.1's fill gate. `"accepted"` is the
+#: pre-existing rule: a skeleton's holes are only eligible for a fill once the
+#: draft itself has cleared all four funnel layers. `"well-scoped"` is row 4's
+#: relaxation, discharged exactly: parse, scope and references must pass —
+#: typecheck need not — because those three layers are what `closed_subtask_type`
+#: and `splice_fill`'s de Bruijn alignment claim depend on (§2.1's table).
+FILL_GATE_ACCEPTED = "accepted"
+FILL_GATE_WELL_SCOPED = "well-scoped"
+FILL_GATES = (FILL_GATE_ACCEPTED, FILL_GATE_WELL_SCOPED)
+
 #: A fill definition is not a candidate — §4.5 scores the round's final draft,
 #: and only that. Scoring the fill against the *task* would double-count the
 #: degenerate case where a hole's closed type is the task's declared type, so
@@ -204,6 +214,15 @@ class Config:
     #: without them and get exactly these values.
     fills_per_round_max: int = 6
     fill_attempts_per_hole: int = 2
+    #: The 2026-08-26 hole-elicitation plan §2.1's fill gate: `"accepted"` (the
+    #: pre-existing rule) or `"well-scoped"` (row 4's relaxation). Defaults to
+    #: `"accepted"` so every config written before this field existed runs byte
+    #: for byte what it ran. Under `"well-scoped"`, a relaxed-gate round — one
+    #: whose skeleton was *not* funnel-accepted — is capped at one fill draw
+    #: per hole and one hole per round (§2.1 consequence 4), overriding
+    #: `fills_per_round_max` / `fill_attempts_per_hole` for that round only; an
+    #: accepted draft keeps those constants exactly as before.
+    fill_gate: str = FILL_GATE_ACCEPTED
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -324,6 +343,10 @@ class Config:
             raise SystemExit(
                 "fills_per_round_max and fill_attempts_per_hole must be positive; "
                 "plan §4.3.6 fixes them at 6 and 2")
+        if self.fill_gate not in FILL_GATES:
+            raise SystemExit(
+                f"unknown fill_gate {self.fill_gate!r}; known fill gates: "
+                f"{', '.join(FILL_GATES)}")
         if self.token_budget_per_task < 1 or self.max_tokens_per_draw < 1:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
@@ -570,6 +593,7 @@ class _CellRun:
             # -- protocol telemetry (§4.6), additive: every field above is
             # exactly what it was before decomposition existed.
             "generation_protocol": self.config.generation_protocol,
+            "fill_gate": self.config.fill_gate,
             "role": role,
             "round": round_index,
             "candidate": candidate,
@@ -625,6 +649,22 @@ def _is_bare_hole(source):
         return False
 
 
+def _fill_admitted(config, funnel, bare):
+    """The 2026-08-26 plan §2.1 gate: may this skeleton's holes reach a fill?
+
+    `"accepted"` (default) is exactly the pre-existing rule, byte for byte:
+    `funnel.accepted and not bare`. `"well-scoped"` admits any draft that
+    reached the typecheck layer — `layers_passed >= 3` means parse, scope and
+    references all passed, whatever order the funnel ran them in, whether or
+    not typecheck itself then rejected the draft — subject to §3's bare-hole
+    rule, which the caller must have evaluated *unconditionally* (not gated on
+    `funnel.accepted`) for this to be the check §2.1 consequence 1 requires.
+    """
+    if config.fill_gate == FILL_GATE_WELL_SCOPED:
+        return funnel.layers_passed >= 3 and not bare
+    return funnel.accepted and not bare
+
+
 #: A splice refusal, in `narrowing_note`'s own shape so the fill retry reads
 #: like every other §8.3 note the model has seen.
 def _splice_narrowing(message):
@@ -678,7 +718,8 @@ def _run_whole_protocol(cell):
             break
 
 
-def _fill_the_holes(cell, round_index, draft, funnel):
+def _fill_the_holes(cell, round_index, draft, funnel, *,
+                     fills_per_round_max=None, fill_attempts_per_hole=None):
     """§2.2 steps 3-6, run until the round ends. Returns the round's draft.
 
     One hole at a time, always the first fillable one in pre-order, up to
@@ -686,6 +727,11 @@ def _fill_the_holes(cell, round_index, draft, funnel):
     draws, the failure of each fed back as the next attempt's narrowing note.
     A hole that is never filled ends the round — the draft keeps its holes and
     is scored as it stands.
+
+    `fills_per_round_max` / `fill_attempts_per_hole` default to the config's
+    §4.3.6 constants (6 and 2). The caller overrides both to 1 for a
+    relaxed-gate round — §2.1 consequence 4 — without touching the config
+    object every other round in the cell still reads.
 
     Three things roll a splice back, and the last two are the runner's job
     because `splice_fill` is a pure function that cannot know the round:
@@ -706,9 +752,13 @@ def _fill_the_holes(cell, round_index, draft, funnel):
     """
     config = cell.config
     resolver = cell.resolver
+    max_fills = (config.fills_per_round_max if fills_per_round_max is None
+                 else fills_per_round_max)
+    max_attempts = (config.fill_attempts_per_hole if fill_attempts_per_hole is None
+                    else fill_attempts_per_hole)
     attempted = spliced = rolled_back = 0
     fills = 0
-    while fills < config.fills_per_round_max and cell.can_draw():
+    while fills < max_fills and cell.can_draw():
         obligations = hole_obligations(draft, resolver)
         fillable = [o for o in obligations if o.fillable]
         if not fillable:
@@ -719,7 +769,7 @@ def _fill_the_holes(cell, round_index, draft, funnel):
         closed = closed_subtask_type(declared_type_of(draft), obligation)
         note = ""
         landed = False
-        for attempt in range(config.fill_attempts_per_hole):
+        for attempt in range(max_attempts):
             if not cell.can_draw():
                 break
             prompt = build_fill_prompt(
@@ -795,12 +845,17 @@ def _fill_the_holes(cell, round_index, draft, funnel):
 def _run_holes_protocol(cell):
     """`holes`: §2.2's round, run until the purse is spent.
 
-    One round is: a skeleton draw, a check, and — only if the draft was
-    funnel-accepted and its body is not a bare hole (§3, enforced) — obligation
-    enumeration, closure, fill draws, splice and re-check, until no fillable
-    hole is left or a hole cannot be filled. The round's candidate is its final
-    draft, emitted as its own zero-token record and scored by the same
-    `run_funnel` + `score_semantic` every other arm's candidates are scored by.
+    One round is: a skeleton draw, a check, and — only if the draft clears the
+    §2.1 fill gate (`config.fill_gate`) and its body is not a bare hole (§3,
+    enforced unconditionally) — obligation enumeration, closure, fill draws,
+    splice and re-check, until no fillable hole is left or a hole cannot be
+    filled. Under the default `"accepted"` gate that is exactly "funnel-accepted
+    and not bare", byte for byte what this loop always did; under
+    `"well-scoped"` a draft that reached the typecheck layer but was rejected
+    there is admitted too, at the §2.1 consequence 4 caps. The round's
+    candidate is its final draft, emitted as its own zero-token record and
+    scored by the same `run_funnel` + `score_semantic` every other arm's
+    candidates are scored by.
 
     The three protocols degenerate cleanly, and the loop shows it: a draft with
     no hole makes this `redraft`, and a run with no rejection makes that
@@ -825,7 +880,14 @@ def _run_holes_protocol(cell):
         # round after it.
         narrowing = narrowing_note(funnel)
         _, census = _hole_census(draft, cell.resolver)
-        bare = funnel.accepted and _is_bare_hole(draft)
+        if config.fill_gate == FILL_GATE_WELL_SCOPED:
+            # §2.1 consequence 1: once the gate can admit a draft the funnel
+            # rejected, `funnel.accepted and _is_bare_hole(draft)` is a hole in
+            # the guard — every rejected draft would carry `False` whatever its
+            # shape. Evaluated unconditionally instead.
+            bare = _is_bare_hole(draft)
+        else:
+            bare = funnel.accepted and _is_bare_hole(draft)
         cell.emit(
             role=ROLE_SKELETON, round_index=round_index, narrowed=narrowed,
             source=draft, funnel=funnel,
@@ -834,9 +896,16 @@ def _run_holes_protocol(cell):
             extra={**census, "bare_hole_body": bare})
 
         attempted = spliced = rolled_back = 0
-        if funnel.accepted and not bare:
+        if _fill_admitted(config, funnel, bare):
+            # §2.1 consequence 4: a draft the well-scoped gate admits but the
+            # funnel did not accept is a *relaxed-gate* round — capped at one
+            # fill draw for one hole. An accepted draft (both gates, always
+            # under the default) keeps §4.3.6's constants unchanged.
+            relaxed_round = not funnel.accepted
             draft, funnel, attempted, spliced, rolled_back = _fill_the_holes(
-                cell, round_index, draft, funnel)
+                cell, round_index, draft, funnel,
+                fills_per_round_max=1 if relaxed_round else None,
+                fill_attempts_per_hole=1 if relaxed_round else None)
 
         semantic = score_semantic(cell.task, funnel, draft)
         stop_now = semantic.success and config.stop_on_semantic_success
