@@ -1181,5 +1181,534 @@ class BudgetSemanticsTest(unittest.TestCase):
         self.assertEqual(records, [])
 
 
+#: `heldout/list/headOrElse`'s gold term is the one on the battery with real
+#: `match` structure, so the two hole positions this module needs — one under a
+#: zero-binder arm, one under a one-binder arm — are both available in a term
+#: the funnel already accepts, rather than in a fabricated fixture.
+_MAYBE_HASH = "0x" + corpus_registry.HASHES["Maybe"].hex()
+_MAYBE_I64 = f"(data {_MAYBE_HASH} (I64))"
+#: `Nothing`, under a `(0 0 …)` arm — an arm that binds nothing, so the hole's
+#: context is exactly the top-level lambdas and the hole is fillable.
+_NOTHING = f"(con {_MAYBE_HASH} 0 ())"
+#: The inner `match`, under a `(1 1 …)` arm — one binder whose type is read off
+#: the scrutinee's synthesized type, which v1 does not have.
+_INNER_MATCH = f"(match (var 0) ((0 2 (con {_MAYBE_HASH} 1 ((var 1))))))"
+
+
+class HoleObligationTest(unittest.TestCase):
+    """§2.2 step 3: what a draft's holes are, and which of them v1 can fill."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.tasks = {task.task_id: task for task in prompts.HELD_OUT_TASKS}
+        cls.head = cls.tasks["heldout/list/headOrElse"]
+        cls.head_gold = GOLD_TERMS[cls.head.task_id]
+
+    def test_an_eta_skeleton_has_one_hole_under_every_declared_lambda(self):
+        for task in prompts.HELD_OUT_TASKS:
+            skeleton = eta_skeleton(task.expected_type_surface)
+            obligations = prompts.hole_obligations(skeleton, self.resolver)
+            domains, _rows, goal = prompts.peel_arrows(task.expected_type_surface)
+            self.assertEqual(len(obligations), 1, task.task_id)
+            hole = obligations[0]
+            self.assertTrue(hole.fillable, task.task_id)
+            self.assertEqual(hole.reason, "")
+            self.assertEqual(hole.goal_surface, goal, task.task_id)
+            self.assertEqual(list(hole.binders), domains, task.task_id)
+            self.assertEqual(hole.surface, f"(hole {goal} ())")
+
+    def test_a_gold_term_has_no_obligations_at_all(self):
+        """The protocol's fixed point: a hole-free definition is finished."""
+        for task_id, gold in GOLD_TERMS.items():
+            self.assertEqual(prompts.hole_obligations(gold, self.resolver), (), task_id)
+
+    def test_holes_come_back_in_pre_order_with_paths_that_locate_them(self):
+        draft = self.head_gold.replace(_NOTHING, f"(hole {_MAYBE_I64} ())")
+        draft = draft.replace(_INNER_MATCH, f"(hole {_MAYBE_I64} ())")
+        obligations = prompts.hole_obligations(draft, self.resolver)
+        self.assertEqual(len(obligations), 2)
+        self.assertEqual([o.goal_surface for o in obligations], [_MAYBE_I64] * 2)
+        # Pre-order: the `(0 0 …)` arm before the `(1 1 …)` arm, which is the
+        # order their holes appear in the surface.
+        self.assertLess(obligations[0].path, obligations[1].path)
+        for hole in obligations:
+            self.assertEqual(prompts.declared_type_of(draft),
+                             self.head.expected_type_surface)
+
+    def test_a_zero_binder_match_arm_leaves_the_context_alone(self):
+        """`match` is not disqualifying — *an unknown binder* is.
+
+        An arm that binds nothing adds nothing to Γ, so a hole in it stands
+        under exactly the top-level lambdas and is fillable. Reading §2.2 step 3
+        as "any hole under a `match` node" would refuse this one, and refuse it
+        for a reason that is not true of it.
+        """
+        draft = self.head_gold.replace(_NOTHING, f"(hole {_MAYBE_I64} ())")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        self.assertTrue(hole.fillable)
+        domains, _rows, _goal = prompts.peel_arrows(self.head.expected_type_surface)
+        self.assertEqual(list(hole.binders), domains)
+
+    def test_a_hole_under_a_match_binder_is_unfillable_and_says_why(self):
+        draft = self.head_gold.replace(_INNER_MATCH, f"(hole {_MAYBE_I64} ())")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        self.assertFalse(hole.fillable)
+        self.assertIn("match", hole.reason)
+        self.assertIn("scrutinee", hole.reason)
+        # A partial context would read as a complete one, so there is none.
+        self.assertEqual(hole.binders, ())
+        with self.assertRaises(ValueError):
+            prompts.closed_subtask_type(prompts.declared_type_of(draft), hole)
+
+    def test_a_hole_under_a_handle_binder_is_unfillable_and_says_why(self):
+        stamped = self.tasks["heldout/sample/stampedBytes"]
+        clock = "0x" + prompts._CLOCK.hex()
+        draft = (
+            f"(def {stamped.expected_type_surface} "
+            f"(handle {clock} (lit i64 0) ((0 (hole I64 ()))) (hole I64 ())))")
+        first, second = prompts.hole_obligations(draft, self.resolver)
+        for hole in (first, second):
+            self.assertFalse(hole.fillable)
+            self.assertIn("handle", hole.reason)
+            self.assertEqual(hole.binders, ())
+
+    def test_lam_let_and_fix_all_contribute_their_annotations(self):
+        """The three binders that carry their own type, in one draft.
+
+        `let` is not named in §2.2 step 3, which lists `lam` and `fix`; the rule
+        it states is *"fillable iff its binder context is derivable without
+        synthesis"*, and a `let`'s binding type is written into the term exactly
+        as a `lam`'s is. It is admitted on the stated rule, not on the list.
+        """
+        recursive = "(fn I64 () I64)"
+        draft = (
+            "(def (fn I64 () I64) (lam I64 (let Bool (lit bool true) "
+            f"(if (var 0) (hole I64 ()) (fix {recursive} 0 (var 1) (hole I64 ()))))))")
+        shallow, deep = prompts.hole_obligations(draft, self.resolver)
+        self.assertEqual(list(shallow.binders), ["I64", "Bool"])
+        self.assertEqual(list(deep.binders), ["I64", "Bool", recursive])
+        self.assertTrue(shallow.fillable and deep.fillable)
+
+    def test_the_walker_is_never_handed_anything_that_knows_the_route(self):
+        """§4.8 check 2, by signature: a source and a resolver, and nothing else."""
+        parameters = inspect.signature(prompts.hole_obligations).parameters
+        self.assertEqual(list(parameters), ["source", "resolver"])
+        for name in parameters:
+            self.assertNotIn("task", name)
+        for field in dataclasses.fields(prompts.HoleObligation):
+            self.assertNotIn("task", field.name)
+
+
+class ClosedSubtaskTypeTest(unittest.TestCase):
+    """§2.2 step 4: a pure function of two type surfaces, and no term."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.tasks = {task.task_id: task for task in prompts.HELD_OUT_TASKS}
+
+    def test_an_eta_skeletons_hole_closes_back_to_the_declared_type(self):
+        """The identity that makes the closure believable at the degenerate case.
+
+        The eta-skeleton's single hole stands under every declared lambda, so
+        folding its context back must give the declared type again — for all
+        eight, including the two whose types are 384 and 392 characters of
+        refinement predicate and capability rows.
+        """
+        for task in prompts.HELD_OUT_TASKS:
+            surface = task.expected_type_surface
+            hole, = prompts.hole_obligations(eta_skeleton(surface), self.resolver)
+            self.assertEqual(prompts.closed_subtask_type(surface, hole), surface,
+                             task.task_id)
+
+    def test_the_effect_row_comes_off_the_declared_type_not_the_term(self):
+        """§2.2 step 4's parallel peel, on the one arm that has a row to peel.
+
+        `stampedBytes` carries a closed two-ability row on its innermost arrow
+        only. The term records no row anywhere, so a closure that read the term
+        could not produce this at all.
+        """
+        surface = self.tasks["heldout/sample/stampedBytes"].expected_type_surface
+        _domains, rows, _goal = prompts.peel_arrows(surface)
+        self.assertEqual([len(row) for row in rows], [0, 0, 2])
+        hole, = prompts.hole_obligations(eta_skeleton(surface), self.resolver)
+        closed = prompts.closed_subtask_type(surface, hole)
+        row = "(" + " ".join("0x" + digest.hex() for digest in rows[2]) + ")"
+        self.assertIn(row, closed)
+        self.assertEqual(closed.count(row), 1)
+
+    def test_a_binder_deeper_than_the_declared_type_closes_at_the_empty_row(self):
+        """The case §2.2 step 4 does not spell out, pinned so it cannot drift.
+
+        A `let` or an inner `lam` binder sits below the last declared arrow, and
+        the term IR records no effect row for it — only the declared type does,
+        and it has run out. It closes at `()`: the restrictive choice, which can
+        make a sub-task unsolvable but can never license a fill that performs an
+        effect the position forbids. §2.2's re-check is the authority either way.
+        """
+        draft = ("(def (fn I64 () I64) (lam I64 (let Bool (lit bool true) "
+                 "(hole I64 ()))))")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        self.assertEqual(
+            prompts.closed_subtask_type(prompts.declared_type_of(draft), hole),
+            "(fn I64 () (fn Bool () I64))")
+
+    def test_the_closure_is_never_handed_anything_that_knows_the_route(self):
+        """§4.8 check 2 by signature: two type surfaces, and no `Task`.
+
+        The plan spells the second argument `context`; it is spelled
+        `obligation` here because `HoleObligation` *is* the hole's context — its
+        binder types and its goal, and nothing else — and passing the obligation
+        keeps the goal and the binders from ever being paired up wrongly by a
+        caller.
+        """
+        parameters = inspect.signature(prompts.closed_subtask_type).parameters
+        self.assertEqual(list(parameters), ["declared_type_surface", "obligation"])
+        for name in parameters:
+            self.assertNotIn("task", name)
+        # And it really does run on type surfaces alone: an obligation rebuilt
+        # from nothing but two type strings closes exactly as the walked one did.
+        surface = self.tasks["heldout/list/sum"].expected_type_surface
+        walked, = prompts.hole_obligations(eta_skeleton(surface), self.resolver)
+        rebuilt = prompts.HoleObligation(
+            path=(), goal_surface=walked.goal_surface, binders=walked.binders)
+        self.assertEqual(prompts.closed_subtask_type(surface, rebuilt),
+                         prompts.closed_subtask_type(surface, walked))
+
+
+class SpliceTest(unittest.TestCase):
+    """§2.2 step 5: the fill goes back where the hole was, indices intact."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.sum = next(t for t in prompts.HELD_OUT_TASKS if t.task_id == "heldout/list/sum")
+
+    def test_every_gold_answer_round_trips_through_the_eta_skeleton(self):
+        """§4.4's expressibility check at the degenerate cut, for all eight.
+
+        The eta-skeleton's closed sub-task type *is* the task's declared type,
+        so the gold definition is itself a legal fill for its own skeleton —
+        which makes this the sharpest available statement of the round trip: the
+        splice must give back the gold bytes exactly, and the result must still
+        meet the floor.
+        """
+        for task in prompts.HELD_OUT_TASKS:
+            gold = GOLD_TERMS[task.task_id]
+            skeleton = eta_skeleton(task.expected_type_surface)
+            hole, = prompts.hole_obligations(skeleton, self.resolver)
+            assembled = prompts.splice_fill(skeleton, hole, gold)
+            self.assertEqual(assembled, gold, task.task_id)
+            funnel = run_funnel(assembled, self.resolver)
+            self.assertEqual(funnel.outcome, ACCEPTED, task.task_id)
+            self.assertTrue(score_semantic(task, funnel, assembled).success, task.task_id)
+
+    def test_a_nested_fill_lands_with_its_de_bruijn_indices_unchanged(self):
+        """The load-bearing case: the fill's body reads variables at the hole.
+
+        `reverseThen`'s inner `(app (ref …) (var 1))` refers to the *outer*
+        lambda. Under the fill's own two peeled lambdas it is still `(var 1)`,
+        because those lambdas bind the same context in the same order — and the
+        assembly is byte-identical to gold, which it could not be if the index
+        had had to move.
+        """
+        task = next(t for t in prompts.HELD_OUT_TASKS
+                    if t.task_id == "heldout/list/reverseThen")
+        gold = GOLD_TERMS[task.task_id]
+        inner = re.search(r"\(app \(ref 0x[0-9a-f]{64}\) \(var 1\)\)", gold).group(0)
+        domains, _rows, _goal = prompts.peel_arrows(task.expected_type_surface)
+        draft = gold.replace(inner, f"(hole {domains[0]} ())")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        self.assertTrue(hole.fillable)
+        closed = prompts.closed_subtask_type(prompts.declared_type_of(draft), hole)
+        fill = f"(def {closed} {prompts.fill_term_skeleton(hole).replace(hole.surface, inner)})"
+        self.assertEqual(run_funnel(fill, self.resolver).outcome, ACCEPTED)
+        self.assertIn("(var 1)", fill)
+        assembled = prompts.splice_fill(draft, hole, fill)
+        self.assertEqual(assembled, gold)
+        self.assertTrue(
+            score_semantic(task, run_funnel(assembled, self.resolver), assembled).success)
+
+    def test_a_fill_that_does_not_bind_the_context_is_refused_not_spliced(self):
+        """Every escape from the contract is a term whose indices mean something
+        else, so each one is a rollback, not a splice."""
+        surface = self.sum.expected_type_surface
+        skeleton = eta_skeleton(surface)
+        hole, = prompts.hole_obligations(skeleton, self.resolver)
+        with self.assertRaises(prompts.SpliceError):  # too few lambdas
+            prompts.splice_fill(skeleton, hole, "(def I64 (lit i64 0))")
+        with self.assertRaises(prompts.SpliceError):  # right count, wrong type
+            prompts.splice_fill(skeleton, hole, "(def (fn Bool () I64) (lam Bool (lit i64 0)))")
+        with self.assertRaises(prompts.SpliceError):  # no hole at that path
+            prompts.splice_fill(GOLD_TERMS[self.sum.task_id], hole,
+                                GOLD_TERMS[self.sum.task_id])
+
+    def test_an_unfillable_hole_is_refused_by_both_halves_of_the_machinery(self):
+        head = next(t for t in prompts.HELD_OUT_TASKS
+                    if t.task_id == "heldout/list/headOrElse")
+        draft = GOLD_TERMS[head.task_id].replace(_INNER_MATCH, f"(hole {_MAYBE_I64} ())")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        with self.assertRaises(prompts.SpliceError):
+            prompts.splice_fill(draft, hole, GOLD_TERMS[head.task_id])
+
+    def test_a_spliced_draft_keeps_its_declared_type_and_loses_a_hole(self):
+        """§2.2 step 6's monotonicity, stated as an assertion: holes only go away."""
+        task = next(t for t in prompts.HELD_OUT_TASKS
+                    if t.task_id == "heldout/maybe/mapOrElse")
+        skeleton = eta_skeleton(task.expected_type_surface)
+        hole, = prompts.hole_obligations(skeleton, self.resolver)
+        assembled = prompts.splice_fill(skeleton, hole, GOLD_TERMS[task.task_id])
+        self.assertEqual(prompts.declared_type_of(assembled),
+                         prompts.declared_type_of(skeleton))
+        self.assertLess(len(prompts.hole_obligations(assembled, self.resolver)),
+                        len(prompts.hole_obligations(skeleton, self.resolver)))
+
+    def test_a_bare_hole_body_is_recognised_from_the_draft_alone(self):
+        """§3's last sentence is enforced, not asked for."""
+        for task in prompts.HELD_OUT_TASKS:
+            self.assertTrue(prompts.bare_hole_body(eta_skeleton(task.expected_type_surface)),
+                            task.task_id)
+            self.assertFalse(prompts.bare_hole_body(GOLD_TERMS[task.task_id]), task.task_id)
+        head = GOLD_TERMS["heldout/list/headOrElse"]
+        self.assertFalse(
+            prompts.bare_hole_body(head.replace(_NOTHING, f"(hole {_MAYBE_I64} ())")))
+        # No declared type is consulted: a draft that wrote fewer lambdas than
+        # its type calls for is judged by what it actually wrote.
+        self.assertTrue(prompts.bare_hole_body("(def (fn I64 () I64) (hole (fn I64 () I64) ()))"))
+
+
+class GenerationProtocolPromptTest(unittest.TestCase):
+    """§3, §4.2 and §4.8 check 1/2 for `generation_protocol`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.tasks = prompts.HELD_OUT_TASKS
+        cls.sum = next(t for t in cls.tasks if t.task_id == "heldout/list/sum")
+
+    # -- the control arm, pinned the way `address_book: none` is -----------
+
+    def test_whole_is_the_default_and_changes_not_one_byte(self):
+        """`whole` is today's prompt, or it is not the honest baseline (§4.2)."""
+        self.assertEqual(
+            inspect.signature(prompts.build_prompt).parameters["generation_protocol"].default,
+            prompts.PROTOCOL_WHOLE,
+        )
+        for regime in REGIMES:
+            for task in prompts.tasks_for_regime(regime):
+                plain = prompts.build_prompt(task, regime, self.resolver)
+                for protocol in (prompts.PROTOCOL_WHOLE, prompts.PROTOCOL_REDRAFT):
+                    self.assertEqual(
+                        plain,
+                        prompts.build_prompt(task, regime, self.resolver,
+                                             generation_protocol=protocol),
+                        f"{protocol} {task.task_id}")
+                self.assertNotIn(prompts.HOLE_PROTOCOL_BLOCK, plain, task.task_id)
+                self.assertNotIn("hole", plain.split(prompts.PREAMBLE)[-1], task.task_id)
+
+    def test_redraft_is_byte_identical_to_whole_under_every_address_book(self):
+        """§4.8 check 1: `redraft` differs from `whole` in the loop, not the prompt."""
+        for book in prompts.ADDRESS_BOOKS:
+            for task in self.tasks:
+                self.assertEqual(
+                    prompts.build_prompt(task, REGIME_HELD_OUT, self.resolver,
+                                         address_book=book),
+                    prompts.build_prompt(task, REGIME_HELD_OUT, self.resolver,
+                                         address_book=book,
+                                         generation_protocol=prompts.PROTOCOL_REDRAFT),
+                    f"{book} {task.task_id}")
+
+    def test_holes_differs_from_whole_only_by_the_protocol_block(self):
+        """§4.8 check 1: strip the §3 block and the control arm's bytes come back."""
+        for book in prompts.ADDRESS_BOOKS:
+            for task in self.tasks:
+                control = prompts.build_prompt(
+                    task, REGIME_HELD_OUT, self.resolver, address_book=book)
+                armed = prompts.build_prompt(
+                    task, REGIME_HELD_OUT, self.resolver, address_book=book,
+                    generation_protocol=prompts.PROTOCOL_HOLES)
+                self.assertIn(prompts.HOLE_PROTOCOL_BLOCK, armed)
+                self.assertEqual(
+                    armed.replace(f"\n\n{prompts.HOLE_PROTOCOL_BLOCK}", "", 1), control,
+                    f"{book} {task.task_id}")
+
+    def test_the_block_sits_after_the_address_book_and_before_the_narrowing(self):
+        armed = prompts.build_prompt(
+            self.sum, REGIME_HELD_OUT, self.resolver,
+            address_book=prompts.ADDRESS_BOOK_FULL,
+            generation_protocol=prompts.PROTOCOL_HOLES,
+            narrowing="REJECTED: nope")
+        self.assertLess(armed.index(prompts.ADDRESS_HEADER),
+                        armed.index(prompts.HOLE_PROTOCOL_BLOCK))
+        # Before the narrowing, so a rejection still cannot change the prefix.
+        self.assertLess(armed.index(prompts.HOLE_PROTOCOL_BLOCK), armed.index("REJECTED"))
+        self.assertLess(armed.index("REJECTED"), armed.index(self.sum.spec))
+
+    def test_the_block_is_the_plans_own_text_and_licenses_nothing_else(self):
+        self.assertIn("(hole GOALTYPE ())", prompts.HOLE_PROTOCOL_BLOCK)
+        self.assertIn("Do not make the whole body a hole.", prompts.HOLE_PROTOCOL_BLOCK)
+        for word in ("compose", "route", "ref 0x", "append", "reverse"):
+            self.assertNotIn(word, prompts.HOLE_PROTOCOL_BLOCK)
+
+    def test_an_unknown_generation_protocol_is_refused_by_name(self):
+        with self.assertRaises(ValueError) as raised:
+            prompts.build_prompt(self.sum, REGIME_HELD_OUT, self.resolver,
+                                 generation_protocol="freestyle")
+        self.assertIn("freestyle", str(raised.exception))
+
+    # -- the fill prompt ---------------------------------------------------
+
+    def _draft(self, task):
+        """The draft a `holes` round would be filling: an accepted skeleton."""
+        return eta_skeleton(task.expected_type_surface)
+
+    def _fill_prompt(self, task, **overrides):
+        draft = overrides.pop("draft", None) or self._draft(task)
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        return prompts.build_fill_prompt(
+            task.spec, REGIME_HELD_OUT, self.resolver,
+            draft_source=draft, obligation=hole, **overrides)
+
+    def test_a_fill_prompt_carries_the_draft_the_hole_and_the_closed_type(self):
+        draft = self._draft(self.sum)
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        closed = prompts.closed_subtask_type(prompts.declared_type_of(draft), hole)
+        prompt = self._fill_prompt(self.sum)
+        self.assertIn(prompts.PREAMBLE, prompt)
+        self.assertIn(draft, prompt)
+        self.assertIn(hole.surface, prompt)
+        self.assertIn(closed, prompt)
+        self.assertIn(prompts.fill_term_skeleton(hole), prompt)
+        self.assertIn(self.sum.spec, prompt)
+        self.assertTrue(prompt.endswith("\n"))
+
+    def test_a_fill_prompt_narrows_before_its_ask(self):
+        prompt = self._fill_prompt(self.sum, narrowing="REJECTED: nope")
+        self.assertLess(prompt.index("REJECTED"), prompt.index(prompts.FILL_ASK_HEADER))
+        self.assertLess(prompt.index(prompts.FILL_HEADER), prompt.index("REJECTED"))
+
+    def test_a_fill_prompts_address_book_is_filtered_by_the_holes_own_goal(self):
+        """§2.3: a fill draw has a type surface of its own, so `typed` needs no
+        new machinery — and `full`, which the arms run, is unmoved by any of it."""
+        draft = ("(def (fn I64 () I64) (lam I64 (let Bool (lit bool true) "
+                 "(hole Bool ()))))")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        typed = prompts.build_fill_prompt(
+            self.sum.spec, REGIME_HELD_OUT, self.resolver,
+            draft_source=draft, obligation=hole,
+            address_book=prompts.ADDRESS_BOOK_TYPED)
+        closed = prompts.closed_subtask_type(prompts.declared_type_of(draft), hole)
+        for row in prompts.typed_address_rows(self.resolver, closed):
+            self.assertIn(row, typed)
+        self.assertNotEqual(
+            prompts.typed_address_rows(self.resolver, closed),
+            prompts.typed_address_rows(self.resolver, self.sum.expected_type_surface))
+        full = prompts.build_fill_prompt(
+            self.sum.spec, REGIME_HELD_OUT, self.resolver,
+            draft_source=draft, obligation=hole,
+            address_book=prompts.ADDRESS_BOOK_FULL)
+        self.assertIn(prompts.address_book_block(
+            self.resolver, prompts.ADDRESS_BOOK_FULL), full)
+
+    def test_a_fill_prompt_refuses_an_unfillable_hole(self):
+        head = next(t for t in self.tasks if t.task_id == "heldout/list/headOrElse")
+        draft = GOLD_TERMS[head.task_id].replace(_INNER_MATCH, f"(hole {_MAYBE_I64} ())")
+        hole, = prompts.hole_obligations(draft, self.resolver)
+        with self.assertRaises(ValueError):
+            prompts.build_fill_prompt(
+                head.spec, REGIME_HELD_OUT, self.resolver,
+                draft_source=draft, obligation=hole)
+
+    def test_every_fill_prompt_fits_the_planned_context(self):
+        """§4.8 check 5's shape: a fill prompt carries a draft as well.
+
+        The worst case available before a run is the largest gold-derived draft
+        — `selectNonNegative`'s 779-character eta-skeleton — under the full
+        address book.
+        """
+        for task in self.tasks:
+            prompt = self._fill_prompt(task, address_book=prompts.ADDRESS_BOOK_FULL)
+            self.assertLessEqual(
+                prompts.estimated_tokens(prompt) + 768, 32768, task.task_id)
+
+    # -- §4.8 check 2: blindness, by signature and adversarially -----------
+
+    def test_the_fill_builder_is_never_handed_anything_that_knows_the_route(self):
+        parameters = inspect.signature(prompts.build_fill_prompt).parameters
+        self.assertNotIn("task", parameters)
+        for name in parameters:
+            self.assertNotIn("task", name)
+        for name, parameter in parameters.items():
+            self.assertIsNot(parameter.annotation, prompts.Task, name)
+
+    def _round_prompts(self, task, draft, book):
+        """Every prompt one round of the `holes` protocol would build.
+
+        Exactly what the runner will call, in the order it will call it: the
+        skeleton draw's prompt, then one fill prompt per fillable hole in the
+        draft that came back.
+        """
+        built = [prompts.build_prompt(
+            task, REGIME_HELD_OUT, self.resolver, address_book=book,
+            generation_protocol=prompts.PROTOCOL_HOLES)]
+        for hole in prompts.hole_obligations(draft, self.resolver):
+            if not hole.fillable:
+                continue
+            built.append(prompts.build_fill_prompt(
+                task.spec, REGIME_HELD_OUT, self.resolver,
+                draft_source=draft, obligation=hole, address_book=book))
+        return built
+
+    def test_two_tasks_with_one_type_and_two_routes_are_indistinguishable(self):
+        """§4.8 check 2's adversarial half, at *every stage of every round*.
+
+        Same spec, same declared type, different `composes` and different
+        `expected_surface` — the two things a `Task` carries that a prompt must
+        never see. If any stage of the protocol read either, these two would
+        diverge somewhere; they may not diverge anywhere.
+        """
+        surface = self.sum.expected_type_surface
+        left = prompts.Task(
+            task_id="probe/left", kind=KIND_HELD_OUT, spec=self.sum.spec,
+            expected_type_surface=surface,
+            composes=("corpus/list/foldLeft", "I64.add"),
+            expected_surface=GOLD_TERMS[self.sum.task_id])
+        right = prompts.Task(
+            task_id="probe/right", kind=KIND_HELD_OUT, spec=self.sum.spec,
+            expected_type_surface=surface,
+            composes=("corpus/nat/select", "corpus/list/reverse", "corpus/maybe/map"),
+            expected_surface="(def I64 (lit i64 0))")
+        drafts = [
+            eta_skeleton(surface),
+            GOLD_TERMS["heldout/list/headOrElse"].replace(
+                _NOTHING, f"(hole {_MAYBE_I64} ())"),
+        ]
+        for book in prompts.ADDRESS_BOOKS:
+            for draft in drafts:
+                self.assertEqual(
+                    self._round_prompts(left, draft, book),
+                    self._round_prompts(right, draft, book),
+                    book)
+
+    def test_no_verified_gold_term_appears_in_any_fill_prompt(self):
+        """§4.8 check 6, extended to the stage the plan added: skeleton *or fill*."""
+        for task in self.tasks:
+            gold = GOLD_TERMS[task.task_id]
+            term = gold[gold.index("(lam"):-1]
+            for book in prompts.ADDRESS_BOOKS:
+                prompt = self._fill_prompt(task, address_book=book)
+                self.assertNotIn(gold, prompt, f"{book} {task.task_id}")
+                self.assertNotIn(term, prompt, f"{book} {task.task_id} term")
+                skeleton = prompts.build_prompt(
+                    task, REGIME_HELD_OUT, self.resolver, address_book=book,
+                    generation_protocol=prompts.PROTOCOL_HOLES)
+                self.assertNotIn(gold, skeleton, f"{book} {task.task_id}")
+                self.assertNotIn(term, skeleton, f"{book} {task.task_id} term")
+
+    def test_the_arms_are_exactly_the_three_the_plan_registered(self):
+        self.assertEqual(prompts.GENERATION_PROTOCOLS, ("whole", "redraft", "holes"))
+
+
 if __name__ == "__main__":
     unittest.main()

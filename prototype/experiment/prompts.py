@@ -51,6 +51,46 @@ and `test_experiment.py` pins it adversarially. Selection is a pure function of
 the resolver's own types and the task's declared type, so two tasks with the
 same declared type and different routes get byte-identical blocks.
 
+Hole-directed decomposition (2026-08-25 hole-decomposition plan §2, §3)
+-----------------------------------------------------------------------
+
+`generation_protocol` is the manipulated variable of that plan's three-arm
+pre-registration, and — exactly like `address_book` before it — it is the *only*
+thing its arms differ by:
+
+``whole``    today's protocol. **Byte-identical to what this module built
+             before the hole machinery existed**, pinned the way
+             `address_book: "none"` is pinned.
+``redraft``  `whole` plus §8.3 narrowing on rejection. The prompt builder is
+             unchanged; the difference lives entirely in the runner's loop, so
+             draw 0 of every cell is byte-identical to `whole`.
+``holes``    `redraft` plus `HOLE_PROTOCOL_BLOCK` on the skeleton draw, and a
+             fill draw per obligation built by `build_fill_prompt`.
+
+The three functions the fill path is made of — `hole_obligations`,
+`closed_subtask_type` and `build_fill_prompt` — **are never handed a `Task`**,
+for the same reason `typed_address_rows` is not: a `Task` carries `composes`
+(the recorded route) and `expected_surface` (a gold term), and a fill prompt
+that could read either would turn the arm into an oracle. They take a source
+text, a resolver, type surfaces and a spec string, and `test_experiment.py` pins
+that adversarially: two tasks with one declared type and two routes produce
+byte-identical prompts at *every* stage of every round.
+
+`closed_subtask_type` is a pure function of two type surfaces — the draft's own
+declared type and the hole's context — and never sees a term. That is what makes
+the sub-goal *derived* rather than authored: §2.2's design problem was that
+"whoever writes the sub-goals is doing part of the composition", and here the
+model writes the hole and the checker types it.
+
+`splice_fill` is the other half of the guarantee. The fill is a closed
+definition whose term opens with |Γ| lambdas binding the hole's own context in
+the hole's own order, so peeling exactly those lambdas and dropping the body at
+the hole's path lines the de Bruijn indices up **by construction**: the
+innermost peeled binder is index 0 both under the lambdas and at the hole, and a
+closed definition has no free variables to misalign. It refuses any fill whose
+lambda annotations are not that context, rather than splicing a term whose
+indices mean something else.
+
 **Leave-one-out is on by default.** A corpus-drawn task under `full_corpus`
 would otherwise carry its own answer verbatim in the prompt, and semantic
 success would measure transcription. `leave_one_out=False` restores the
@@ -62,11 +102,18 @@ confused after the fact.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import corpus_registry
 import prelude
 import sexpr
-from transcode import type_to_ir, type_to_surface
+from transcode import (
+    def_to_surface,
+    term_to_surface,
+    transcode_source,
+    type_to_ir,
+    type_to_surface,
+)
 
 from .resolver import KIND_DEFINITION, KIND_EXTERN, ExperimentResolver, Resolved
 
@@ -87,6 +134,15 @@ ADDRESS_BOOK_FULL = "full"
 ADDRESS_BOOK_TYPED = "typed"
 
 ADDRESS_BOOKS = (ADDRESS_BOOK_NONE, ADDRESS_BOOK_FULL, ADDRESS_BOOK_TYPED)
+
+#: The three arms of the hole-decomposition pre-registration (§4.2). `whole` is
+#: the default everywhere, and under it `build_prompt` returns the bytes it
+#: returned before this module knew what a hole was.
+PROTOCOL_WHOLE = "whole"
+PROTOCOL_REDRAFT = "redraft"
+PROTOCOL_HOLES = "holes"
+
+GENERATION_PROTOCOLS = (PROTOCOL_WHOLE, PROTOCOL_REDRAFT, PROTOCOL_HOLES)
 
 #: The small few-shot set: one boolean eliminator, one `match` over a nominal
 #: data type, one recursive `fix` with a measure and a cross-definition `ref`,
@@ -154,7 +210,8 @@ def estimated_tokens(text: str) -> int:
 
 
 def context_required(
-    regimes, resolver, *, leave_one_out=True, draw_tokens=0, address_book=ADDRESS_BOOK_NONE
+    regimes, resolver, *, leave_one_out=True, draw_tokens=0,
+    address_book=ADDRESS_BOOK_NONE, generation_protocol=PROTOCOL_WHOLE,
 ) -> int:
     """Tokens the longest prompt over `regimes` needs, plus a draw's budget.
 
@@ -163,6 +220,11 @@ def context_required(
     shipped `n_ctx: 4096` for an 11.9k-token prompt, and, with `address_book`
     passed through, how §4.3.2 keeps a config from drifting under its own
     address book.
+
+    This is the *skeleton*-draw figure. A `holes` arm's fill prompt is longer —
+    it carries the draft too — and §4.8's check 5 sizes that separately, from a
+    worst-case draft, because a bound computed over drafts nobody has drawn yet
+    would be a guess rather than a measurement.
     """
     longest = 0
     for regime in regimes:
@@ -171,6 +233,7 @@ def context_required(
                 task, regime, resolver,
                 leave_one_out=leave_one_out,
                 address_book=address_book,
+                generation_protocol=generation_protocol,
             )
             longest = max(longest, estimated_tokens(text))
     return longest + draw_tokens
@@ -629,6 +692,435 @@ def _task_address_block(
     )
 
 
+# --------------------------------------------------------------------------
+# Hole-directed decomposition (2026-08-25 hole-decomposition plan §2.2, §3)
+# --------------------------------------------------------------------------
+
+#: §3's protocol block, verbatim from the plan — the *entire* difference
+#: between the `holes` arm's skeleton prompt and the `redraft` arm's. §4.8's
+#: first check strips exactly this string and compares the remainder with
+#: `whole`, so this is the one place its text is written.
+HOLE_PROTOCOL_BLOCK = (
+    "Where a subterm is not yet clear, write `(hole GOALTYPE ())` in its place and\n"
+    "commit to the structure around it. Each hole is handed back to you on its own,\n"
+    "with its goal type, to fill in. Do not make the whole body a hole."
+)
+
+#: The fill block's header. It introduces three things and no fourth: the draft
+#: the model itself just wrote, the hole being filled, and that hole's goal —
+#: all of them the model's own output or the checker's reading of it.
+FILL_HEADER = (
+    "This is the draft you wrote. It typechecks. One of its holes is handed back "
+    "to you here, on its own, to fill in."
+)
+
+FILL_HOLE_HEADER = "The hole being filled, with its goal type:"
+
+FILL_ASK_HEADER = "Now write the definition that fills that hole, at exactly this type."
+
+#: The line that fixes the fill's binder prefix. The harness peels exactly these
+#: lambdas back off and splices what stands under them, so the shape is not a
+#: stylistic request — it is the splice contract, and `splice_fill` enforces it.
+FILL_SHAPE_HEADER = (
+    "Its term must open with these binders, in this order — they are the ones the "
+    "hole stands under. What you write where the hole is replaces the hole:"
+)
+
+FILL_SPEC_HEADER = "The task the draft is for:"
+
+
+class _UnknownBinder(NamedTuple):
+    """A binder whose type this plan's v1 cannot derive without synthesis.
+
+    `match` and `handle` bind their arms' variables at types read off the
+    *scrutinee's* (or the handled term's) synthesized type, which is the
+    `[mask-spine-refs]` machinery, not this plan's. A hole under one is
+    reported, with its construct named, and not filled (§2.2 step 3).
+    """
+
+    construct: str
+
+
+def _binder_reason(unknown: _UnknownBinder) -> str:
+    return (
+        f"a hole under a `{unknown.construct}` binder is not fillable in v1: the "
+        f"binder's type needs the "
+        + ("scrutinee's" if unknown.construct == "match" else "handled term's")
+        + " synthesized type, which is `[mask-spine-refs]`'s machinery, not this plan's"
+    )
+
+
+@dataclass(frozen=True)
+class HoleObligation:
+    """One `(hole GOAL ())` in a draft, and everything needed to close it.
+
+    Carries **type surfaces and a path, and nothing else** — no task, no route,
+    no gold. `path` indexes the term IR node by node (`ir[p0][p1]…`), which is
+    what lets `splice_fill` put a fill back exactly where the hole was.
+
+    `binders` are the enclosing binder types, **outermost first**, so the last
+    entry is de Bruijn index 0 at the hole. It is the hole's context Γ, and it
+    is populated only when `fillable`; an unfillable hole reports `()` and a
+    `reason`, because a partial context would read as a complete one.
+    """
+
+    path: tuple[int, ...]
+    goal_surface: str
+    binders: tuple[str, ...] = ()
+    fillable: bool = True
+    reason: str = ""
+
+    @property
+    def surface(self) -> str:
+        """The hole node as it stands in the draft, `(hole GOAL ())`."""
+        return f"(hole {self.goal_surface} ())"
+
+
+def _term_ir(source: str) -> list:
+    """The term half of a canonical `(def TYPE TERM)`."""
+    ir, _, _ = transcode_source(source)
+    return ir[2]
+
+
+def _walk_holes(node: list, path: tuple[int, ...], binders: tuple, found: list) -> None:
+    """Pre-order walk collecting `(path, goal ir, binder stack)` per hole.
+
+    The binder stack mirrors `scope.check_term`'s own depth bookkeeping — that
+    is the definition of which term positions a de Bruijn index counts through,
+    and the two must not drift apart. A hole's constraint list is *not*
+    descended into: a term inside `(hole T (…))` is a constraint on the hole,
+    not a position a fill goes.
+    """
+    tag = node[0]
+    if tag == 11:  # hole
+        found.append((path, node[1], binders))
+        return
+    if tag == 3:  # lam TYPE BODY
+        _walk_holes(node[2], path + (2,), binders + (type_to_surface(node[1]),), found)
+    elif tag == 4:  # app FUNCTION ARGUMENT
+        _walk_holes(node[1], path + (1,), binders, found)
+        _walk_holes(node[2], path + (2,), binders, found)
+    elif tag == 5:  # let TYPE BOUND BODY — the annotation is the binder's type
+        _walk_holes(node[2], path + (2,), binders, found)
+        _walk_holes(node[3], path + (3,), binders + (type_to_surface(node[1]),), found)
+    elif tag in (6, 8):  # con / perform HASH INDEX (ARGS)
+        for index, argument in enumerate(node[3]):
+            _walk_holes(argument, path + (3, index), binders, found)
+    elif tag == 7:  # match SCRUTINEE ((INDEX ARITY BODY) …)
+        _walk_holes(node[1], path + (1,), binders, found)
+        for index, arm in enumerate(node[2]):
+            _walk_holes(
+                arm[2], path + (2, index, 2),
+                binders + (_UnknownBinder("match"),) * arm[1], found)
+    elif tag == 9:  # handle HASH HANDLED ((INDEX BODY) …) RETURN
+        _walk_holes(node[2], path + (2,), binders, found)
+        for index, operation in enumerate(node[3]):
+            # The operation's binder count is the ability's operation arity plus
+            # the continuation; it is not readable from the term, and one
+            # unknown binder is enough to make every hole below it unfillable.
+            _walk_holes(
+                operation[1], path + (3, index, 1),
+                binders + (_UnknownBinder("handle"),), found)
+        _walk_holes(node[4], path + (4,), binders + (_UnknownBinder("handle"),), found)
+    elif tag == 10:  # fix TYPE POSITION MEASURE BODY — the annotation is the binder's type
+        _walk_holes(node[3], path + (3,), binders, found)
+        _walk_holes(node[4], path + (4,), binders + (type_to_surface(node[1]),), found)
+    elif tag == 12:  # if CONDITION THEN ELSE
+        for index in (1, 2, 3):
+            _walk_holes(node[index], path + (index,), binders, found)
+
+
+def hole_obligations(source: str, resolver: ExperimentResolver) -> tuple[HoleObligation, ...]:
+    """Every hole in a draft definition, in pre-order (§2.2 step 3).
+
+    Reads the draft and nothing else — **no `Task`**, so it cannot consult a
+    route or a gold term even by accident. `resolver` is accepted for symmetry
+    with `run_funnel(source, resolver)`, which is how every other consumer of a
+    draft is spelled; the walk itself needs no store, because `lam`, `let` and
+    `fix` write their binder types into the term and a hole writes its own goal.
+
+    A hole is **fillable** iff its whole binder context is derivable that way. A
+    hole under a `match` arm or a `handle` operation is not, and is returned
+    with `fillable=False` and a `reason` rather than dropped — §4.6 reports the
+    unfillable fraction and each hole's reason as protocol telemetry.
+    """
+    del resolver  # see the docstring: the walk is a function of the draft alone
+    found: list = []
+    _walk_holes(_term_ir(source), (2,), (), found)
+    obligations = []
+    for path, goal_ir, binders in found:
+        unknown = next((b for b in binders if isinstance(b, _UnknownBinder)), None)
+        obligations.append(HoleObligation(
+            path=path,
+            goal_surface=type_to_surface(goal_ir),
+            binders=() if unknown else tuple(binders),
+            fillable=unknown is None,
+            reason="" if unknown is None else _binder_reason(unknown),
+        ))
+    return tuple(obligations)
+
+
+def peel_arrows(type_surface: str) -> tuple[list[str], list[list], str]:
+    """`(domain surfaces, effect rows, body-goal surface)` of a declared type.
+
+    Purely a function of the type. It is the whole of what the decomposition
+    protocol needs to close a hole's context back into a sub-task type, and it
+    is why `closed_subtask_type` never has to see a term.
+    """
+    ir = type_to_ir(sexpr.parse_all(type_surface)[0])
+    domains: list[str] = []
+    rows: list[list] = []
+    current = ir
+    while current[0] == 2:
+        domains.append(type_to_surface(current[1]))
+        rows.append(current[2])
+        current = current[3]
+    return domains, rows, type_to_surface(current)
+
+
+def _row_surface(row) -> str:
+    """An effect row's canonical surface — `()`, or hashes bytewise ascending."""
+    return "()" if not row else "(" + " ".join("0x" + digest.hex() for digest in row) + ")"
+
+
+def closed_subtask_type(declared_type_surface: str, obligation: HoleObligation) -> str:
+    """Fold a hole's context back into a closed sub-task type (§2.2 step 4).
+
+    `Γ ⊢ T` becomes `(fn τ₀ R₀ (fn τ₁ R₁ … T))`, with the effect rows read off
+    the draft's **own declared type**, peeled in parallel with the top-level
+    lambdas. **A pure function of two type surfaces** — the declared type, and
+    the hole's context and goal — with no term on either side, which is what
+    makes the sub-goal derived rather than authored.
+
+    Two details the plan leaves to the implementation, both recorded here
+    because a reader will want to know which way they went:
+
+    * A binder deeper than the declared type has arrows (an inner `lam`, or a
+      `let`/`fix` binder) has **no row to read** — the term IR does not record
+      one, only the declared type does. It closes at the empty row `()`, the
+      restrictive choice: it can make a sub-task the model cannot solve, and it
+      cannot license a fill that performs an effect the position forbids.
+    * §2.2 is explicit that this closure is a heuristic and the re-check of step
+      6 is the authority, so being wrong here costs a rolled-back splice, never
+      a false success.
+
+    Raises `ValueError` for an unfillable hole: there is no context to close.
+    """
+    if not obligation.fillable:
+        raise ValueError(
+            f"hole at {obligation.path} is not fillable in v1: {obligation.reason}")
+    _domains, rows, _goal = peel_arrows(declared_type_surface)
+    out = obligation.goal_surface
+    for depth in reversed(range(len(obligation.binders))):
+        row = rows[depth] if depth < len(rows) else []
+        out = f"(fn {obligation.binders[depth]} {_row_surface(row)} {out})"
+    return out
+
+
+def fill_term_skeleton(obligation: HoleObligation) -> str:
+    """`(lam τ₀ (lam τ₁ … (hole T ())))` — the shape a fill's term must open with.
+
+    Shown in the fill prompt and enforced by `splice_fill`, from this one
+    definition, so the ask and the splice cannot drift apart.
+    """
+    term = obligation.surface
+    for binder in reversed(obligation.binders):
+        term = f"(lam {binder} {term})"
+    return term
+
+
+def eta_skeleton(type_surface: str) -> str:
+    """`(def TYPE (lam D1 … (hole GOAL ())))` — the maximal skeleton a declared
+    type alone licenses. One hole, no committed structure.
+
+    The degenerate case of the protocol, and the one §4.3.1's floor rule has to
+    refuse: it is accepted and type-exact for *every* task, and it is not a
+    definition of anything.
+    """
+    domains, _rows, goal = peel_arrows(type_surface)
+    term = f"(hole {goal} ())"
+    for domain in reversed(domains):
+        term = f"(lam {domain} {term})"
+    return f"(def {type_surface} {term})"
+
+
+def bare_hole_body(source: str) -> bool:
+    """Is this draft's body under its top-level lambdas a bare hole? (§3)
+
+    "Do not make the whole body a hole" is enforced, not merely asked for: such
+    a draft gets no fills, is scored as its round's candidate and ends the
+    round. The rule reads the draft alone — no declared type, no task — so a
+    draft that writes fewer lambdas than its type calls for is judged by what it
+    actually wrote.
+    """
+    term = _term_ir(source)
+    while term[0] == 3:  # lam
+        term = term[2]
+    return term[0] == 11  # hole
+
+
+class SpliceError(ValueError):
+    """A fill that cannot be spliced back at the hole it was drawn for.
+
+    Raised rather than papered over: every escape from this function's contract
+    is a term whose de Bruijn indices would mean something other than what the
+    fill draw meant, and the round's rollback path (§2.2 step 6) is the correct
+    response to it.
+    """
+
+
+def _at(node: list, path: tuple[int, ...]) -> list:
+    for step in path:
+        node = node[step]
+    return node
+
+
+def _replace_at(node, path: tuple[int, ...], replacement):
+    if not path:
+        return replacement
+    copied = list(node)
+    copied[path[0]] = _replace_at(node[path[0]], path[1:], replacement)
+    return copied
+
+
+def splice_fill(draft_source: str, obligation: HoleObligation, fill_source: str) -> str:
+    """The draft with the hole replaced by the fill's body (§2.2 step 5).
+
+    Peels exactly `len(obligation.binders)` lambdas off the fill's term and
+    drops what is under them at the hole's path. **De Bruijn alignment is by
+    construction, not by hope**: those lambdas bind the hole's own context in
+    the hole's own order, so the innermost is index 0 in both places and every
+    index below `|Γ|` denotes the same binder at the hole as it did under the
+    lambdas; and the fill is a *closed definition*, which the scope layer has
+    already refused if it has a free variable, so there is no index above
+    `|Γ| − 1` left to misalign.
+
+    The three ways that can fail to hold are refused with `SpliceError` rather
+    than spliced: too few lambdas, a lambda annotated at a type that is not the
+    context's, and a fill that is still hole-bearing at the peeled body.
+    """
+    if not obligation.fillable:
+        raise SpliceError(
+            f"hole at {obligation.path} is not fillable in v1: {obligation.reason}")
+    draft_ir, _, _ = transcode_source(draft_source)
+    if _at(draft_ir, obligation.path)[0] != 11:
+        raise SpliceError(f"no hole at {obligation.path} in this draft")
+    term = _term_ir(fill_source)
+    for depth, binder in enumerate(obligation.binders):
+        if term[0] != 3:
+            raise SpliceError(
+                f"fill opens with {depth} lambdas; the hole's context has "
+                f"{len(obligation.binders)}")
+        written = type_to_surface(term[1])
+        if written != binder:
+            raise SpliceError(
+                f"fill's lambda {depth} binds {written}, the hole's context "
+                f"binds {binder}")
+        term = term[2]
+    return def_to_surface(_replace_at(draft_ir, obligation.path, term))
+
+
+def _fill_example_names(
+    regime: str, resolver: ExperimentResolver, exclude_identity: str,
+) -> tuple[str, ...]:
+    """`example_names` without a `Task` — leave-one-out by identity, no more.
+
+    The arms are `held_out`, where a task is not a corpus entry and the
+    exclusion never fires; it is here so that a fill prompt cannot become the
+    one place a withheld answer comes back, which is exactly the shape of leak
+    `example_names`' own docstring was written about.
+    """
+    names = _example_names(regime, resolver)
+    if not exclude_identity:
+        return names
+    return tuple(
+        name for name in names
+        if resolver.digest_for(name).hex() != exclude_identity
+    )
+
+
+def _example_block(names, resolver: ExperimentResolver) -> str:
+    """The examples paragraph, from one place, so every prompt shape shares it."""
+    lines = [EXAMPLE_HEADER]
+    for name in names:
+        found = resolver.resolve(resolver.digest_for(name))
+        entry = resolver.entry(found.digest)
+        # Every curated definition has a §5.2 spec, so this branch never fires
+        # for the curated arm and the prompt bytes are untouched. A harvested
+        # definition has none — nobody wrote one — and it shows bare rather than
+        # under a borrowed spec, which would describe what was *asked for*
+        # rather than what the definition does.
+        lines.append(f"\n{entry.spec}\n{found.surface}" if entry.spec
+                     else f"\n{found.surface}")
+    return "\n".join(lines)
+
+
+def declared_type_of(draft_source: str) -> str:
+    """A draft's own declared type surface — the left half of a `(def …)`.
+
+    The draft is the model's; its declared type is therefore the model's too,
+    and reading it here is what keeps `closed_subtask_type` from ever needing
+    the task's `expected_type_surface`. (They are equal exactly when the model
+    got the type right, which is the event §4.5's primary is about.)
+    """
+    ir, _, _ = transcode_source(draft_source)
+    return type_to_surface(ir[1])
+
+
+def build_fill_prompt(
+    spec: str,
+    regime: str,
+    resolver: ExperimentResolver,
+    *,
+    draft_source: str,
+    obligation: HoleObligation,
+    narrowing: str = "",
+    address_book: str = ADDRESS_BOOK_NONE,
+    exclude_identity: str = "",
+) -> str:
+    """The prompt for one fill draw (§2.2 step 5, §3's fill block).
+
+    **Takes no `Task`** — a spec string, a regime, a resolver, the draft the
+    model itself wrote and one of that draft's own holes. There is no argument
+    through which `composes` or `expected_surface` could arrive, which is §4.8
+    check 2 by signature rather than by care.
+
+    Same prompt shape as `build_prompt`, so the masker, the grammar, the funnel
+    and the per-draw cap all apply unchanged: preamble, examples, address book,
+    the fill block, any narrowing, the ask. The address book is filtered by the
+    **hole's** closed type rather than the task's declared type — §2.3's
+    observation that `typed_address_rows` is blind by signature and a fill draw
+    has a type surface of its own, so the `typed` variant needs no new machinery
+    and opens no new leak surface. The `full` book the arms run is unaffected.
+    """
+    closed = closed_subtask_type(declared_type_of(draft_source), obligation)
+    blocks = [PREAMBLE]
+    names = _fill_example_names(regime, resolver, exclude_identity)
+    if names:
+        blocks.append(_example_block(names, resolver))
+    book = address_book_block(
+        resolver, address_book, type_surface=closed, exclude_identity=exclude_identity)
+    if book:
+        blocks.append(book)
+    blocks.append("\n".join([
+        FILL_HEADER,
+        draft_source,
+        FILL_HOLE_HEADER,
+        obligation.surface,
+    ]))
+    if narrowing:
+        blocks.append(narrowing)
+    blocks.append("\n".join([
+        FILL_ASK_HEADER,
+        closed,
+        FILL_SHAPE_HEADER,
+        fill_term_skeleton(obligation),
+        FILL_SPEC_HEADER,
+        spec,
+    ]))
+    return "\n\n".join(blocks) + "\n"
+
+
 def build_prompt(
     task: Task,
     regime: str,
@@ -637,6 +1129,7 @@ def build_prompt(
     leave_one_out: bool = True,
     narrowing: str = "",
     address_book: str = ADDRESS_BOOK_NONE,
+    generation_protocol: str = PROTOCOL_WHOLE,
 ) -> str:
     """The full prompt for one (task, regime) pair.
 
@@ -650,25 +1143,28 @@ def build_prompt(
     new block. At the default `"none"` not one byte of this function's output
     changes, which is what makes `addr-none` the control arm rather than a
     fourth thing.
+
+    `generation_protocol` inserts §3's protocol block in the same position, and
+    only for `"holes"`. `"whole"` is the default and `"redraft"` builds the same
+    bytes as `"whole"` — the redraft arm differs from the control in the
+    runner's loop, not in its prompt, which is what makes draw 0 of every cell
+    byte-identical across the two. So at the default this function's output is
+    byte-for-byte what it was before holes existed, pinned exactly the way
+    `address_book: "none"` is pinned.
     """
+    if generation_protocol not in GENERATION_PROTOCOLS:
+        raise ValueError(
+            f"unknown generation_protocol {generation_protocol!r}; "
+            f"known: {', '.join(GENERATION_PROTOCOLS)}")
     blocks = [PREAMBLE]
     names = example_names(regime, task, resolver, leave_one_out=leave_one_out)
     if names:
-        lines = [EXAMPLE_HEADER]
-        for name in names:
-            found = resolver.resolve(resolver.digest_for(name))
-            entry = resolver.entry(found.digest)
-            # Every curated definition has a §5.2 spec, so this branch never
-            # fires for the curated arm and the prompt bytes are untouched. A
-            # harvested definition has none — nobody wrote one — and it shows
-            # bare rather than under a borrowed spec, which would describe what
-            # was *asked for* rather than what the definition does.
-            lines.append(f"\n{entry.spec}\n{found.surface}" if entry.spec
-                         else f"\n{found.surface}")
-        blocks.append("\n".join(lines))
+        blocks.append(_example_block(names, resolver))
     book = _task_address_block(task, resolver, address_book, leave_one_out=leave_one_out)
     if book:
         blocks.append(book)
+    if generation_protocol == PROTOCOL_HOLES:
+        blocks.append(HOLE_PROTOCOL_BLOCK)
     if narrowing:
         blocks.append(narrowing)
     blocks.append(f"Now write this definition.\n{task.spec}")

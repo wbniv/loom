@@ -68,8 +68,7 @@ from collections import defaultdict
 from math import comb
 from pathlib import Path
 
-import sexpr
-from transcode import type_to_ir, type_to_surface, transcode_source
+from transcode import transcode_source
 
 from .evaluate import run_funnel, score_semantic
 from .heldout_gold import GOLD_TERMS
@@ -80,6 +79,13 @@ from .prompts import (
     HELD_OUT_TASKS,
     REGIME_HELD_OUT,
     build_prompt,
+    closed_subtask_type,
+    declared_type_of,
+    eta_skeleton,
+    fill_term_skeleton,
+    hole_obligations,
+    peel_arrows,
+    splice_fill,
 )
 from .resolver import ExperimentResolver
 
@@ -102,44 +108,12 @@ TASKS_BY_ID = {task.task_id: task for task in HELD_OUT_TASKS}
 # --------------------------------------------------------------------------
 
 
-def peel_arrows(type_surface: str) -> tuple[list[str], list[list], str]:
-    """`(domain surfaces, effect rows, body-goal surface)` of a declared type.
-
-    Purely a function of the type. It is the whole of what the decomposition
-    protocol needs to close a hole's context back into a sub-task type, and it
-    is why `closed_subtask_type` never has to see a term.
-    """
-    ir = type_to_ir(sexpr.parse_all(type_surface)[0])
-    domains: list[str] = []
-    rows: list[list] = []
-    current = ir
-    while current[0] == 2:
-        domains.append(type_to_surface(current[1]))
-        rows.append(current[2])
-        current = current[3]
-    return domains, rows, type_to_surface(current)
-
-
-def _row_surface(row) -> str:
-    return "()" if not row else "(" + " ".join("0x" + digest.hex() for digest in row) + ")"
-
-
-def closed_subtask_type(domains: list[str], rows: list[list], goal_surface: str) -> str:
-    """Fold a hole's binder context back into a closed `(fn …)` sub-task type."""
-    out = goal_surface
-    for domain, row in zip(reversed(domains), reversed(rows)):
-        out = f"(fn {domain} {_row_surface(row)} {out})"
-    return out
-
-
-def eta_skeleton(type_surface: str) -> str:
-    """`(def TYPE (lam D1 … (hole GOAL ())))` — the maximal skeleton a declared
-    type alone licenses. One hole, no committed structure."""
-    domains, _rows, goal = peel_arrows(type_surface)
-    term = f"(hole {goal} ())"
-    for domain in reversed(domains):
-        term = f"(lam {domain} {term})"
-    return f"(def {type_surface} {term})"
+# `peel_arrows`, `closed_subtask_type`, `eta_skeleton`, `hole_obligations`,
+# `fill_term_skeleton` and `splice_fill` live in `prompts.py`: this diagnostic
+# and the protocol the runner drives must be the *same* machinery, or §1.3's
+# round-trips stop being evidence about what will actually run. They are
+# re-exported from this module because that is where they were first written and
+# where the plan's §1 sections still name them.
 
 
 def split_gold(task, gold: str) -> tuple[str, str, int]:
@@ -268,7 +242,7 @@ def section_nested(resolver) -> None:
         print("no one-argument inner application found in the gold term; section skipped")
         return
     inner = match.group(0)
-    domains, rows, _goal = peel_arrows(task.expected_type_surface)
+    domains, _rows, _goal = peel_arrows(task.expected_type_surface)
     hole_goal = domains[0]  # the reversed list has the same type as the first argument
     hole = f"(hole {hole_goal} ())"
     draft = gold.replace(inner, hole)
@@ -277,14 +251,17 @@ def section_nested(resolver) -> None:
     print(f"draft            funnel={draft_funnel.outcome:<9} "
           f"declared-type-preserved={draft_funnel.type_surface == task.expected_type_surface}")
 
-    closed = closed_subtask_type(domains, rows, hole_goal)
-    fill_def = (f"(def {closed} " + "".join(f"(lam {d} " for d in domains) + inner
-                + ")" * len(domains) + ")")
+    # From here the *harness's own* machinery, not a rehearsal of it: the hole is
+    # enumerated out of the draft, its sub-task type folded from the draft's own
+    # declared type, and the fill spliced back through `splice_fill`.
+    obligation = next(o for o in hole_obligations(draft, resolver) if o.fillable)
+    closed = closed_subtask_type(declared_type_of(draft), obligation)
+    fill_def = f"(def {closed} {fill_term_skeleton(obligation).replace(obligation.surface, inner)})"
     fill_funnel = run_funnel(fill_def, resolver)
     print(f"closed sub-task  {len(closed)}ch, derived from the declared type alone")
     print(f"fill definition  funnel={fill_funnel.outcome:<9} chars={len(fill_def)}")
 
-    assembled = draft.replace(hole, inner)
+    assembled = splice_fill(draft, obligation, fill_def)
     funnel = run_funnel(assembled, resolver)
     semantic = score_semantic(task, funnel, assembled)
     print(f"assembled        identical-to-gold={assembled == gold}  "

@@ -687,7 +687,33 @@ does not edit `TODO.md`.
 3. **Hole machinery in `prompts.py`** — `hole_obligations`, `closed_subtask_type`,
    the §3 protocol block and the fill prompt, behind `generation_protocol` — plus
    the adversarial blindness tests of §4.8 check 2. *(T3: the spec is settled here,
-   the leak discipline is the care required.)*
+   the leak discipline is the care required.)* **Landed.** Four implementation
+   choices §2.2 left open, recorded here because a reader of §2.2 will hit them
+   and none of them changes anything §4 pre-registers:
+
+    * `closed_subtask_type(declared_type_surface, obligation)` rather than
+      §4.8's spelling `(…, context)`. A `HoleObligation` **is** the hole's
+      context — its binder type surfaces, its goal, and a path — so passing it
+      whole keeps a caller from pairing a goal with the wrong binders. Still two
+      type surfaces and no term; §4.8 check 2 is pinned against the signature.
+    * **A binder deeper than the declared type has arrows** (an inner `lam`, or
+      a `let`/`fix` binder) has no effect row to read — the term IR records
+      none, only the declared type does. It closes at the empty row `()`: the
+      restrictive choice, which can make a sub-task unsolvable but can never
+      license a fill that performs an effect the position forbids. §2.2's
+      re-check remains the authority.
+    * **`let` binders are fillable**, on §2.2 step 3's stated rule (*"derivable
+      without synthesis"*) rather than on its `lam`/`fix` list: a `let` writes
+      its binding type into the term exactly as a `lam` does. So does a
+      **zero-binder `match` arm**, which adds nothing to Γ at all — the
+      unfillable case is an unknown *binder*, not a `match` node overhead.
+    * **The splice is a pure function in `prompts.py`** (`splice_fill`), not
+      inside deliverable 4's loop. That is what makes step 5's de Bruijn claim
+      structural: it peels exactly the `|Γ|` lambdas whose annotations *are* the
+      hole's context, refuses any fill whose prefix is not that, and relies on
+      the fill being a closed definition to have no index left over to
+      misalign. The runner drives the rounds and the rollback; it does not
+      re-derive the alignment.
 4. **Protocol-aware cell loop in `runner.py`** — the round/fill/splice/rollback loop
    of §2.2, `generation_protocol: "whole" | "redraft" | "holes"` defaulting to
    `whole` so every existing config is byte-identical, narrowing wired for
