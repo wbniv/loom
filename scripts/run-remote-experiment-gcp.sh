@@ -94,6 +94,18 @@ Options:
                           results are stored under in the bucket.
                           Default: runs/phase-a-full
   --run-id ID             Run identifier. Default: a UTC timestamp.
+  --runlist FILE          Run every {config_key, output_dir, run_id} entry in
+                          FILE sequentially on one instance, which self-deletes
+                          when the runlist finishes. Each entry uploads its own
+                          results incrementally under results/<entry-run_id>/
+                          {runs,logs}/ and writes a status/<entry-run_id>.txt
+                          marker as it completes; the aggregate results/$RUN_ID/
+                          prefix receives only logs (the startup-script log),
+                          never at any point receives arm data. Fetch therefore
+                          walks the runlist and downloads each arm's own prefix
+                          into DEST_DIR/<entry-run_id>/{,logs/} individually,
+                          tolerating an arm that has not uploaded yet, and
+                          prints a SUCCEEDED/FAILED/missing verdict per arm.
   --machine-type TYPE     Default: g2-standard-4
   --hardware STRING       Recorded hardware string.
                           Default: "g2-standard-4 L4 24GB"
@@ -493,10 +505,46 @@ done
 # Unconditional: a failed run still has partial records.jsonl and the two logs,
 # and those are what say why it failed.
 mkdir -p "$DEST_DIR" "$DEST_DIR/logs"
-log "downloading gs://$BUCKET/${RESULTS_PREFIX}runs/ into $DEST_DIR"
-gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}runs/" "$DEST_DIR" || true
-log "downloading logs into $DEST_DIR/logs"
-gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}logs/" "$DEST_DIR/logs" || true
+if [ -n "${RUNLIST_PATH:-}" ]; then
+    # Runlist mode uploads incrementally per arm — results/<entry-run_id>/
+    # {runs,logs}/ and a status/<entry-run_id>.txt marker — and the aggregate
+    # results/$RUN_ID/ prefix never receives arm data, only logs at runlist
+    # completion. Fetching only the aggregate prefix (the non-runlist path
+    # below) silently downloads nothing for every arm; that gap was found by
+    # hand twice on 2026-08-25/26 and rescued with an ad hoc rsync per arm.
+    # Walk the runlist instead and fetch each arm's own prefix.
+    log "runlist mode: fetching each arm's results individually"
+    ARM_SUMMARY=()
+    while IFS= read -r arm_run_id; do
+        arm_dest="$DEST_DIR/$arm_run_id"
+        mkdir -p "$arm_dest/logs"
+        if gsutil -q ls "gs://$BUCKET/results/$arm_run_id/runs/" >/dev/null 2>&1; then
+            log "  $arm_run_id: runs/ found, downloading"
+            gsutil -q -m rsync -r "gs://$BUCKET/results/$arm_run_id/runs/" "$arm_dest" || true
+        else
+            log "  $arm_run_id: no runs/ prefix in the bucket (not uploaded, or arm never ran)"
+        fi
+        if gsutil -q ls "gs://$BUCKET/results/$arm_run_id/logs/" >/dev/null 2>&1; then
+            gsutil -q -m rsync -r "gs://$BUCKET/results/$arm_run_id/logs/" "$arm_dest/logs" || true
+        else
+            log "  $arm_run_id: no logs/ prefix in the bucket"
+        fi
+        arm_status=$(gsutil -q cat "gs://$BUCKET/status/$arm_run_id.txt" 2>/dev/null | tr -d '[:space:]' || true)
+        [ -z "$arm_status" ] && arm_status="missing"
+        ARM_SUMMARY+=("  $arm_run_id: $arm_status")
+    done < <(jq -r '.[].run_id' "$RUNLIST_PATH")
+    # The aggregate prefix still carries the startup-script log even in
+    # runlist mode, so keep fetching it into the top-level logs dir.
+    log "downloading aggregate logs (startup-script log) into $DEST_DIR/logs"
+    gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}logs/" "$DEST_DIR/logs" || true
+    log "per-arm status:"
+    printf '%s\n' "${ARM_SUMMARY[@]}"
+else
+    log "downloading gs://$BUCKET/${RESULTS_PREFIX}runs/ into $DEST_DIR"
+    gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}runs/" "$DEST_DIR" || true
+    log "downloading logs into $DEST_DIR/logs"
+    gsutil -q -m rsync -r "gs://$BUCKET/${RESULTS_PREFIX}logs/" "$DEST_DIR/logs" || true
+fi
 
 if [ -z "$RUN_STATUS" ]; then
     # One post-loop grace poll: a laptop suspend freezes this process while the
