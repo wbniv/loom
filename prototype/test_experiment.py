@@ -1710,5 +1710,591 @@ class GenerationProtocolPromptTest(unittest.TestCase):
         self.assertEqual(prompts.GENERATION_PROTOCOLS, ("whole", "redraft", "holes"))
 
 
+# --------------------------------------------------------------------------
+# The protocol-aware cell loop (2026-08-25 hole-decomposition plan §2.2, §4.3)
+# --------------------------------------------------------------------------
+
+from experiment.backends import Generation  # noqa: E402 - keeps this file append-only
+
+_HEAD = next(t for t in prompts.HELD_OUT_TASKS if t.task_id == "heldout/list/headOrElse")
+
+#: The draft a `holes` round is built to fill: `headOrElse`'s gold term with its
+#: `Nothing` arm blanked to a hole. Funnel-accepted, one fillable hole, two
+#: binders — so the splice's de Bruijn claim is exercised rather than dodged.
+_DRAFT = GOLD_TERMS[_HEAD.task_id].replace(_NOTHING, f"(hole {_MAYBE_I64} ())")
+#: The same term with its *inner* `match` blanked instead: one hole, under a
+#: one-binder `match` arm, which is §2.2 step 3's unfillable-in-v1 case.
+_UNFILLABLE_DRAFT = GOLD_TERMS[_HEAD.task_id].replace(_INNER_MATCH, f"(hole {_MAYBE_I64} ())")
+#: A draft with **two** fillable holes, so a round has to enumerate, fill,
+#: splice and then re-enumerate against the *new* draft.
+_TWO_HOLE_DRAFT = "(def (fn I64 () I64) (lam I64 (let I64 (hole I64 ()) (hole I64 ()))))"
+
+
+def _fill_for(draft, body, *, resolver, index=0):
+    """The fill definition a well-behaved model would write for one hole.
+
+    Built from `prompts`' own closure and skeleton, never hand-typed, so a
+    change to either shows up as a test failure rather than as drift.
+    """
+    obligation = [o for o in prompts.hole_obligations(draft, resolver) if o.fillable][index]
+    closed = prompts.closed_subtask_type(prompts.declared_type_of(draft), obligation)
+    term = prompts.fill_term_skeleton(obligation).replace(obligation.surface, body)
+    return f"(def {closed} {term})"
+
+
+class _ScriptedBackend(StubBackend):
+    """A stub that answers by *prompt shape*: skeleton asks and fill asks differ.
+
+    The `holes` protocol makes two kinds of call in one cell, so a single
+    round-robin script cannot express a scenario. This one keeps a script per
+    kind and repeats each script's last entry, which is exactly what
+    `fill_attempts_per_hole` needs: the same bad fill offered twice.
+    """
+
+    def __init__(self, skeletons, fills=(), *, spend_the_cap=False):
+        super().__init__(list(skeletons))
+        self.skeleton_script = list(skeletons)
+        self.fill_script = list(fills) or ["(def Bool (lit bool true))"]
+        self.skeleton_prompts: list[str] = []
+        self.fill_prompts: list[str] = []
+        self.allotments: list[int] = []
+        self.spend_the_cap = spend_the_cap
+
+    def generate(self, prompt, *, grammar=None, max_tokens=256, seed=0, temperature=0.0):
+        fill = prompts.FILL_HEADER in prompt
+        script = self.fill_script if fill else self.skeleton_script
+        seen = self.fill_prompts if fill else self.skeleton_prompts
+        text = script[min(len(seen), len(script) - 1)]
+        seen.append(prompt)
+        self.prompts.append(prompt)
+        self.allotments.append(max_tokens)
+        self.draws += 1
+        natural = max(1, len(text) // 4)
+        used = max_tokens if self.spend_the_cap else min(natural, max_tokens)
+        return Generation(
+            text=text, completion_tokens=used, prompt_tokens=max(1, len(prompt) // 4),
+            latency_s=0.0, stop_reason="length" if used < natural else "stop",
+            backend=self.name)
+
+
+class _FlakyScriptedBackend(_ScriptedBackend):
+    """`_ScriptedBackend` that goes hard-down from its `fail_at`-th call on."""
+
+    def __init__(self, *args, fail_at, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_at = fail_at
+        self.calls = 0
+
+    def generate(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls >= self.fail_at:
+            raise BackendUnavailable("stub: simulated backend hiccup")
+        return super().generate(*args, **kwargs)
+
+
+def protocol_config(protocol, **overrides):
+    """One held-out cell of one task, small enough to assert on record by record."""
+    config = runner.Config(
+        backend="stub",
+        seeds=[1],
+        conditions=[runner.CONDITION_GBNF],
+        regimes=[REGIME_HELD_OUT],
+        tasks=[_HEAD.task_id],
+        token_budget_per_task=6000,
+        max_tokens_per_draw=60,
+        max_draws_per_task=2,
+        generation_protocol=protocol,
+        address_book=prompts.ADDRESS_BOOK_FULL,
+        stub_outputs=STUB_OUTPUTS,
+        stub_grammar_outputs=STUB_GRAMMAR_OUTPUTS,
+        source_path="<test>",
+    )
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    config.validate()
+    return config
+
+
+class GenerationProtocolConfigTest(unittest.TestCase):
+    """Deliverable 1: the arm configs the plan shipped must load and validate."""
+
+    ARMS = ("whole", "redraft", "holes")
+
+    def test_the_three_shipped_arm_configs_load_and_validate(self):
+        directory = HERE / "experiment"
+        for arm in self.ARMS:
+            with self.subTest(arm=arm):
+                config = runner.Config.load(directory / f"decomp-{arm}.config.json")
+                config.validate()
+                self.assertEqual(config.generation_protocol, arm)
+                # §4.2 / §4.3's pinned fields, read back off the file rather
+                # than restated: a drifted arm is a drifted experiment.
+                self.assertEqual(config.address_book, prompts.ADDRESS_BOOK_FULL)
+                self.assertEqual(config.regimes, [REGIME_HELD_OUT])
+                self.assertEqual(config.conditions, [runner.CONDITION_TYPEMASK])
+                self.assertEqual(config.pruners, ["goal-type", "de-bruijn", "ref-hash"])
+                self.assertEqual(config.token_budget_per_task, 4608)
+                self.assertEqual(config.max_tokens_per_draw, 768)
+                self.assertEqual(config.max_draws_per_task, 64)
+                self.assertEqual(config.seeds, [1, 2, 3, 4, 5, 6, 7, 8])
+                self.assertFalse(config.stop_on_semantic_success)
+                # §4.3.6's protocol constants, which the arms do not restate.
+                self.assertEqual(config.fills_per_round_max, 6)
+                self.assertEqual(config.fill_attempts_per_hole, 2)
+
+    def test_whole_is_the_default_so_every_older_config_is_unmoved(self):
+        self.assertEqual(runner.Config().generation_protocol, prompts.PROTOCOL_WHOLE)
+        for name in ("addr-full.config.json", "phase_a.config.json", "phase_b.config.json"):
+            config = runner.Config.load(HERE / "experiment" / name)
+            self.assertEqual(config.generation_protocol, prompts.PROTOCOL_WHOLE, name)
+
+    def test_an_unknown_protocol_is_refused_by_name(self):
+        with self.assertRaises(SystemExit) as raised:
+            runner.Config(generation_protocol="freestyle").validate()
+        self.assertIn("freestyle", str(raised.exception))
+        self.assertIn("holes", str(raised.exception))
+
+    def test_the_protocol_constants_must_be_positive(self):
+        for field in ("fills_per_round_max", "fill_attempts_per_hole"):
+            with self.subTest(field=field):
+                with self.assertRaises(SystemExit):
+                    runner.Config(**{field: 0}).validate()
+
+
+class RedraftProtocolTest(unittest.TestCase):
+    """§4.2's middle arm: `whole` plus §8.3 narrowing, and nothing else."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def _run(self, protocol, **overrides):
+        config = protocol_config(protocol, max_draws_per_task=3, **overrides)
+        backend = _ScriptedBackend([BROKEN_TYPE])
+        records, summary = runner.run(config, resolver=self.resolver, backend=backend)
+        return records, summary, backend
+
+    def test_whole_never_narrows_so_every_prompt_in_a_cell_is_identical(self):
+        records, _, backend = self._run(prompts.PROTOCOL_WHOLE)
+        self.assertEqual(len(records), 3)
+        self.assertEqual(len(set(backend.prompts)), 1)
+        self.assertFalse(any(r["narrowed"] for r in records))
+        self.assertTrue(all(r["role"] == "whole" and r["candidate"] for r in records))
+
+    def test_redraft_narrows_after_the_first_rejection_and_not_before(self):
+        records, _, backend = self._run(prompts.PROTOCOL_REDRAFT)
+        self.assertEqual(len(records), 3)
+        self.assertEqual([r["narrowed"] for r in records], [False, True, True])
+        # §4.8 check 1 at run time, not just at prompt-builder time: draw 0 of
+        # a `redraft` cell is byte-identical to draw 0 of a `whole` cell.
+        _, _, control = self._run(prompts.PROTOCOL_WHOLE)
+        self.assertEqual(backend.prompts[0], control.prompts[0])
+        self.assertIn("rejected by the typecheck layer", backend.prompts[1])
+
+    def test_redraft_spends_the_same_purse_the_same_way_as_whole(self):
+        whole, _, whole_backend = self._run(prompts.PROTOCOL_WHOLE)
+        redraft, _, redraft_backend = self._run(prompts.PROTOCOL_REDRAFT)
+        self.assertEqual(whole_backend.allotments, redraft_backend.allotments)
+        self.assertEqual([r["tokens_used"] for r in whole],
+                         [r["tokens_used"] for r in redraft])
+        self.assertEqual([r["draw_seed"] for r in whole], [r["draw_seed"] for r in redraft])
+
+
+class HolesProtocolTest(unittest.TestCase):
+    """§2.2's six-step round, driven end to end through the stub backend.
+
+    Every path §4.8 check 7 names is exercised here: the accepted-draft path,
+    the rejected-draft path, the bare-hole path, the unfillable-hole path and
+    the assembly-rollback path — plus the two rollbacks §2.2 states as
+    properties rather than as code (monotonicity, and a splice refusal).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def _run(self, skeletons, fills=(), **overrides):
+        config = protocol_config(prompts.PROTOCOL_HOLES, **overrides)
+        backend = _ScriptedBackend(skeletons, fills)
+        records, summary = runner.run(config, resolver=self.resolver, backend=backend)
+        return records, summary, backend
+
+    @staticmethod
+    def _by_role(records, role):
+        return [r for r in records if r["role"] == role]
+
+    # -- the accepted-draft path, end to end -------------------------------
+
+    def test_a_round_drafts_fills_splices_and_rechecks(self):
+        """§2.2 read straight through: the assembled candidate is the gold term."""
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        records, summary, backend = self._run([_DRAFT], [fill], max_draws_per_task=2)
+
+        self.assertEqual([r["role"] for r in records], ["skeleton", "fill", "candidate"])
+        skeleton, fill_record, candidate = records
+
+        self.assertEqual(skeleton["funnel_outcome"], ACCEPTED)
+        self.assertEqual(skeleton["holes"], 1)
+        self.assertEqual(skeleton["holes_fillable"], 1)
+        self.assertFalse(skeleton["bare_hole_body"])
+        self.assertFalse(skeleton["candidate"])
+        # §4.3.1: a hole-bearing draft never meets the floor, whatever its type.
+        self.assertFalse(skeleton["semantic_success"])
+
+        self.assertEqual(fill_record["splice_outcome"], "spliced")
+        self.assertEqual(fill_record["assembled_outcome"], ACCEPTED)
+        self.assertEqual(fill_record["hole_binders"], 2)
+        self.assertEqual(fill_record["draft_holes_before"], 1)
+        self.assertEqual(fill_record["draft_holes_after"], 0)
+        self.assertFalse(fill_record["candidate"])
+        self.assertEqual(fill_record["semantic_rule"], "fill-draw")
+
+        self.assertTrue(candidate["candidate"])
+        self.assertEqual(candidate["source"], GOLD_TERMS[_HEAD.task_id])
+        self.assertEqual(candidate["funnel_outcome"], ACCEPTED)
+        self.assertEqual(candidate["holes"], 0)
+        self.assertTrue(candidate["semantic_success"])
+        self.assertEqual(candidate["tokens_completion"], 0)
+        self.assertEqual(candidate["fills_spliced"], 1)
+        self.assertEqual(candidate["fills_rolled_back"], 0)
+        self.assertTrue(candidate["cell_done"])
+
+        # The zero-token assembly is not a draw, and no per-draw rate counts it.
+        cell = summary["cells"][f"{runner.CONDITION_GBNF}|{REGIME_HELD_OUT}"]
+        self.assertEqual(cell["draws"], backend.draws)
+        self.assertEqual(cell["draws"], 2)
+        self.assertEqual(cell["protocol"]["rounds"], 1)
+        self.assertEqual(cell["protocol"]["fills_spliced"], 1)
+
+    def test_a_second_hole_is_enumerated_against_the_spliced_draft(self):
+        """Two holes, two fills, and the second obligation comes from the *new* draft."""
+        first = _fill_for(_TWO_HOLE_DRAFT, "(lit i64 1)", resolver=self.resolver)
+        spliced = prompts.splice_fill(
+            _TWO_HOLE_DRAFT,
+            [o for o in prompts.hole_obligations(_TWO_HOLE_DRAFT, self.resolver)
+             if o.fillable][0],
+            first)
+        second = _fill_for(spliced, "(var 0)", resolver=self.resolver)
+        records, _, _ = self._run([_TWO_HOLE_DRAFT], [first, second], max_draws_per_task=3)
+
+        fills = self._by_role(records, "fill")
+        self.assertEqual([f["splice_outcome"] for f in fills], ["spliced", "spliced"])
+        self.assertEqual([f["fill_index"] for f in fills], [0, 1])
+        self.assertNotEqual(fills[0]["hole_path"], fills[1]["hole_path"])
+        self.assertNotEqual(fills[0]["closed_type"], fills[1]["closed_type"])
+        candidate, = self._by_role(records, "candidate")
+        self.assertEqual(candidate["holes"], 0)
+        self.assertEqual(candidate["fills_spliced"], 2)
+        self.assertEqual(
+            candidate["source"], "(def (fn I64 () I64) (lam I64 (let I64 (lit i64 1) (var 0))))")
+
+    def test_fills_per_round_max_caps_the_round(self):
+        first = _fill_for(_TWO_HOLE_DRAFT, "(lit i64 1)", resolver=self.resolver)
+        records, _, backend = self._run(
+            [_TWO_HOLE_DRAFT], [first], max_draws_per_task=2, fills_per_round_max=1)
+        self.assertEqual(len(self._by_role(records, "fill")), 1)
+        candidate = self._by_role(records, "candidate")[0]
+        self.assertEqual(candidate["holes"], 1, "the round stopped at one fill")
+
+    # -- the paths that do not fill ----------------------------------------
+
+    def test_a_rejected_draft_is_the_rounds_candidate_and_narrows_the_next(self):
+        records, _, backend = self._run([BROKEN_TYPE], max_draws_per_task=2)
+        self.assertEqual([r["role"] for r in records],
+                         ["skeleton", "candidate", "skeleton", "candidate"])
+        self.assertEqual(backend.fill_prompts, [], "a rejected draft is never filled")
+        self.assertEqual([r["round"] for r in records], [0, 0, 1, 1])
+        self.assertIn("rejected by the typecheck layer", backend.skeleton_prompts[1])
+        self.assertTrue(records[2]["narrowed"])
+        for candidate in self._by_role(records, "candidate"):
+            self.assertEqual(candidate["source"], BROKEN_TYPE)
+            self.assertFalse(candidate["semantic_success"])
+
+    def test_a_bare_hole_body_gets_no_fills_and_ends_the_round(self):
+        """§3's last sentence, enforced rather than merely asked for."""
+        bare = eta_skeleton(_HEAD.expected_type_surface)
+        records, _, backend = self._run([bare], max_draws_per_task=1)
+        self.assertEqual([r["role"] for r in records], ["skeleton", "candidate"])
+        self.assertEqual(backend.fill_prompts, [])
+        self.assertTrue(records[0]["bare_hole_body"])
+        self.assertEqual(records[0]["funnel_outcome"], ACCEPTED)
+        candidate = records[1]
+        self.assertEqual(candidate["source"], bare)
+        self.assertEqual(candidate["holes"], 1)
+        # Accepted and type-exact — and refused by §4.3.1's floor rule anyway.
+        self.assertEqual(candidate["type_surface"], _HEAD.expected_type_surface)
+        self.assertFalse(candidate["semantic_success"])
+        self.assertIn("hole", candidate["semantic_detail"])
+
+    def test_an_unfillable_hole_is_recorded_with_its_reason_and_not_drawn_for(self):
+        records, summary, backend = self._run([_UNFILLABLE_DRAFT], max_draws_per_task=1)
+        self.assertEqual(backend.fill_prompts, [])
+        skeleton = records[0]
+        self.assertEqual(skeleton["holes"], 1)
+        self.assertEqual(skeleton["holes_fillable"], 0)
+        self.assertEqual(len(skeleton["hole_reasons"]), 1)
+        self.assertIn("match", skeleton["hole_reasons"][0])
+        cell = summary["cells"][f"{runner.CONDITION_GBNF}|{REGIME_HELD_OUT}"]
+        self.assertEqual(cell["protocol"]["fillable_hole_fraction"], 0.0)
+        self.assertEqual(sum(cell["protocol"]["unfillable_reasons"].values()), 1)
+
+    def test_a_draft_with_no_holes_makes_the_protocol_redraft(self):
+        """§4.2: 'if the model declines to write a hole, `holes` **is** `redraft`'."""
+        good = GOLD_TERMS[_HEAD.task_id]
+        records, _, backend = self._run([good], max_draws_per_task=1)
+        self.assertEqual(backend.fill_prompts, [])
+        self.assertEqual([r["role"] for r in records], ["skeleton", "candidate"])
+        self.assertEqual(records[0]["holes"], 0)
+        self.assertTrue(records[1]["semantic_success"])
+
+    # -- the rollback paths ------------------------------------------------
+
+    def _rollback(self, fill, **overrides):
+        return self._run([_DRAFT], [fill], max_draws_per_task=3, **overrides)
+
+    def test_an_assembly_that_fails_the_recheck_is_rolled_back(self):
+        """§2.2's authority clause: the re-check, not the closure, decides."""
+        first, second = prompts.hole_obligations(_DRAFT, self.resolver)[0].binders
+        # Accepted standalone, at a type that is not the hole's — the model
+        # wrote a well-typed definition of the wrong thing.
+        wrong = f"(def (fn {first} () (fn {second} () {second})) (lam {first} (lam {second} (var 0))))"
+        self.assertEqual(run_funnel(wrong, self.resolver).outcome, ACCEPTED)
+        records, _, backend = self._rollback(wrong)
+
+        fills = self._by_role(records, "fill")
+        self.assertEqual(len(fills), 2, "one retry per §4.3.6's fill_attempts_per_hole")
+        for fill_record in fills:
+            self.assertEqual(fill_record["funnel_outcome"], ACCEPTED)
+            self.assertEqual(fill_record["splice_outcome"], "rolled-back")
+            self.assertEqual(fill_record["assembled_outcome"], "typecheck")
+            self.assertTrue(fill_record["assembled_error"])
+        # The failure is fed back for the retry, and only for it.
+        self.assertFalse(fills[0]["narrowed"])
+        self.assertTrue(fills[1]["narrowed"])
+        self.assertIn("rejected by the typecheck layer", backend.fill_prompts[1])
+
+        candidate, = self._by_role(records, "candidate")
+        self.assertEqual(candidate["source"], _DRAFT, "the draft is restored, not damaged")
+        self.assertEqual(candidate["fills_attempted"], 2)
+        self.assertEqual(candidate["fills_rolled_back"], 2)
+        self.assertEqual(candidate["fills_spliced"], 0)
+
+    def test_a_fill_that_fills_a_hole_with_a_hole_is_rolled_back(self):
+        """§2.2's monotonicity: 'holes only ever disappear'."""
+        holey = _fill_for(_DRAFT, f"(hole {_MAYBE_I64} ())", resolver=self.resolver)
+        self.assertEqual(run_funnel(holey, self.resolver).outcome, ACCEPTED)
+        records, _, backend = self._rollback(holey)
+        fills = self._by_role(records, "fill")
+        self.assertEqual([f["splice_outcome"] for f in fills], ["rolled-back", "rolled-back"])
+        # The assembly typechecks — it is the *hole count* that refuses it.
+        self.assertEqual(fills[0]["assembled_outcome"], ACCEPTED)
+        self.assertEqual(fills[0]["draft_holes_before"], 1)
+        self.assertIn("another hole", backend.fill_prompts[1])
+        candidate, = self._by_role(records, "candidate")
+        self.assertEqual(candidate["source"], _DRAFT)
+        self.assertEqual(candidate["holes"], 1)
+
+    def test_a_fill_that_cannot_be_spliced_is_refused_not_forced(self):
+        obligation, = prompts.hole_obligations(_DRAFT, self.resolver)
+        inner = obligation.binders[1]
+        short = f"(def (fn {inner} () {inner}) (lam {inner} (var 0)))"
+        records, _, backend = self._rollback(short)
+        fills = self._by_role(records, "fill")
+        self.assertEqual([f["splice_outcome"] for f in fills],
+                         ["splice-error", "splice-error"])
+        self.assertEqual(fills[0]["assembled_outcome"], "")
+        self.assertIn("could not be spliced back", backend.fill_prompts[1])
+        self.assertEqual(self._by_role(records, "candidate")[0]["source"], _DRAFT)
+
+    def test_a_fill_the_funnel_rejects_never_reaches_the_splice(self):
+        records, _, backend = self._rollback(BROKEN_TYPE)
+        fills = self._by_role(records, "fill")
+        self.assertEqual([f["splice_outcome"] for f in fills],
+                         ["fill-rejected", "fill-rejected"])
+        self.assertEqual(fills[0]["assembled_outcome"], "")
+        self.assertIn("rejected by the typecheck layer", backend.fill_prompts[1])
+
+    def test_one_hole_exhausting_its_attempts_ends_the_round(self):
+        records, _, backend = self._run(
+            [_TWO_HOLE_DRAFT], [BROKEN_TYPE], max_draws_per_task=5)
+        first_round = [r for r in records if r["round"] == 0]
+        self.assertEqual(len(self._by_role(first_round, "fill")), 2)
+        # The second hole is never reached: §2.2 step 6 ends the round.
+        self.assertEqual({f["fill_index"] for f in self._by_role(first_round, "fill")}, {0})
+        self.assertEqual(self._by_role(first_round, "candidate")[0]["holes"], 2)
+
+    # -- §4.3.2's purse, which binds for every kind of draw ----------------
+
+    def test_every_draw_skeleton_or_fill_is_charged_a_full_cap_to_one_purse(self):
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        config = protocol_config(
+            prompts.PROTOCOL_HOLES,
+            token_budget_per_task=250, max_tokens_per_draw=60, max_draws_per_task=64)
+        backend = _ScriptedBackend([_DRAFT], [fill], spend_the_cap=True)
+        records, summary = runner.run(config, resolver=self.resolver, backend=backend)
+
+        # 250 // 60 = 4 whole-cap draws; the 10-token scrap buys nothing.
+        self.assertEqual(backend.allotments, [60] * 4)
+        self.assertEqual(backend.draws, 4)
+        draws = [r for r in records if r["role"] in runner.DRAW_ROLES]
+        self.assertEqual(sum(r["tokens_completion"] for r in draws), 240)
+        self.assertLessEqual(max(r["tokens_used"] for r in records), 250)
+        # Skeletons and fills are the same event to the purse.
+        self.assertEqual(len([r for r in draws if r["role"] == "skeleton"]), 2)
+        self.assertEqual(len([r for r in draws if r["role"] == "fill"]), 2)
+        self.assertTrue(records[-1]["cell_done"])
+        self.assertEqual(records[-1]["role"], "candidate")
+
+    def test_a_budget_that_cannot_fund_one_draw_runs_no_round_at_all(self):
+        config = protocol_config(
+            prompts.PROTOCOL_HOLES, token_budget_per_task=59, max_tokens_per_draw=60)
+        backend = _ScriptedBackend([_DRAFT])
+        records, _ = runner.run(config, resolver=self.resolver, backend=backend)
+        self.assertEqual(records, [])
+        self.assertEqual(backend.draws, 0)
+
+    def test_a_purse_exhausted_mid_round_still_scores_the_partial_draft(self):
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        records, _, backend = self._run([_DRAFT], [fill], max_draws_per_task=1)
+        self.assertEqual(backend.draws, 1)
+        self.assertEqual([r["role"] for r in records], ["skeleton", "candidate"])
+        candidate = records[1]
+        self.assertEqual(candidate["source"], _DRAFT, "the unfilled draft is the candidate")
+        self.assertTrue(candidate["cell_done"])
+        self.assertEqual(candidate["fills_attempted"], 0)
+
+    def test_stop_on_semantic_success_stops_on_a_candidate(self):
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        records, _, backend = self._run(
+            [_DRAFT], [fill], max_draws_per_task=64, token_budget_per_task=6000,
+            stop_on_semantic_success=True)
+        self.assertEqual([r["role"] for r in records], ["skeleton", "fill", "candidate"])
+        self.assertTrue(records[-1]["semantic_success"])
+        self.assertTrue(records[-1]["cell_done"])
+
+    # -- the record, and what analysis reads off it ------------------------
+
+    def test_every_record_keeps_the_fields_the_harness_already_wrote(self):
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        records, _, _ = self._run([_DRAFT], [fill], max_draws_per_task=2)
+        required = {
+            "task", "task_kind", "condition", "regime", "address_book", "seed",
+            "draw", "draw_seed", "narrowed", "grammar", "budget",
+            "tokens_completion", "tokens_prompt", "tokens_used", "tokens_remaining",
+            "latency_s", "stop_reason", "backend", "funnel_outcome", "layers_passed",
+            "error_class", "error_path", "error_message", "de_bruijn_suspected",
+            "identity", "type_surface", "semantic_success", "semantic_rule",
+            "semantic_detail", "rubric_pending", "source", "raw", "retried",
+            "cell_done",
+        }
+        added = {"generation_protocol", "role", "round", "candidate", "holes",
+                 "holes_fillable", "hole_reasons"}
+        for record in records:
+            self.assertTrue(required <= set(record), sorted(required - set(record)))
+            self.assertTrue(added <= set(record), sorted(added - set(record)))
+            self.assertEqual(record["generation_protocol"], prompts.PROTOCOL_HOLES)
+        draw_indexes = [r["draw"] for r in records]
+        self.assertEqual(draw_indexes, sorted(set(draw_indexes)))
+
+    def test_the_report_renders_the_protocol_telemetry_only_for_a_holes_run(self):
+        fill = _fill_for(_DRAFT, _NOTHING, resolver=self.resolver)
+        records, summary, _ = self._run([_DRAFT], [fill], max_draws_per_task=2)
+        report = runner.render_report(summary, records)
+        self.assertIn("Protocol telemetry", report)
+        self.assertIn("**Generation protocol:** holes", report)
+        plain, plain_summary = runner.run(
+            protocol_config(prompts.PROTOCOL_WHOLE, max_draws_per_task=1),
+            resolver=self.resolver, backend=_ScriptedBackend([_DRAFT]))
+        plain_report = runner.render_report(plain_summary, plain)
+        self.assertNotIn("Protocol telemetry", plain_report)
+        self.assertNotIn("Generation protocol", plain_report)
+        self.assertNotIn("protocol", plain_summary)
+
+
+class HolesCrashSafetyTest(unittest.TestCase):
+    """Per-draw persistence and resume, under the round protocol.
+
+    The property the round adds: a cell always ends on a **candidate** record,
+    so `cell_done` still marks a complete cell, and a cell interrupted
+    mid-round is discarded whole rather than resumed onto a half-filled draft.
+    A resumed cell therefore neither double-spends its purse nor loses its
+    draft — it is either skipped entirely or redrawn from round 0.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.fill = _fill_for(_DRAFT, _NOTHING, resolver=ExperimentResolver())
+
+    def _config(self, **overrides):
+        return protocol_config(
+            prompts.PROTOCOL_HOLES, seeds=[1, 2], max_draws_per_task=2, **overrides)
+
+    def test_every_record_of_a_round_lands_on_disk_as_it_is_built(self):
+        with tempfile.TemporaryDirectory() as directory:
+            records, _ = runner.run(
+                self._config(), resolver=self.resolver,
+                backend=_ScriptedBackend([_DRAFT], [self.fill]), output_dir=directory)
+            on_disk = [
+                json.loads(line) for line in
+                (Path(directory) / "records.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(on_disk), len(records))
+            self.assertEqual(len(on_disk), 6)  # 2 cells × (skeleton, fill, candidate)
+            self.assertTrue(all(r["role"] in ("skeleton", "fill", "candidate") for r in on_disk))
+            # Only the candidate that ends a cell is marked complete.
+            self.assertEqual([r["role"] for r in on_disk if r["cell_done"]],
+                             ["candidate", "candidate"])
+
+    def test_a_cell_cut_off_mid_round_is_discarded_and_redrawn_whole(self):
+        # Cell 1 takes calls 1-2; cell 2's skeleton is call 3 and its fill is
+        # call 4 — so the cell dies *mid-round*, which is the case the round
+        # protocol adds and the one this test is about.
+        dead = _FlakyScriptedBackend([_DRAFT], [self.fill], fail_at=4)
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._config()
+            with self.assertRaises(BackendUnavailable) as raised:
+                runner.run(config, resolver=self.resolver, backend=dead, output_dir=directory)
+            self.assertIn("partial run: 1 of 2 cells", str(raised.exception))
+            path = Path(directory) / "records.jsonl"
+            on_disk = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            # Cell 1's three records; cell 2 died on its *fill*, so its
+            # skeleton is on disk but its cell is incomplete.
+            self.assertEqual([r["seed"] for r in on_disk], [1, 1, 1, 2])
+            self.assertEqual(on_disk[-1]["role"], "skeleton")
+            self.assertFalse(on_disk[-1]["cell_done"])
+
+            logged = []
+            fresh = _ScriptedBackend([_DRAFT], [self.fill])
+            records, summary = runner.run(
+                config, resolver=self.resolver, backend=fresh,
+                output_dir=directory, log=logged.append)
+            self.assertTrue(any("skipping 1 completed cells" in m for m in logged), logged)
+            # Cell 2 was redrawn from round 0 — two draws, not one — and cell 1
+            # was not redrawn at all, so the purse is spent once per cell.
+            self.assertEqual(fresh.draws, 2)
+            self.assertEqual(len(records), 6)
+            keys = [(r["task"], r["condition"], r["regime"], r["seed"], r["draw"])
+                    for r in records]
+            self.assertEqual(len(keys), len(set(keys)), "resume must not duplicate a record")
+            self.assertEqual(
+                [r["role"] for r in records if r["seed"] == 2],
+                ["skeleton", "fill", "candidate"], "the resumed cell kept its draft")
+            self.assertEqual(
+                [r["source"] for r in records if r["candidate"]],
+                [GOLD_TERMS[_HEAD.task_id]] * 2)
+            self.assertEqual(summary["records"], 6)
+
+    def test_a_completed_holes_run_resumes_to_a_no_op(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._config()
+            runner.run(config, resolver=self.resolver,
+                       backend=_ScriptedBackend([_DRAFT], [self.fill]), output_dir=directory)
+            again = _ScriptedBackend([_DRAFT], [self.fill])
+            records, _ = runner.run(
+                config, resolver=self.resolver, backend=again, output_dir=directory)
+            self.assertEqual(again.draws, 0, "a complete cell is never re-spent")
+            self.assertEqual(len(records), 6)
+
+
 if __name__ == "__main__":
     unittest.main()

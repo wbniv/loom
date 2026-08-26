@@ -719,7 +719,49 @@ does not edit `TODO.md`.
    `whole` so every existing config is byte-identical, narrowing wired for
    `redraft`/`holes` under `gbnf+typemask`, and the per-draw `role` / round /
    assembly telemetry §4.6 reports. *(T3, or T4 if the budget accounting proves
-   subtler than §4.3.2 reads.)*
+   subtler than §4.3.2 reads.)* **Landed.** The budget accounting did **not**
+   prove subtler than §4.3.2 reads — one `_CellRun` holds the purse and a
+   skeleton draw, a fill draw and a whole-term draw are the same event to it —
+   so this stayed T3. Six implementation choices §2.2 leaves open, recorded
+   here for the same reason deliverable 3's are, and none of them changing
+   anything §4 pre-registers:
+
+    * **Monotonicity is enforced in the loop, not assumed.** §2.2 states
+      "the draft is therefore monotone: holes only ever disappear" as a
+      property. It is not one: `splice_fill` refuses a bad *binder prefix*,
+      but a fill whose body is itself hole-bearing splices cleanly and can
+      leave the draft exactly as it was — filling a hole with a hole, forever.
+      So an assembly with **no fewer holes than the draft had** is rolled back
+      like any other failed re-check, with its own narrowing note. The
+      property is now true because the runner makes it true.
+    * **The round's candidate is its own record**, `role: "candidate"`, with
+      zero completion tokens, rather than a flag on the last draw. §4.5 scores
+      the round's *final draft*, which after a splice is a definition the
+      model never wrote in one piece; flagging a draw would mean scoring the
+      fill's own bytes. Everything per-draw in the summary — tokens, acc/1k,
+      the funnel tally, latency — is computed over `DRAW_ROLES` alone, so an
+      assembly can never inflate a rate.
+    * **A fill draw carries no task-level semantic verdict.** Its
+      `semantic_rule` is `fill-draw`. Scoring a fill against the *task* would
+      double-count the degenerate case where a hole's closed type is the
+      task's declared type — the eta-skeleton case of §1.3 — so the fill
+      records its funnel outcome (did it typecheck standalone) and leaves
+      §4.5's primary to the candidate.
+    * **§4.3.6's constants are config fields**, `fills_per_round_max: 6` and
+      `fill_attempts_per_hole: 2`, defaulted to exactly those values and
+      absent from all three shipped arm configs. Deliverable 5 needs to drive
+      a round to its limits without editing the harness; the arms still get
+      the plan's numbers.
+    * **Narrowing is switched by protocol, not by condition.** `redraft` and
+      `holes` narrow under any condition (the arms run `gbnf+typemask`, where
+      §8.3 narrowing had never been run); `whole` narrows only under Phase A's
+      condition 3, exactly as before. That is what keeps the control arm
+      today's control arm.
+    * **A fill's declared type is not checked against the closed sub-task
+      type.** §2.2 step 6 says the re-check is the authority, so a fill that
+      typechecks at some *other* type is spliced and then rejected by
+      `run_funnel` on the assembly — which is the rollback path's most
+      realistic trigger and the one its regression test uses.
 5. **`prototype/experiment/decomposition_stub_check.py`** — §4.8's eight checks on
    CPU, output pasted back into this plan. **This is the gate on GPU spend.**
    *(T3 — check 3, the expressibility round-trip, is the one Amendment A1 taught

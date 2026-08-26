@@ -64,6 +64,7 @@ from .evaluate import (
     LAYERS,
     OUTCOMES,
     FunnelTally,
+    SemanticResult,
     extract_definition,
     narrowing_note,
     run_funnel,
@@ -74,13 +75,24 @@ from .prompts import (
     ADDRESS_BOOK_NONE,
     ADDRESS_BOOK_TYPED,
     ADDRESS_BOOKS,
+    GENERATION_PROTOCOLS,
     KIND_CORPUS,
     KIND_HELD_OUT,
+    PROTOCOL_HOLES,
+    PROTOCOL_REDRAFT,
+    PROTOCOL_WHOLE,
     REGIME_HELD_OUT,
     REGIMES,
+    SpliceError,
     Task,
     all_tasks,
+    bare_hole_body,
+    build_fill_prompt,
     build_prompt,
+    closed_subtask_type,
+    declared_type_of,
+    hole_obligations,
+    splice_fill,
     tasks_for_regime,
 )
 from .resolver import ExperimentResolver
@@ -111,6 +123,38 @@ GRAMMAR_CONDITIONS = (CONDITION_GBNF, CONDITION_GBNF_REJECTION)
 #: Conditions whose syntax cannot fail — by grammar sampling (2, 3) or by mask
 #: (4). Used for reporting, never for the Phase A gate.
 SYNTAX_CONSTRAINED = (*GRAMMAR_CONDITIONS, CONDITION_TYPEMASK)
+
+#: What a record is, under the 2026-08-25 hole-decomposition plan §2.2. Three
+#: of the four are **draws** — one backend call each, one full-cap grant each,
+#: against the same per-cell purse; the fourth is the round's *candidate*, the
+#: assembled definition §4.5 scores, which costs no tokens because the model
+#: never wrote it in one piece.
+ROLE_WHOLE = "whole"
+ROLE_SKELETON = "skeleton"
+ROLE_FILL = "fill"
+ROLE_CANDIDATE = "candidate"
+
+#: The roles that cost a draw. Everything in the summary that is *per draw* —
+#: tokens, acc/1k, the funnel tally, latency — is computed over these alone, so
+#: a zero-token assembly record can never inflate a rate.
+DRAW_ROLES = (ROLE_WHOLE, ROLE_SKELETON, ROLE_FILL)
+
+#: Why a splice did not land, recorded per fill draw (§4.6's protocol telemetry).
+SPLICE_SPLICED = "spliced"
+SPLICE_ROLLED_BACK = "rolled-back"
+SPLICE_ERROR = "splice-error"
+SPLICE_FILL_REJECTED = "fill-rejected"
+
+#: A fill definition is not a candidate — §4.5 scores the round's final draft,
+#: and only that. Scoring the fill against the *task* would double-count the
+#: degenerate case where a hole's closed type is the task's declared type, so
+#: the fill record carries this verdict instead of a task-level one.
+_FILL_SEMANTIC = SemanticResult(
+    success=False,
+    rule="fill-draw",
+    detail="a fill definition is not a candidate; the round's final draft is",
+    rubric_pending=False,
+)
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "phase_a.config.json"
 
@@ -147,6 +191,19 @@ class Config:
     #: goal-type filter over the same rows). Recorded on every draw, because
     #: the arm is what §4.5's primary partitions on.
     address_book: str = ADDRESS_BOOK_NONE
+    #: The 2026-08-25 hole-decomposition plan §4.2's manipulated variable.
+    #: `"whole"` is today's protocol — independent draws, no feedback — and is
+    #: the default, so every config written before this field existed runs byte
+    #: for byte what it ran. `"redraft"` adds §8.3 narrowing on rejection and
+    #: nothing else; `"holes"` adds §2.2's round protocol on top of that, so
+    #: `holes − redraft` is the hole protocol alone.
+    generation_protocol: str = PROTOCOL_WHOLE
+    #: §4.3.6's protocol constants, fixed by the plan before any run. They are
+    #: config fields rather than module constants so a dry-run check can drive
+    #: the round to its limits without editing the harness; the arms ship
+    #: without them and get exactly these values.
+    fills_per_round_max: int = 6
+    fill_attempts_per_hole: int = 2
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -259,6 +316,14 @@ class Config:
                 "address_book 'typed' filters on the task's declared type, which "
                 "only held-out tasks carry; plan §4.2's arms are the 'held_out' "
                 f"regime alone, and this config runs {self.regimes}.")
+        if self.generation_protocol not in GENERATION_PROTOCOLS:
+            raise SystemExit(
+                f"unknown generation_protocol {self.generation_protocol!r}; known "
+                f"protocols: {', '.join(GENERATION_PROTOCOLS)}")
+        if self.fills_per_round_max < 1 or self.fill_attempts_per_hole < 1:
+            raise SystemExit(
+                "fills_per_round_max and fill_attempts_per_hole must be positive; "
+                "plan §4.3.6 fixes them at 6 and 2")
         if self.token_budget_per_task < 1 or self.max_tokens_per_draw < 1:
             raise SystemExit("token_budget_per_task and max_tokens_per_draw must be positive")
         if not self.seeds:
@@ -366,55 +431,80 @@ def _draw(backend, condition, masker, prompt, grammar, max_tokens, seed, tempera
     return generation, {}
 
 
-def run_task(task, condition, regime, seed, backend, resolver, config, grammar, masker=None, sink=None):
-    """One (task, condition, regime, seed) cell, spent down to the budget.
+@dataclass
+class _DrawResult:
+    """One granted, full-cap backend call and what came back from it."""
 
-    Every draw's record is built and, if `sink` is given, handed to it
-    immediately (`run`'s incremental-persistence path) before the loop moves
-    on — so a crash on the *next* draw loses only that one draw, not the cell.
-    The full list is still returned for the no-`sink` in-memory contract the
-    test suite calls directly.
+    generation: object
+    mask_fields: dict
+    retried: bool
+    spent: int
+    source: str
+    funnel: object
+    seed: int
 
-    Each record carries two additive fields for crash-safety:
 
-    ``cell_done``   true on the record that ends the cell (no room left for a
-                    full-cap draw, draw cap hit, or an early semantic-success
-                    stop) — the resume completeness marker `run` looks for. A
-                    cell cut off mid-draw writes no such record and is rerun
-                    from scratch.
-    ``retried``     true if this draw needed the one-retry-after-a-hiccup path
-                    below.
+class _CellRun:
+    """One (task, condition, regime, seed) cell: its purse, its draws, its records.
+
+    Every generation protocol shares this object, and that is what makes
+    §4.3.2's budget rule protocol-neutral: a whole-term draw, a skeleton draw
+    and a fill draw are the *same event* here — one full-cap grant charged to
+    one per-cell purse. The purse binds, never the draw cap alone, and no draw
+    is ever handed a leftover fragment.
 
     **Budget semantics** (plan `2026-08-24-next-lever` §4.3, fixing the §1.3
-    defect): a draw is granted only while the *whole* per-draw cap still fits
-    in the remaining budget, and every granted draw is allotted exactly
-    `max_tokens_per_draw`. No draw is ever handed a leftover fragment, for any
-    config — a truncated draw is then a genuine rejection rather than the
-    thing that terminates the cell.
+    defect, inviolable here): a draw is granted only while the *whole* per-draw
+    cap still fits in the remaining budget, and every granted draw is allotted
+    exactly `max_tokens_per_draw`. A truncated draw is then a genuine rejection
+    rather than the thing that terminates the cell.
+
+    `draws` counts backend calls — it is what `max_draws_per_task` caps and what
+    the per-draw seed is derived from. `index` counts *records*, which for the
+    `holes` protocol is larger, because each round emits a zero-token candidate
+    record for the assembled definition §4.5 scores.
     """
-    if condition == CONDITION_TYPEMASK and masker is None:  # pragma: no cover - `run` builds it
-        raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
-    budget = config.token_budget_per_task
-    per_draw = config.max_tokens_per_draw
-    used = 0
-    draws = 0
-    narrowing = ""
-    records = []
-    while budget - used >= per_draw and draws < config.max_draws_per_task:
-        max_tokens = per_draw
-        prompt = build_prompt(
-            task, regime, resolver,
-            leave_one_out=config.leave_one_out,
-            narrowing=narrowing,
-            address_book=config.address_book,
-        )
+
+    def __init__(self, task, condition, regime, seed, backend, resolver, config,
+                 grammar, masker, sink):
+        self.task = task
+        self.condition = condition
+        self.regime = regime
+        self.seed = seed
+        self.backend = backend
+        self.resolver = resolver
+        self.config = config
+        self.grammar = grammar
+        self.masker = masker
+        self.sink = sink
+        self.records: list[dict] = []
+        self.used = 0
+        self.draws = 0
+        self.index = 0
+
+    @property
+    def budget(self):
+        return self.config.token_budget_per_task
+
+    @property
+    def per_draw(self):
+        return self.config.max_tokens_per_draw
+
+    def can_draw(self):
+        """Is there room for one more *whole*-cap draw, under both caps?"""
+        return (self.budget - self.used >= self.per_draw
+                and self.draws < self.config.max_draws_per_task)
+
+    def draw(self, prompt) -> _DrawResult:
+        """Spend one full-cap draw on `prompt`. The caller has checked `can_draw`."""
         # The seed varies per draw or every redraw repeats the first draw
         # exactly; the derivation is deterministic so the run still reproduces.
-        draw_seed = seed * 100_003 + draws
+        draw_seed = self.seed * 100_003 + self.draws
         retried = False
         try:
             generation, mask_fields = _draw(
-                backend, condition, masker, prompt, grammar, max_tokens, draw_seed, config.temperature)
+                self.backend, self.condition, self.masker, prompt, self.grammar,
+                self.per_draw, draw_seed, self.config.temperature)
         except BackendUnavailable:
             # A server hiccup (thermal-throttle stall, transient disconnect)
             # looks identical to a hard-down backend until a second attempt
@@ -422,40 +512,45 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
             # abort path takes over.
             retried = True
             generation, mask_fields = _draw(
-                backend, condition, masker, prompt, grammar, max_tokens, draw_seed, config.temperature)
+                self.backend, self.condition, self.masker, prompt, self.grammar,
+                self.per_draw, draw_seed, self.config.temperature)
         spent = max(1, int(generation.completion_tokens))
-        used += spent
+        self.used += spent
+        self.draws += 1
         source = extract_definition(generation.text)
-        funnel = run_funnel(source, resolver)
-        semantic = score_semantic(task, funnel, source)
-        # Captured before `narrowing` is updated below, so this reflects what
-        # was fed into *this* draw's prompt, not next draw's.
-        narrowed = bool(narrowing)
-        this_draw = draws
-        draws += 1
-        if condition == CONDITION_GBNF_REJECTION:
-            narrowing = narrowing_note(funnel)
-        stop_now = semantic.success and config.stop_on_semantic_success
-        cell_done = stop_now or not (budget - used >= per_draw and draws < config.max_draws_per_task)
+        return _DrawResult(
+            generation=generation, mask_fields=mask_fields, retried=retried,
+            spent=spent, source=source, funnel=run_funnel(source, self.resolver),
+            seed=draw_seed)
+
+    def emit(self, *, role, round_index, narrowed, source, funnel, semantic,
+             cell_done, candidate, draw=None, extra=None):
+        """Build one JSONL record, hand it to the sink, and keep it.
+
+        `draw=None` is the round-candidate record: an assembled definition the
+        model never wrote in one piece, so it has no generation behind it and
+        costs no tokens. Everything else is a draw.
+        """
+        generation = draw.generation if draw is not None else None
         record = {
-            "task": task.task_id,
-            "task_kind": task.kind,
-            "condition": condition,
-            "regime": regime,
-            "address_book": config.address_book,
-            "seed": seed,
-            "draw": this_draw,
-            "draw_seed": draw_seed,
+            "task": self.task.task_id,
+            "task_kind": self.task.kind,
+            "condition": self.condition,
+            "regime": self.regime,
+            "address_book": self.config.address_book,
+            "seed": self.seed,
+            "draw": self.index,
+            "draw_seed": draw.seed if draw is not None else -1,
             "narrowed": narrowed,
-            "grammar": condition in GRAMMAR_CONDITIONS,
-            "budget": budget,
-            "tokens_completion": spent,
-            "tokens_prompt": int(generation.prompt_tokens),
-            "tokens_used": used,
-            "tokens_remaining": max(0, budget - used),
-            "latency_s": round(float(generation.latency_s), 6),
-            "stop_reason": generation.stop_reason,
-            "backend": generation.backend,
+            "grammar": self.condition in GRAMMAR_CONDITIONS,
+            "budget": self.budget,
+            "tokens_completion": draw.spent if draw is not None else 0,
+            "tokens_prompt": int(generation.prompt_tokens) if generation is not None else 0,
+            "tokens_used": self.used,
+            "tokens_remaining": max(0, self.budget - self.used),
+            "latency_s": round(float(generation.latency_s), 6) if generation is not None else 0.0,
+            "stop_reason": generation.stop_reason if generation is not None else "assembled",
+            "backend": generation.backend if generation is not None else "harness",
             "funnel_outcome": funnel.outcome,
             "layers_passed": funnel.layers_passed,
             "error_class": funnel.error_class,
@@ -469,17 +564,333 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
             "semantic_detail": semantic.detail,
             "rubric_pending": semantic.rubric_pending,
             "source": source,
-            "raw": generation.text[: config.raw_text_limit],
-            "retried": retried,
+            "raw": generation.text[: self.config.raw_text_limit] if generation is not None else "",
+            "retried": draw.retried if draw is not None else False,
             "cell_done": cell_done,
-            **mask_fields,
+            # -- protocol telemetry (§4.6), additive: every field above is
+            # exactly what it was before decomposition existed.
+            "generation_protocol": self.config.generation_protocol,
+            "role": role,
+            "round": round_index,
+            "candidate": candidate,
+            **(draw.mask_fields if draw is not None else {}),
+            **(extra or {}),
         }
-        records.append(record)
-        if sink is not None:
-            sink(record)
+        self.index += 1
+        self.records.append(record)
+        if self.sink is not None:
+            self.sink(record)
+        return record
+
+
+def _narrows(config, condition):
+    """Does a rejected draw feed its error back into the next prompt?
+
+    Two independent reasons it might: Phase A's condition 3, which *is*
+    definition-level narrowing; and plan §4.2's `redraft` / `holes` arms, which
+    add it under any condition (the arms run `gbnf+typemask`, where §8.3
+    narrowing had never been run). `whole` under any condition but 3 is
+    unnarrowed, which is what keeps the control arm today's control arm.
+    """
+    return (condition == CONDITION_GBNF_REJECTION
+            or config.generation_protocol in (PROTOCOL_REDRAFT, PROTOCOL_HOLES))
+
+
+def _hole_census(source, resolver):
+    """`(obligations, telemetry)` for one definition, tolerant of a broken draw.
+
+    A draw rejected at the syntax layer has no IR to walk, so the census is
+    `0 holes` rather than an exception — the record still has to be written.
+    """
+    try:
+        obligations = hole_obligations(source, resolver)
+    except Exception:  # noqa: BLE001 - an unparseable draw is data, not a crash
+        return (), {"holes": 0, "holes_fillable": 0, "hole_reasons": []}
+    reasons = []
+    for obligation in obligations:
+        if not obligation.fillable and obligation.reason not in reasons:
+            reasons.append(obligation.reason)
+    return obligations, {
+        "holes": len(obligations),
+        "holes_fillable": sum(1 for o in obligations if o.fillable),
+        "hole_reasons": reasons,
+    }
+
+
+def _is_bare_hole(source):
+    """§3's enforced rule, tolerant of a draw that does not parse."""
+    try:
+        return bare_hole_body(source)
+    except Exception:  # noqa: BLE001 - same reason as `_hole_census`
+        return False
+
+
+#: A splice refusal, in `narrowing_note`'s own shape so the fill retry reads
+#: like every other §8.3 note the model has seen.
+def _splice_narrowing(message):
+    return (f"The previous answer could not be spliced back at the hole: {message}\n"
+            "Write a different definition that avoids this.")
+
+
+#: The monotonicity refusal. §2.2's draft is monotone — "holes only ever
+#: disappear" — so a fill whose own body is hole-bearing is rolled back rather
+#: than spliced, which is also what stops a round from filling a hole with
+#: itself forever.
+MONOTONE_NOTE = (
+    "The previous answer put another hole where the hole was, so the draft did "
+    "not shrink.\nWrite a different definition that avoids this."
+)
+
+
+def _run_whole_protocol(cell):
+    """`whole` and `redraft`: one draw is one candidate (§4.2).
+
+    Byte for byte today's loop. `redraft` differs from `whole` in exactly one
+    place — `_narrows` — and in nothing else, which is what makes draw 0 of
+    every cell identical across the two arms.
+    """
+    config = cell.config
+    narrowing = ""
+    while cell.can_draw():
+        prompt = build_prompt(
+            cell.task, cell.regime, cell.resolver,
+            leave_one_out=config.leave_one_out,
+            narrowing=narrowing,
+            address_book=config.address_book,
+            generation_protocol=config.generation_protocol,
+        )
+        # Captured before `narrowing` is updated below, so this reflects what
+        # was fed into *this* draw's prompt, not next draw's.
+        narrowed = bool(narrowing)
+        round_index = cell.index
+        draw = cell.draw(prompt)
+        semantic = score_semantic(cell.task, draw.funnel, draw.source)
+        if _narrows(config, cell.condition):
+            narrowing = narrowing_note(draw.funnel)
+        stop_now = semantic.success and config.stop_on_semantic_success
+        _, census = _hole_census(draw.source, cell.resolver)
+        cell.emit(
+            role=ROLE_WHOLE, round_index=round_index, narrowed=narrowed,
+            source=draw.source, funnel=draw.funnel, semantic=semantic,
+            cell_done=stop_now or not cell.can_draw(), candidate=True,
+            draw=draw, extra=census)
         if stop_now:
             break
-    return records
+
+
+def _fill_the_holes(cell, round_index, draft, funnel):
+    """§2.2 steps 3-6, run until the round ends. Returns the round's draft.
+
+    One hole at a time, always the first fillable one in pre-order, up to
+    `fills_per_round_max` of them. Each hole gets up to `fill_attempts_per_hole`
+    draws, the failure of each fed back as the next attempt's narrowing note.
+    A hole that is never filled ends the round — the draft keeps its holes and
+    is scored as it stands.
+
+    Three things roll a splice back, and the last two are the runner's job
+    because `splice_fill` is a pure function that cannot know the round:
+
+    * the assembled definition fails `run_funnel` — §2.2's re-check, and the
+      *authority*, since step 4's closure is deliberately a heuristic;
+    * the assembled definition has no fewer holes than the draft did, i.e. the
+      fill filled a hole with a hole. §2.2's monotonicity ("holes only ever
+      disappear") is stated as a property of the protocol, so it is enforced
+      here rather than assumed;
+    * `splice_fill` itself refuses (`SpliceError`) — a fill that did not open
+      with the hole's own binders, whose de Bruijn indices would therefore mean
+      something else once moved.
+
+    Nothing is scored until the *assembled* definition has been through all four
+    funnel layers, so an over-permissive closure costs a rolled-back splice and
+    can never produce a false success.
+    """
+    config = cell.config
+    resolver = cell.resolver
+    attempted = spliced = rolled_back = 0
+    fills = 0
+    while fills < config.fills_per_round_max and cell.can_draw():
+        obligations = hole_obligations(draft, resolver)
+        fillable = [o for o in obligations if o.fillable]
+        if not fillable:
+            # No holes left, or every one left is a `match`/`handle` binder v1
+            # cannot type. Either way the round is over and the draft stands.
+            break
+        obligation = fillable[0]
+        closed = closed_subtask_type(declared_type_of(draft), obligation)
+        note = ""
+        landed = False
+        for attempt in range(config.fill_attempts_per_hole):
+            if not cell.can_draw():
+                break
+            prompt = build_fill_prompt(
+                cell.task.spec, cell.regime, resolver,
+                draft_source=draft, obligation=obligation,
+                narrowing=note, address_book=config.address_book,
+                exclude_identity=(cell.task.expected_identity
+                                  if config.leave_one_out else ""))
+            narrowed = bool(note)
+            draw = cell.draw(prompt)
+            attempted += 1
+            assembled = ""
+            assembled_funnel = None
+            remaining = len(obligations)
+            if not draw.funnel.accepted:
+                outcome = SPLICE_FILL_REJECTED
+                note = narrowing_note(draw.funnel)
+            else:
+                try:
+                    assembled = splice_fill(draft, obligation, draw.source)
+                except SpliceError as error:
+                    outcome = SPLICE_ERROR
+                    note = _splice_narrowing(str(error))
+                else:
+                    assembled_funnel = run_funnel(assembled, resolver)
+                    remaining = len(hole_obligations(assembled, resolver))
+                    if not assembled_funnel.accepted:
+                        outcome = SPLICE_ROLLED_BACK
+                        rolled_back += 1
+                        note = narrowing_note(assembled_funnel)
+                    elif remaining >= len(obligations):
+                        outcome = SPLICE_ROLLED_BACK
+                        rolled_back += 1
+                        note = MONOTONE_NOTE
+                    else:
+                        outcome = SPLICE_SPLICED
+                        spliced += 1
+                        landed = True
+            _, census = _hole_census(draw.source, resolver)
+            cell.emit(
+                role=ROLE_FILL, round_index=round_index, narrowed=narrowed,
+                source=draw.source, funnel=draw.funnel, semantic=_FILL_SEMANTIC,
+                cell_done=False, candidate=False, draw=draw,
+                extra={
+                    **census,
+                    "fill_index": fills,
+                    "fill_attempt": attempt,
+                    "hole_path": ".".join(str(step) for step in obligation.path),
+                    "hole_goal": obligation.goal_surface,
+                    "hole_binders": len(obligation.binders),
+                    "closed_type": closed,
+                    "splice_outcome": outcome,
+                    "assembled_outcome": (
+                        assembled_funnel.outcome if assembled_funnel is not None else ""),
+                    "assembled_error": (
+                        assembled_funnel.error_message or ""
+                        if assembled_funnel is not None else ""),
+                    "draft_holes_before": len(obligations),
+                    "draft_holes_after": remaining if landed else len(obligations),
+                })
+            if landed:
+                draft = assembled
+                funnel = assembled_funnel
+                fills += 1
+                break
+        if not landed:
+            # `fill_attempts_per_hole` spent on this hole, or the purse ran out
+            # mid-hole. Either ends the round (§2.2 step 6).
+            break
+    return draft, funnel, attempted, spliced, rolled_back
+
+
+def _run_holes_protocol(cell):
+    """`holes`: §2.2's round, run until the purse is spent.
+
+    One round is: a skeleton draw, a check, and — only if the draft was
+    funnel-accepted and its body is not a bare hole (§3, enforced) — obligation
+    enumeration, closure, fill draws, splice and re-check, until no fillable
+    hole is left or a hole cannot be filled. The round's candidate is its final
+    draft, emitted as its own zero-token record and scored by the same
+    `run_funnel` + `score_semantic` every other arm's candidates are scored by.
+
+    The three protocols degenerate cleanly, and the loop shows it: a draft with
+    no hole makes this `redraft`, and a run with no rejection makes that
+    `whole`.
+    """
+    config = cell.config
+    narrowing = ""
+    round_index = 0
+    while cell.can_draw():
+        prompt = build_prompt(
+            cell.task, cell.regime, cell.resolver,
+            leave_one_out=config.leave_one_out,
+            narrowing=narrowing,
+            address_book=config.address_book,
+            generation_protocol=PROTOCOL_HOLES,
+        )
+        narrowed = bool(narrowing)
+        draw = cell.draw(prompt)
+        draft, funnel = draw.source, draw.funnel
+        # Narrowing is a property of the *skeleton*: a rejected draft is fed
+        # back to the next round. A fill's failures narrow the fill, not the
+        # round after it.
+        narrowing = narrowing_note(funnel)
+        _, census = _hole_census(draft, cell.resolver)
+        bare = funnel.accepted and _is_bare_hole(draft)
+        cell.emit(
+            role=ROLE_SKELETON, round_index=round_index, narrowed=narrowed,
+            source=draft, funnel=funnel,
+            semantic=score_semantic(cell.task, funnel, draft),
+            cell_done=False, candidate=False, draw=draw,
+            extra={**census, "bare_hole_body": bare})
+
+        attempted = spliced = rolled_back = 0
+        if funnel.accepted and not bare:
+            draft, funnel, attempted, spliced, rolled_back = _fill_the_holes(
+                cell, round_index, draft, funnel)
+
+        semantic = score_semantic(cell.task, funnel, draft)
+        stop_now = semantic.success and config.stop_on_semantic_success
+        _, census = _hole_census(draft, cell.resolver)
+        cell.emit(
+            role=ROLE_CANDIDATE, round_index=round_index, narrowed=narrowed,
+            source=draft, funnel=funnel, semantic=semantic,
+            cell_done=stop_now or not cell.can_draw(), candidate=True,
+            extra={
+                **census,
+                "bare_hole_body": bare,
+                "fills_attempted": attempted,
+                "fills_spliced": spliced,
+                "fills_rolled_back": rolled_back,
+            })
+        round_index += 1
+        if stop_now:
+            break
+
+
+def run_task(task, condition, regime, seed, backend, resolver, config, grammar, masker=None, sink=None):
+    """One (task, condition, regime, seed) cell, spent down to the budget.
+
+    Every record is built and, if `sink` is given, handed to it immediately
+    (`run`'s incremental-persistence path) before the loop moves on — so a
+    crash on the *next* draw loses only that one draw, not the cell. The full
+    list is still returned for the no-`sink` in-memory contract the test suite
+    calls directly.
+
+    Each record carries two additive fields for crash-safety:
+
+    ``cell_done``   true on the record that ends the cell (no room left for a
+                    full-cap draw, draw cap hit, or an early semantic-success
+                    stop) — the resume completeness marker `run` looks for. A
+                    cell cut off mid-draw writes no such record and is rerun
+                    from scratch. Under `holes` the cell always ends on a
+                    **candidate** record, because every round emits one, so a
+                    cell interrupted mid-round is discarded whole and never
+                    resumes onto a half-filled draft.
+    ``retried``     true if this draw needed the one-retry-after-a-hiccup path.
+
+    Which loop runs is `config.generation_protocol`, and the budget rule is the
+    same object in both (`_CellRun`): every draw a round makes, skeleton or
+    fill, is an ordinary full-cap draw against the one per-cell purse.
+    """
+    if condition == CONDITION_TYPEMASK and masker is None:  # pragma: no cover - `run` builds it
+        raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
+    cell = _CellRun(
+        task, condition, regime, seed, backend, resolver, config, grammar, masker, sink)
+    if config.generation_protocol == PROTOCOL_HOLES:
+        _run_holes_protocol(cell)
+    else:
+        _run_whole_protocol(cell)
+    return cell.records
 
 
 def _cell_key(record):
@@ -643,11 +1054,66 @@ def _mask_metrics(rows):
     }
 
 
+def _protocol_metrics(rows):
+    """§4.6's protocol telemetry, or `{}` when no round protocol ran.
+
+    Returning `{}` is what keeps every pre-decomposition summary byte-identical:
+    no `holes` record, no key, no report section.
+    """
+    if not any(row.get("generation_protocol") == PROTOCOL_HOLES for row in rows):
+        return {}
+    skeletons = [row for row in rows if row.get("role") == ROLE_SKELETON]
+    fills = [row for row in rows if row.get("role") == ROLE_FILL]
+    candidates = [row for row in rows if row.get("role") == ROLE_CANDIDATE]
+    accepted_skeletons = [r for r in skeletons if r["funnel_outcome"] == ACCEPTED]
+    reasons: dict[str, int] = {}
+    for row in skeletons:
+        for reason in row.get("hole_reasons", []):
+            reasons[reason] = reasons.get(reason, 0) + 1
+    outcomes: dict[str, int] = {}
+    for row in fills:
+        outcome = row.get("splice_outcome", "")
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    holes_seen = sum(row.get("holes", 0) for row in accepted_skeletons)
+    fillable_seen = sum(row.get("holes_fillable", 0) for row in accepted_skeletons)
+    return {
+        "rounds": len(candidates),
+        "skeleton_draws": len(skeletons),
+        "accepted_skeletons": len(accepted_skeletons),
+        # §6's licensing rows turn on this number: below 20 % a null primary is
+        # a starved protocol, not a refuted one.
+        "accepted_skeleton_rate": (
+            round(len(accepted_skeletons) / len(skeletons), 4) if skeletons else 0.0),
+        "bare_hole_drafts": sum(1 for row in skeletons if row.get("bare_hole_body")),
+        "holes_per_accepted_skeleton": (
+            round(holes_seen / len(accepted_skeletons), 3) if accepted_skeletons else 0.0),
+        "fillable_hole_fraction": (
+            round(fillable_seen / holes_seen, 4) if holes_seen else 0.0),
+        "unfillable_reasons": reasons,
+        "fill_draws": len(fills),
+        "fill_outcomes": outcomes,
+        "fills_spliced": outcomes.get(SPLICE_SPLICED, 0),
+        "fills_rolled_back": outcomes.get(SPLICE_ROLLED_BACK, 0),
+        "fill_tokens": sum(row["tokens_completion"] for row in fills),
+        "skeleton_tokens": sum(row["tokens_completion"] for row in skeletons),
+        "candidates": len(candidates),
+        "hole_free_candidates": sum(1 for row in candidates if not row.get("holes", 0)),
+        "holes_per_candidate": (
+            round(sum(row.get("holes", 0) for row in candidates) / len(candidates), 3)
+            if candidates else 0.0),
+    }
+
+
 def _cell_metrics(rows):
-    tokens = sum(row["tokens_completion"] for row in rows)
-    accepted = [row for row in rows if row["funnel_outcome"] == ACCEPTED]
+    # Only *draws* carry tokens, a funnel verdict the model is answerable for,
+    # and latency. A round-candidate record is an assembly, so counting it here
+    # would inflate every per-draw rate in the `holes` arm and in no other.
+    draw_rows = [row for row in rows if row.get("role", ROLE_WHOLE) in DRAW_ROLES]
+    protocol = _protocol_metrics(rows)
+    tokens = sum(row["tokens_completion"] for row in draw_rows)
+    accepted = [row for row in draw_rows if row["funnel_outcome"] == ACCEPTED]
     tally = FunnelTally()
-    for row in rows:
+    for row in draw_rows:
         tally.add(row["funnel_outcome"])
     attempts = {}
     for row in rows:
@@ -663,11 +1129,12 @@ def _cell_metrics(rows):
                 break
         first_success_tokens.append(spent)
     identities = [row["identity"] for row in accepted if row["identity"]]
-    latencies = [row["latency_s"] for row in rows]
-    masking = _mask_metrics(rows)
+    latencies = [row["latency_s"] for row in draw_rows]
+    masking = _mask_metrics(draw_rows)
     return {
         **({"masking": masking} if masking else {}),
-        "draws": len(rows),
+        **({"protocol": protocol} if protocol else {}),
+        "draws": len(draw_rows),
         "attempts": len(attempts),
         "tokens": tokens,
         "accepted": len(accepted),
@@ -676,8 +1143,8 @@ def _cell_metrics(rows):
         "semantic_success_rate": round(len(solved) / len(attempts), 4) if attempts else 0.0,
         "mean_tokens_to_first_success": (
             round(statistics.fmean(first_success_tokens), 1) if first_success_tokens else None),
-        "mean_draws_per_attempt": round(len(rows) / len(attempts), 2) if attempts else 0.0,
-        "redraws": len(rows) - len(attempts),
+        "mean_draws_per_attempt": round(len(draw_rows) / len(attempts), 2) if attempts else 0.0,
+        "redraws": len(draw_rows) - len(attempts),
         "distinct_accepted_identities": len(set(identities)),
         "repeated_definition_rate": (
             round(1 - len(set(identities)) / len(identities), 4) if identities else 0.0),
@@ -771,9 +1238,11 @@ def summarize(records, config, resolver, elapsed_s):
         overall.add(row["funnel_outcome"])
     scope_rows = [r for r in grammar_rows if r["funnel_outcome"] == "scope"]
     masking = _mask_metrics(records)
+    protocol = _protocol_metrics(records)
     r5 = r5_comparison(cells, config.baseline_summary)
     return {
         **({"masking": masking} if masking else {}),
+        **({"protocol": protocol} if protocol else {}),
         **({"r5": r5} if r5 else {}),
         "started_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "elapsed_s": round(elapsed_s, 3),
@@ -876,6 +1345,50 @@ def _render_masking(summary):
     return out
 
 
+def _render_protocol(summary):
+    """§4.6's protocol telemetry. Empty for every non-`holes` run, by construction."""
+    protocol = summary.get("protocol")
+    if not protocol:
+        return []
+    out = [
+        "",
+        "## Protocol telemetry — the `holes` arm (plan §4.6)",
+        "",
+        "Reported, not leaned on. The primary is the composed-definition rate "
+        "over **candidates** (§4.5); these are the numbers that say whether the "
+        "protocol actually ran, and §6's licensing rows turn on the "
+        "accepted-skeleton rate in particular — below 20 % a null primary means "
+        "the protocol was starved, not refuted.",
+        "",
+        f"**Rounds:** {protocol['rounds']}  ",
+        f"**Skeleton draws:** {protocol['skeleton_draws']} "
+        f"({protocol['accepted_skeletons']} accepted, rate "
+        f"{protocol['accepted_skeleton_rate']})  ",
+        f"**Bare-hole drafts (§3, unfilled by rule):** {protocol['bare_hole_drafts']}  ",
+        f"**Holes per accepted skeleton:** {protocol['holes_per_accepted_skeleton']} "
+        f"({protocol['fillable_hole_fraction']} of them fillable in v1)  ",
+        f"**Fill draws:** {protocol['fill_draws']} "
+        f"({protocol['fills_spliced']} spliced, "
+        f"{protocol['fills_rolled_back']} rolled back)  ",
+        f"**Completion tokens:** {protocol['skeleton_tokens']} on skeletons, "
+        f"{protocol['fill_tokens']} on fills — one purse, per §4.3.2  ",
+        f"**Candidates:** {protocol['candidates']} "
+        f"({protocol['hole_free_candidates']} hole-free; "
+        f"{protocol['holes_per_candidate']} holes each on average)",
+        "",
+    ]
+    if protocol["fill_outcomes"]:
+        out += [_table(
+            ["fill outcome", "count"],
+            sorted(protocol["fill_outcomes"].items())), ""]
+    if protocol["unfillable_reasons"]:
+        out += ["**Unfillable holes, by reason** (§2.2 step 3's v1 boundary):", ""]
+        out += [f"- {reason} — ×{count}"
+                for reason, count in sorted(protocol["unfillable_reasons"].items())]
+        out += [""]
+    return out
+
+
 def _render_r5(summary):
     """R5's comparison, when the config recorded a baseline to compare against."""
     r5 = summary.get("r5")
@@ -950,6 +1463,12 @@ def render_report(summary, records):
         f"max {config['max_draws_per_task']} draws)  ",
         f"**Leave-one-out examples:** {config['leave_one_out']}  ",
         f"**Address book:** {config.get('address_book', 'none')}  ",
+        # Only when it is not the default, so every Phase A / Phase B report
+        # written before decomposition existed renders byte-identically.
+        *([f"**Generation protocol:** {config['generation_protocol']} "
+           f"(≤ {config['fills_per_round_max']} fills per round, "
+           f"≤ {config['fill_attempts_per_hole']} attempts per hole)  "]
+          if config.get("generation_protocol", PROTOCOL_WHOLE) != PROTOCOL_WHOLE else []),
         f"**Draws recorded:** {summary['records']} in {summary['elapsed_s']} s  ",
         f"**Resolver objects:** {json.dumps(summary['resolver_objects'], sort_keys=True)}  ",
         f"**Contract versions:** {json.dumps(summary['contract_versions'], sort_keys=True)}",
@@ -1037,6 +1556,7 @@ def render_report(summary, records):
         if paths:
             out.append(f"**{layer}** — " + ", ".join(f"`{p}` ×{n}" for p, n in paths))
     out += _render_masking(summary)
+    out += _render_protocol(summary)
     out += _render_r5(summary)
     out += [
         "",
@@ -1108,6 +1628,7 @@ def main(argv=None):
         print(f"regimes            : {', '.join(config.regimes)}")
         print(f"conditions         : {', '.join(config.conditions)}")
         print(f"seeds              : {config.seeds}")
+        print(f"generation protocol: {config.generation_protocol}")
         print(f"cells to run       : {cells}")
         print(f"token budget/task  : {config.token_budget_per_task}")
         print(f"upper bound tokens : {cells * config.token_budget_per_task}")
