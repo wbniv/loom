@@ -90,7 +90,12 @@ STEP = {
     (TAG_APP, "function"): 1, (TAG_APP, "argument"): 2,
     (TAG_MATCH, "scrutinee"): 1,
     (TAG_IF, "condition"): 1, (TAG_IF, "then"): 2, (TAG_IF, "else"): 3,
-    (TAG_FIX, "body"): 3,
+    # `.measure` is IR index 3 and `.body` is 4 (typecheck.py's own naming).
+    # The original entry mapped "body" to 3 — the measure. Corrected 2026-08-26
+    # after B3's review; a replay showed 0 of the 12 banked blame paths traverse
+    # a fix-body step, so §1's pasted evidence is unaffected by the correction.
+    (TAG_FIX, "body"): 4,
+    (TAG_FIX, "measure"): 3,
 }
 
 INDEXED = re.compile(r"(\w+)\[(\d+)\]")

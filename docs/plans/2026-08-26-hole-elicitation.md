@@ -369,6 +369,19 @@ a **diagnostic** separating "the model cannot place holes" from "the model canno
 write structure", and §6 says what its winning licenses (an escalation, not an
 automatic Stage 1).
 
+> **Notes filed with Deliverable 5 (2026‑08‑26, pre‑pilot — no data drawn under
+> this plan).** (1) `typecheck.py:381‑382` rewrites an arm body's own type
+> mismatch back onto the arm, erasing `.body` from the path — 385 of the 1,618
+> banked check‑10 refusals arrive `arms[i]`‑shaped — so the landed
+> `hole_at_error` stops at the `match` node rather than guess between a body
+> mismatch, a binder‑count error, and a duplicate constructor. The arm‑body cut
+> site named above is therefore live only for paths that reach deeper than the
+> arm. Conservative direction: refusals, never oracle cuts. (2) The §1.2 blame
+> walk's `STEP` table mapped `fix` "body" to IR index 3 — the *measure*; the
+> body is 4. Corrected in the probe on 2026‑08‑26; a replay showed 0 of the 12
+> banked blame paths traverse a fix‑body step, so every §1 pasted number stands
+> as printed.
+
 ### 2.3 §2.5's rejection: respected
 
 The 2026‑08‑25 §2.5 rejected a mechanically-derived skeleton on two grounds: (a) the

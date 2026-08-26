@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/2519e72) | Probe: size B3 and the feedback-legibility defect from the same column |
 | [2026-08-26](https://github.com/wbniv/loom/commit/e0073bd) | Design: hole-elicitation re-run, pre-registered as a new plan |
 
 <!--history-meta v1
+2519e72	author	Will Norris
+2519e72	added	14
+2519e72	deleted	3
+2519e72	files	1
+2519e72	body	`--section blame` now prints, per arm, how many rejections carry a raw-IR\nnarrowing note and how many name a recoverable expected type at the failing\nnode. 41% for the holes arm: that is what a checker-holed seed has to work\nwith, and the same 42% is the unreadable-feedback defect §2.4 files as a\nseparate lever. The plan cited the figure without a probe line behind it.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 e0073bd	author	Will Norris
 e0073bd	added	813
 e0073bd	deleted	0
