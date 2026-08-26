@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/a6eadc5) | Deliverable 5: the stub-backend gate on the decomposition GPU spend |
 | [2026-08-26](https://github.com/wbniv/loom/commit/faeb0c7) | Protocol-aware cell loop: rounds, fills, splices and rollback |
 | [2026-08-26](https://github.com/wbniv/loom/commit/7ad7dda) | Hole machinery in prompts.py: obligations, closure, protocol and fill blocks |
 | [2026-08-25](https://github.com/wbniv/loom/commit/2e1cacc) | Plan: hole-directed decomposition, pre-registered (next-lever §2.2) |
 
 <!--history-meta v1
+a6eadc5	author	Will Norris
+a6eadc5	added	177
+a6eadc5	deleted	1
+a6eadc5	files	1
+a6eadc5	body	`prototype/experiment/decomposition_stub_check.py` runs §4.8's eight checks on\nCPU — no GPU, no network, stub backend — printing an explicit PASS/FAIL per\ncheck and exiting non-zero on any FAIL. All eight pass; the raw output is\npasted under §4.8 of the plan, so the gate is open.\n\nThe one that mattered is check 3, the expressibility round-trip Amendment A1\ntaught us not to skip: §1.3 ran the *nested* case for `reverseThen` alone, and\nthis runs it for all eight tasks. The subterm blanked is chosen mechanically —\nthe largest argument of a `ref`-headed application spine, its goal type read\noff the referenced object's own declared type — so the fixture is as blind to\n`composes` as the protocol it exercises. All eight drafts typecheck and keep\ntheir declared type, all eight fills typecheck standalone, and all eight\nassemblies are byte-identical to gold and meet the floor. No task is dropped;\n§4.4's stopping condition does not fire.\n\nCheck 7 drives one cell of each arm through the landed `runner.run_task` and\nexercises all six protocol paths in the `holes` cell — accepted draft, rejected\ndraft, bare-hole body, unfillable hole, a splice and an assembly rollback —\nunder the arms' own purse, which binds in every arm.\n\nTwo adaptations to the landed contract, each stated in a `note:` line of the\ncheck's own output and authorized by §8's deliverable-3/4 notes rather than\nre-litigated: check 2 pins `closed_subtask_type(declared_type_surface,\nobligation)`, and check 7's scripted cell runs at condition `gbnf` because the\ntype mask needs a real vocabulary — `_CellRun` is the same object under either\ncondition, so the budget rule it checks is the one that will bind on the GPU.\n\n`task prototype:test`: 849 tests, OK (skipped=9).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 faeb0c7	author	Will Norris
 faeb0c7	added	43
 faeb0c7	deleted	1

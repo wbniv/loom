@@ -820,6 +820,9 @@ teardown needing a human is surfaced as an explicit ask.
 | ≥ 5 hand-scored semantic successes in any arm | **The project's first held-out semantic success.** Whatever the primary says, this is the headline; hand-score every mechanical-floor candidate in every arm, and re-examine the type-collision recycling failure mode the powered held-out report documented before claiming any of them. |
 | `holes+spine` (exploratory, only if `[mask-spine-refs]` landed) beats `holes` | The mask exploits checking positions the protocol creates — the two are complements, and the pair becomes the standard held-out configuration. |
 
+**Row 4 fired**, 2026‑08‑26. The successor pre-registration is
+[2026-08-26-hole-elicitation.md](2026-08-26-hole-elicitation.md).
+
 ---
 
 ## 7. Consequences for the results already on record

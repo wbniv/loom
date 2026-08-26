@@ -130,3 +130,24 @@ project has applied to a candidate.
 | Spot attempt 2 (boot + 3 arms, ≈10.7 h) | — | ≈ $2.68 |
 | Storage + egress | < $0.02 | < $0.02 |
 | **Total** | **≈ $3.07 spot** | **≈ $2.75** |
+
+## Addendum, 2026‑08‑26 — correction from the successor plan's §1 evidence
+
+The [2026-08-26-hole-elicitation plan](../plans/2026-08-26-hole-elicitation.md)'s §1
+lands a runnable evidence script against these banked records and corrects two
+readings above.
+
+This report's "the §3 block as written licenses holes but does not induce
+them — 98.4 % of skeletons ignored it" reading, and the starvation causal
+chain built on it ("the model writes holes rarely → hole‑bearing drafts
+typecheck poorly → the accepted remainder were bare holes"), are both
+corrected. The block **does** induce holes: `holes` 12/747 (1.606 %) against
+the concurrent `redraft` control's 2/772 (0.259 %), one‑sided Fisher
+p = 0.005 — a 6.2× multiplier of the right sign, just ~20× too weak to clear
+the fill path's threshold. The obstacle is not the mask: `(hole ` is
+admissible at all 8 body goals under the real `Masker`. The obstacle is the
+in‑context prior — 0 of 26 corpus fixtures contain a hole. And hole‑bearing
+drafts were **accepted more often than hole‑free** (16.7 % vs 5.3 %), not
+less: 9 of the 10 rejects failed at a committed sibling node, not at the
+hole. Row 4's gate relaxation, priced against the banked draws alone, would
+have bought 0 composed definitions.
