@@ -76,6 +76,9 @@ from .prompts import (
     ADDRESS_BOOK_TYPED,
     ADDRESS_BOOKS,
     GENERATION_PROTOCOLS,
+    HOLE_BLOCK_CHECKER_HOLED,
+    HOLE_BLOCK_PROTOCOL,
+    HOLE_BLOCKS,
     KIND_CORPUS,
     KIND_HELD_OUT,
     PROTOCOL_HOLES,
@@ -89,6 +92,7 @@ from .prompts import (
     bare_hole_body,
     build_fill_prompt,
     build_prompt,
+    checker_holed_cut,
     closed_subtask_type,
     declared_type_of,
     hole_obligations,
@@ -232,6 +236,14 @@ class Config:
     #: is the only one that sets it, to `3`. Read only by the `holes`
     #: protocol's round loop — `whole` and `redraft` never see it.
     hole_required_rounds: int = 0
+    #: The 2026-08-26 hole-elicitation plan §4.2's Stage-0 manipulated
+    #: variable: which candidate block a `holes`-arm cell runs. `"§3-block"`
+    #: is the banked block and the default, so every config written before
+    #: this field existed runs byte for byte what it ran. `"exemplar"` is the
+    #: only value that changes the *prompt*; `"checker-holed"` is B3, whose
+    #: whole mechanism is `hole_at_error` seeding in the round loop below.
+    #: Read only by the `holes` protocol — `whole` and `redraft` never see it.
+    hole_block: str = HOLE_BLOCK_PROTOCOL
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -356,6 +368,10 @@ class Config:
             raise SystemExit(
                 f"unknown fill_gate {self.fill_gate!r}; known fill gates: "
                 f"{', '.join(FILL_GATES)}")
+        if self.hole_block not in HOLE_BLOCKS:
+            raise SystemExit(
+                f"unknown hole_block {self.hole_block!r}; known hole blocks: "
+                f"{', '.join(HOLE_BLOCKS)}")
         if self.hole_required_rounds < 0:
             raise SystemExit(
                 "hole_required_rounds must be >= 0; plan §2.2 B2's pilot arm "
@@ -608,6 +624,12 @@ class _CellRun:
             "generation_protocol": self.config.generation_protocol,
             "fill_gate": self.config.fill_gate,
             "hole_required_rounds": self.config.hole_required_rounds,
+            # §4.2's Stage-0 arm label. On *every* record, not just the
+            # skeleton ones, because E1 (fill-reaching draw rate) and E2
+            # (assembly liveness) are per-block rates whose numerator lives on
+            # fill records and whose denominator lives on skeleton records —
+            # a pooled pilot `records.jsonl` has to partition on one field.
+            "hole_block": self.config.hole_block,
             "role": role,
             "round": round_index,
             "candidate": candidate,
@@ -732,6 +754,64 @@ def _with_hole_required_note(narrowing, round_index, draft, census, config):
         return narrowing, False
     combined = f"{narrowing}\n{HOLE_REQUIRED_NOTE}" if narrowing else HOLE_REQUIRED_NOTE
     return combined, True
+
+
+#: The `checker-holed` telemetry every skeleton record carries, at its inert
+#: value. Written on every arm — not just B3 — so a pooled pilot
+#: `records.jsonl` has one record shape and §4.6's per-block accounting is a
+#: partition rather than a join.
+_CHECKER_HOLED_INERT = {
+    "checker_holed_eligible": False,
+    "checker_holed": False,
+    "checker_holed_reason": "",
+    "checker_holed_path": "",
+    "checker_holed_goal": "",
+    "checker_holed_outcome": "",
+    "checker_holed_source": "",
+}
+
+
+def _checker_holed_seed(config, draft, funnel, resolver):
+    """§2.2 B3: the round's `hole_at_error` seed, and its telemetry.
+
+    Returns `(seed_source, fields)`, with `seed_source` empty on every arm but
+    `checker-holed` and on every B3 round whose draft the typecheck layer did
+    not reject. Three conditions gate it and all three are necessary:
+
+    * the arm is B3. Nothing else in the harness reads `hole_at_error`, so
+      every other block's round is byte-identical to what it was;
+    * the draft was rejected **at typecheck**. A parse/scope/references
+      rejection has no meaningful error path into a term (§2.1's table says
+      why those three layers block a fill at all), and an accepted draft has
+      no failing node to walk up from;
+    * `hole_at_error` found an ancestor to cut at. It refuses far more often
+      than it cuts, which is the point (§2.2, §4.7 check 10).
+
+    The seeded draft is **not** waved past the fill gate: the caller re-runs
+    the funnel on it and applies `_fill_admitted` exactly as it would to a
+    draft the model wrote. A cut often repairs the typecheck failure outright
+    — a hole inhabits its goal type by fiat (SPEC §2.6), so the error it
+    replaced is gone — and such a seed is admitted by the `"accepted"` gate on
+    its own merits rather than by exemption.
+    """
+    if config.hole_block != HOLE_BLOCK_CHECKER_HOLED:
+        return "", dict(_CHECKER_HOLED_INERT)
+    if funnel.outcome != "typecheck":
+        return "", dict(_CHECKER_HOLED_INERT)
+    cut = checker_holed_cut(draft, funnel.error_path, resolver)
+    fields = dict(_CHECKER_HOLED_INERT, checker_holed_eligible=True)
+    if not cut.source:
+        fields["checker_holed_reason"] = cut.reason
+        return "", fields
+    seeded_funnel = run_funnel(cut.source, resolver)
+    fields.update({
+        "checker_holed": True,
+        "checker_holed_path": ".".join(str(step) for step in cut.path),
+        "checker_holed_goal": cut.goal_surface,
+        "checker_holed_outcome": seeded_funnel.outcome,
+        "checker_holed_source": cut.source,
+    })
+    return cut.source, fields
 
 
 def _run_whole_protocol(cell):
@@ -923,6 +1003,7 @@ def _run_holes_protocol(cell):
             narrowing=narrowing,
             address_book=config.address_book,
             generation_protocol=PROTOCOL_HOLES,
+            hole_block=config.hole_block,
         )
         narrowed = bool(narrowing)
         draw = cell.draw(prompt)
@@ -946,21 +1027,43 @@ def _run_holes_protocol(cell):
         # this draft's holes, if any, ever reach a fill).
         narrowing, hole_required_note_added = _with_hole_required_note(
             narrowing, round_index, draft, census, config)
+        # §2.2 B3, computed here so its telemetry rides the skeleton record —
+        # but *after* B2's note, which asks the model for a hole and must not
+        # be silenced by the harness having inserted one. Whether the round
+        # was a relaxed one is a property of the draft the model wrote, so it
+        # is captured before the seed can replace it (§2.1 consequence 4).
+        skeleton_accepted = funnel.accepted
+        seed, checker_holed_fields = _checker_holed_seed(
+            config, draft, funnel, cell.resolver)
         cell.emit(
             role=ROLE_SKELETON, round_index=round_index, narrowed=narrowed,
             source=draft, funnel=funnel,
             semantic=score_semantic(cell.task, funnel, draft),
             cell_done=False, candidate=False, draw=draw,
             extra={**census, "bare_hole_body": bare,
-                   "hole_required_note_added": hole_required_note_added})
+                   "hole_required_note_added": hole_required_note_added,
+                   **checker_holed_fields})
+        if seed:
+            # "Send the repaired draft straight to the fill path" (§2.2 B3).
+            # Straight to the *path*, not past the *gate*: the seed is
+            # re-checked and re-judged below by the same two rules — the §2.1
+            # gate and §3's bare-hole rule — every other draft is judged by.
+            # The skeleton record above still reports what the model wrote,
+            # which is what it is answerable for.
+            draft = seed
+            funnel = run_funnel(draft, cell.resolver)
+            bare = _is_bare_hole(draft)
 
         attempted = spliced = rolled_back = 0
         if _fill_admitted(config, funnel, bare):
             # §2.1 consequence 4: a draft the well-scoped gate admits but the
             # funnel did not accept is a *relaxed-gate* round — capped at one
             # fill draw for one hole. An accepted draft (both gates, always
-            # under the default) keeps §4.3.6's constants unchanged.
-            relaxed_round = not funnel.accepted
+            # under the default) keeps §4.3.6's constants unchanged. A B3 seed
+            # is judged by the *model's* draft here: a cut that repaired the
+            # typecheck error does not turn a rejected round into a full-purse
+            # one, or the harness would be buying itself fill draws.
+            relaxed_round = not skeleton_accepted
             draft, funnel, attempted, spliced, rolled_back = _fill_the_holes(
                 cell, round_index, draft, funnel,
                 fills_per_round_max=1 if relaxed_round else None,
@@ -976,6 +1079,12 @@ def _run_holes_protocol(cell):
             extra={
                 **census,
                 "bare_hole_body": bare,
+                # §4.6's gate accounting, at the round level: was this
+                # round's final draft grown from a seed the harness cut, or
+                # from the draft the model wrote? A composed definition has to
+                # be attributable to one or the other before B3's diagnostic
+                # means anything.
+                "checker_holed": bool(seed),
                 "fills_attempted": attempted,
                 "fills_spliced": spliced,
                 "fills_rolled_back": rolled_back,
@@ -1182,6 +1291,15 @@ def _mask_metrics(rows):
     }
 
 
+def _tally(values):
+    """A count per distinct value, insertion-ordered — a small histogram for a
+    summary field, spelled once instead of at each site that wants one."""
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
 def _protocol_metrics(rows):
     """§4.6's protocol telemetry, or `{}` when no round protocol ran.
 
@@ -1220,6 +1338,22 @@ def _protocol_metrics(rows):
         # check that B2 fired at all.
         "hole_required_notes_added": sum(
             1 for row in skeletons if row.get("hole_required_note_added")),
+        # §2.2 B3's own telemetry, and §4.6's attribution surface for it. All
+        # zero on every arm but `checker-holed`. `eligible` is the denominator
+        # the refusal rate is honest against — B3 only ever runs on a
+        # typecheck-rejected draft — and `refusals` is the histogram that says
+        # *why* it declined, since refusing is this mechanism's default answer
+        # and a silent zero would otherwise be indistinguishable from a bug.
+        "checker_holed_eligible": sum(
+            1 for row in skeletons if row.get("checker_holed_eligible")),
+        "checker_holed_seeds": sum(1 for row in skeletons if row.get("checker_holed")),
+        "checker_holed_accepted": sum(
+            1 for row in skeletons if row.get("checker_holed_outcome") == ACCEPTED),
+        "checker_holed_refusals": _tally(
+            row.get("checker_holed_reason", "") for row in skeletons
+            if row.get("checker_holed_eligible") and not row.get("checker_holed")),
+        "checker_holed_candidates": sum(
+            1 for row in candidates if row.get("checker_holed")),
         "holes_per_accepted_skeleton": (
             round(holes_seen / len(accepted_skeletons), 3) if accepted_skeletons else 0.0),
         "fillable_hole_fraction": (
@@ -1503,6 +1637,14 @@ def _render_protocol(summary):
         *([f"**Hole-required notes added (§2.2 B2):** "
            f"{protocol['hole_required_notes_added']}  "]
           if protocol["hole_required_notes_added"] else []),
+        *([f"**Checker-holed seeds (§2.2 B3):** {protocol['checker_holed_seeds']} "
+           f"of {protocol['checker_holed_eligible']} typecheck-rejected drafts "
+           f"({protocol['checker_holed_accepted']} of the seeds then typecheck; "
+           f"{protocol['checker_holed_candidates']} rounds ended on one). "
+           "**Exploratory — B3 is barred from the primary family by §2.2's "
+           "pre-commitment**, because the harness choosing where to cut breaks "
+           "2026-08-25 §2.1's no-oracle property.  "]
+          if protocol["checker_holed_eligible"] else []),
         f"**Holes per accepted skeleton:** {protocol['holes_per_accepted_skeleton']} "
         f"({protocol['fillable_hole_fraction']} of them fillable in v1)  ",
         f"**Fill draws:** {protocol['fill_draws']} "
@@ -1519,6 +1661,13 @@ def _render_protocol(summary):
         out += [_table(
             ["fill outcome", "count"],
             sorted(protocol["fill_outcomes"].items())), ""]
+    if protocol["checker_holed_refusals"]:
+        out += ["**`hole_at_error` refusals, by reason** (§2.2 B3 — refusing is "
+                "the default answer, so this histogram is the mechanism "
+                "working, not failing):", ""]
+        out += [f"- {reason} — ×{count}"
+                for reason, count in sorted(protocol["checker_holed_refusals"].items())]
+        out += [""]
     if protocol["unfillable_reasons"]:
         out += ["**Unfillable holes, by reason** (§2.2 step 3's v1 boundary):", ""]
         out += [f"- {reason} — ×{count}"

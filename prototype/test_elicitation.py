@@ -22,6 +22,14 @@ from experiment import prompts, runner
 from experiment.backends import Generation, StubBackend
 from experiment.evaluate import ACCEPTED, run_funnel
 from experiment.heldout_gold import GOLD_TERMS
+from experiment.hole_elicitation_probe import (
+    CHECK_TEN_ALLOWED,
+    CHECK_TEN_CUT,
+    CHECK_TEN_REFUSED,
+    check_ten_rows,
+    check_ten_verdict,
+)
+from experiment.hole_elicitation_probe import load as load_banked
 from experiment.prompts import (
     FEW_SHOT_NAMES,
     HELD_OUT_TASKS,
@@ -39,9 +47,11 @@ from experiment.prompts import (
     PROTOCOL_WHOLE,
     REGIME_HELD_OUT,
     build_prompt,
+    checker_holed_cut,
     closed_subtask_type,
     declared_type_of,
     estimated_tokens,
+    hole_at_error,
     hole_exemplar_block,
     hole_obligations,
     splice_fill,
@@ -488,6 +498,527 @@ class HoleRequiredBlockTest(unittest.TestCase):
             hole_required_rounds=2)
         for record in records:
             self.assertEqual(record["hole_required_rounds"], 2)
+
+
+# --------------------------------------------------------------------------
+# Deliverable 5 — `hole_at_error` and the `checker-holed` block (B3)
+# --------------------------------------------------------------------------
+#
+# B3 is the plan's only optional deliverable and its only *barred* one: §2.2
+# pre-commits it out of the primary family because the harness choosing where
+# to cut breaks 2026-08-25 §2.1's no-oracle property. So these tests are
+# written to two standards at once — the mechanism does what §2.2 says, and it
+# cannot leak into any arm that did not ask for it.
+
+#: The plan's own §2.1 exemplar, one step earlier: `corpus/bool/not` with an
+#: `I64` literal where the `then` branch should be `Bool`. Reaches the
+#: typecheck layer, fails at `definition.term.body.then` — a cut site — and the
+#: cut turns it into `HOLE_EXEMPLAR_NOT_SKELETON` exactly, whose fill
+#: (`HOLE_EXEMPLAR_NOT_FILL`) `ExemplarRoundTripCheck9Test` has already
+#: round-tripped. One fixture, three deliverables, no hand-built surfaces.
+_THEN_BRANCH_REJECTED = (
+    "(def (fn Bool () Bool) (lam Bool (if (var 0) (lit i64 1) (lit bool true))))")
+
+#: Two errors, one at a cut site and one below it in a sibling. The cut
+#: repairs the first and the second survives — §1.2's whole finding in one
+#: draft, and the fixture for "a seed is not waved past the gate".
+_TWO_ERRORS_REJECTED = (
+    "(def (fn Bool () Bool) (lam Bool (if (var 0) (lit i64 1) (lit i64 2))))")
+
+#: `(hole Bool ())` under the single top-level lambda: what the cut on
+#: `_THEN_BRANCH_REJECTED` must produce, byte for byte.
+_THEN_BRANCH_SEEDED = HOLE_EXEMPLAR_NOT_SKELETON
+
+
+class HoleAtErrorTest(unittest.TestCase):
+    """§2.2 B3's pure function. `None` is the default answer, not the fallback:
+    it cuts only where the goal is *derivable* from the draft's own declared
+    type and the annotations above the failing node, and refuses everywhere
+    else rather than inventing a goal.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+
+    def _cut(self, source):
+        """`(funnel, cut)` for a draft, driven through the real funnel so the
+        error path under test is the one the checker actually reported."""
+        funnel = run_funnel(source, self.resolver)
+        return funnel, checker_holed_cut(source, funnel.error_path, self.resolver)
+
+    # -- the signature and the blindness -------------------------------------
+
+    def test_the_plans_signature_works_with_two_positional_arguments(self):
+        """§2.2 spells it `hole_at_error(source, error_path) -> str | None`.
+        The resolver is one optional argument beyond that and buys exactly one
+        cut site (`con` arguments); everything else must work without it."""
+        parameters = list(inspect.signature(hole_at_error).parameters)
+        self.assertEqual(parameters[:2], ["draft_source", "error_path"])
+        self.assertEqual(
+            inspect.signature(hole_at_error).parameters["resolver"].default, None)
+        self.assertEqual(
+            hole_at_error(_THEN_BRANCH_REJECTED, "definition.term.body.then"),
+            _THEN_BRANCH_SEEDED)
+
+    def test_it_is_never_handed_a_task_so_it_cannot_consult_a_route_or_a_gold(self):
+        """The adversarial pin every function on the fill path carries (§4.7
+        check 1b's discipline): a `Task` is what holds `composes` and
+        `expected_surface`, so a signature that cannot accept one cannot read
+        one. Checked against the parameter list rather than by inspecting
+        behaviour, because a behavioural check passes for a function that reads
+        a task it happens not to have been given yet."""
+        for function in (hole_at_error, checker_holed_cut):
+            names = set(inspect.signature(function).parameters)
+            self.assertNotIn("task", names, function.__name__)
+            self.assertEqual(
+                names, {"draft_source", "error_path", "resolver"}, function.__name__)
+
+    def test_the_cut_reads_the_drafts_own_declared_type_and_never_the_tasks(self):
+        """The same property §4.7 check 1b pins for `closed_subtask_type`,
+        restated for B3: hand the same draft and error path to the function
+        while eight different held-out tasks are notionally in play and the
+        answer cannot move, because the task is not an input. The goal written
+        into the hole comes from the draft's own `(def TYPE …)`."""
+        _funnel, cut = self._cut(_THEN_BRANCH_REJECTED)
+        self.assertEqual(cut.goal_surface, "Bool")
+        self.assertEqual(
+            declared_type_of(cut.source), declared_type_of(_THEN_BRANCH_REJECTED))
+        for task in HELD_OUT_TASKS:
+            self.assertEqual(
+                hole_at_error(_THEN_BRANCH_REJECTED, "definition.term.body.then",
+                              self.resolver),
+                cut.source, task.task_id)
+
+    def test_no_gold_surface_can_reach_the_repaired_draft(self):
+        """A cut is a *deletion* — a subtree replaced by a hole — so the
+        repaired draft is a subset of the model's own bytes plus one goal type
+        read off that same draft. Pinned against the held-out gold terms
+        directly, the way check 1c pins the exemplar block."""
+        for source in (_THEN_BRANCH_REJECTED, _TWO_ERRORS_REJECTED):
+            _funnel, cut = self._cut(source)
+            for name, gold in GOLD_TERMS.items():
+                self.assertNotIn(gold, cut.source, name)
+
+    # -- the cut itself ------------------------------------------------------
+
+    def test_it_cuts_at_the_failing_if_branch_and_lands_the_plans_exemplar(self):
+        """§2.2's walk, on the case the plan itself uses to argue B3 escapes
+        §2.5: the draft's own declared type is the model's, the goal at the cut
+        is derived from it, and the result is a genuinely nested skeleton — the
+        `bool/not` shape, byte-identical to the exemplar block's."""
+        funnel, cut = self._cut(_THEN_BRANCH_REJECTED)
+        self.assertEqual(funnel.outcome, "typecheck")
+        self.assertEqual(funnel.error_path, "definition.term.body.then")
+        self.assertEqual(cut.source, _THEN_BRANCH_SEEDED)
+        self.assertEqual(cut.path, (2, 2, 2))
+        self.assertEqual(cut.reason, "")
+        self.assertEqual(run_funnel(cut.source, self.resolver).outcome, ACCEPTED,
+                         "a hole inhabits its goal type by fiat (SPEC §2.6), so "
+                         "cutting the failing node repairs this draft outright")
+        obligations = hole_obligations(cut.source, self.resolver)
+        self.assertEqual(len(obligations), 1)
+        self.assertTrue(obligations[0].fillable)
+        self.assertEqual(obligations[0].path, cut.path,
+                         "the hole the fill path will find is the one B3 cut")
+
+    def test_it_cuts_at_the_nearest_ancestor_not_the_outermost_one(self):
+        """"Walk *up* to the nearest ancestor" is load-bearing: cutting higher
+        would delete structure the model committed to and got right, which is
+        the whole difference between decomposition and starting over."""
+        source = ("(def (fn Bool () Bool) (lam Bool (if (var 0) "
+                  "(if (var 0) (lit i64 1) (lit bool true)) (lit bool false))))")
+        funnel, cut = self._cut(source)
+        self.assertEqual(funnel.error_path, "definition.term.body.then.then")
+        self.assertEqual(cut.path, (2, 2, 2, 2), "the inner branch, not the outer one")
+        self.assertIn("(if (var 0) (hole Bool ()) (lit bool true))", cut.source,
+                      "the inner if's own else branch survives the cut")
+        self.assertTrue(cut.source.endswith("(lit bool false))))"),
+                        "and so does the outer if's")
+
+    def test_a_match_arm_body_and_a_con_argument_are_cut_sites(self):
+        """Two of §2.2's five positions, each needing something the other does
+        not: an arm body needs the walk to step through `arms[i]`, and a `con`
+        argument needs the data declaration, which is the one thing the
+        resolver is here for."""
+        maybe = "0x" + corpus_registry.HASHES["Maybe"].hex()
+        arm = (f"(def (fn (data {maybe} (I64)) () Bool) (lam (data {maybe} (I64)) "
+               f"(match (var 0) ((0 0 (lit bool true)) "
+               f"(1 1 (if (lit bool true) (lit i64 9) (lit bool false)))))))")
+        _funnel, cut = self._cut(arm)
+        self.assertEqual(cut.path, (2, 2, 2, 1, 2, 2))
+        self.assertEqual(cut.goal_surface, "Bool")
+        constructor = f"(def (data {maybe} (Bool)) (con {maybe} 1 ((lit i64 3))))"
+        _funnel, cut = self._cut(constructor)
+        self.assertEqual(cut.path, (2, 3, 0))
+        self.assertEqual(cut.goal_surface, "Bool",
+                         "the constructor's field type, instantiated at the "
+                         "data type's own argument")
+
+    def test_a_con_argument_is_not_a_cut_site_without_a_resolver(self):
+        """"under a **known** data type" is a property of what can be looked
+        up. With no resolver the field types are not derivable, and the walk
+        climbs past rather than guessing — which here means refusing."""
+        maybe = "0x" + corpus_registry.HASHES["Maybe"].hex()
+        source = f"(def (data {maybe} (Bool)) (con {maybe} 1 ((lit i64 3))))"
+        funnel = run_funnel(source, self.resolver)
+        self.assertIsNotNone(hole_at_error(source, funnel.error_path, self.resolver))
+        self.assertIsNone(hole_at_error(source, funnel.error_path))
+
+    # -- the refusals --------------------------------------------------------
+
+    def test_it_refuses_when_the_nearest_holeable_ancestor_is_the_whole_body(self):
+        """§3's bare-hole rule, reached from B3's side. Climbing further only
+        makes a barer draft, so this is a refusal rather than a reason to keep
+        walking — and it is the *commonest* refusal on the banked records,
+        which is what "refusing is the default answer" means in practice."""
+        funnel, cut = self._cut(_HOLELESS_REJECTED)
+        self.assertEqual(funnel.error_path, "definition.term")
+        self.assertEqual(cut.source, "")
+        self.assertIn("bare-hole rule", cut.reason)
+        self.assertIsNone(hole_at_error(
+            _HOLELESS_REJECTED, funnel.error_path, self.resolver))
+
+    def test_a_let_bound_and_an_app_argument_are_not_cut_sites(self):
+        """§2.2 enumerates five positions and this walk descends no others. A
+        `let`'s bound term and an `app`'s argument are both genuinely in
+        checking position, and both are excluded — the `app` argument because
+        its type comes from *synthesizing* the function rather than from the
+        declared type, and the `let` bound because §2.2 does not list it. Both
+        drafts here therefore climb to the top-level body and refuse."""
+        for source in (
+            "(def (fn Bool () Bool) (lam Bool (let Bool (lit i64 1) (var 0))))",
+            "(def (fn Bool () Bool) (lam Bool (app (lam Bool (var 0)) (lit i64 1))))",
+        ):
+            funnel, cut = self._cut(source)
+            self.assertEqual(funnel.outcome, "typecheck", source)
+            self.assertEqual(cut.source, "", source)
+
+    def test_it_refuses_an_error_path_that_names_no_term_node(self):
+        """A `definition.type…` failure, an empty path, and a draft that does
+        not parse. None of the three has a failing *term* node to walk up from,
+        and each gets a distinct reason so a refusal histogram stays
+        diagnostic rather than a single opaque bucket."""
+        cases = {
+            "definition.type.codomain": "no term node",
+            "": "no term node",
+        }
+        for error_path, expected in cases.items():
+            cut = checker_holed_cut(_THEN_BRANCH_REJECTED, error_path, self.resolver)
+            self.assertEqual(cut.source, "", error_path)
+            self.assertIn(expected, cut.reason, error_path)
+        cut = checker_holed_cut("(def Bool", "definition.term", self.resolver)
+        self.assertEqual(cut.source, "")
+        self.assertIn("does not parse", cut.reason)
+
+    def test_an_unknown_path_component_truncates_rather_than_derailing(self):
+        """`.effect-row`, `.function-row` and anything `typecheck.py` grows
+        later are not term steps. The walk stops at the deepest node it is sure
+        of — a genuine ancestor of the failure — instead of mis-stepping into
+        a sibling."""
+        cut = checker_holed_cut(
+            _THEN_BRANCH_REJECTED, "definition.term.body.then.effect-row",
+            self.resolver)
+        self.assertEqual(cut.path, (2, 2, 2),
+                         "stopped at `.then`, the deepest known step")
+        cut = checker_holed_cut(
+            _THEN_BRANCH_REJECTED, "definition.term.body.then.invented",
+            self.resolver)
+        self.assertEqual(cut.path, (2, 2, 2))
+
+    # -- check 10, as a property of every case above -------------------------
+
+    def test_check_ten_holds_on_every_synthetic_case(self):
+        """§4.7 check 10's contract — parses, keeps its declared type, is not a
+        bare hole, or `None`, never anything else — asserted through the
+        probe's own `check_ten_verdict`, which re-derives each clause from the
+        funnel's machinery rather than trusting the function under test."""
+        sources = [
+            _THEN_BRANCH_REJECTED, _TWO_ERRORS_REJECTED, _HOLELESS_REJECTED,
+            _HOLELESS_ACCEPTED, _HOLED_ACCEPTED, _BARE_HOLE_ACCEPTED,
+            "(def (fn Bool () Bool) (lam Bool (let Bool (lit i64 1) (var 0))))",
+            "(def Bool (lit i64 1))",
+            "(def (fn Bool () Bool) (lam I64 (lit bool true)))",
+        ]
+        for source in sources:
+            funnel = run_funnel(source, self.resolver)
+            for error_path in (funnel.error_path, "", "definition.term",
+                               "definition.type", "definition.term.body.args[9]",
+                               "definition.term.body.arms[0].body"):
+                verdict = check_ten_verdict(source, error_path, self.resolver)
+                self.assertIn(verdict, CHECK_TEN_ALLOWED,
+                              f"{source} @ {error_path}: {verdict}")
+
+
+@unittest.skipUnless(
+    (HERE / "runs" / "decomp-holes" / "records.jsonl").is_file(),
+    "the banked decomposition run is gitignored; check 10 runs where it exists")
+class CheckTenBankedTest(unittest.TestCase):
+    """§4.7 check 10 over its own stated population — "every banked
+    typecheck-rejected skeleton" — which is what the stub-check gate on GPU
+    spend (deliverable 6) will run. Skipped where the runs are not present:
+    they are gitignored, so this is a check that fires on the machine that
+    holds the evidence and stays honest about being absent elsewhere.
+    """
+
+    def test_no_banked_draft_produces_anything_but_a_cut_or_a_refusal(self):
+        resolver = ExperimentResolver()
+        verdicts: dict[str, int] = {}
+        for arm in ("whole", "redraft", "holes"):
+            for row in check_ten_rows(load_banked(arm)):
+                verdict = check_ten_verdict(
+                    row["source"], row.get("error_path") or "", resolver)
+                verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        violations = {v: n for v, n in verdicts.items() if v not in CHECK_TEN_ALLOWED}
+        self.assertEqual(violations, {})
+        self.assertGreater(verdicts.get(CHECK_TEN_CUT, 0), 0,
+                           "a check that never exercises the cut path proves nothing")
+        self.assertGreater(verdicts.get(CHECK_TEN_REFUSED, 0),
+                           verdicts.get(CHECK_TEN_CUT, 0),
+                           "refusing is the default answer, not the fallback")
+
+
+class CheckerHoledBlockTest(unittest.TestCase):
+    """Deliverable 5's runner half, 2026-08-26 plan §2.2 B3: on a
+    typecheck-rejected skeleton the `checker-holed` arm seeds the round from
+    `hole_at_error` and sends the repaired draft to the fill path. Every other
+    block's round is untouched, pinned the way `fill_gate` and
+    `hole_required_rounds` are.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = ExperimentResolver()
+        cls.task = HELD_OUT_TASKS[0]
+
+    def _config(self, **overrides):
+        config = runner.Config(
+            backend="stub",
+            seeds=[1],
+            conditions=[runner.CONDITION_GBNF],
+            regimes=[REGIME_HELD_OUT],
+            tasks=[self.task.task_id],
+            token_budget_per_task=6000,
+            max_tokens_per_draw=60,
+            max_draws_per_task=2,
+            generation_protocol=PROTOCOL_HOLES,
+            source_path="<test>",
+        )
+        for key, value in overrides.items():
+            setattr(config, key, value)
+        config.validate()
+        return config
+
+    def _run(self, skeletons, fills=(), **overrides):
+        config = self._config(**overrides)
+        backend = _RoundScriptedBackend(skeletons, fills)
+        records, summary = runner.run(config, resolver=self.resolver, backend=backend)
+        return records, summary, backend
+
+    @staticmethod
+    def _by_role(records, role):
+        return [r for r in records if r["role"] == role]
+
+    # -- the selection surface, pinned ---------------------------------------
+
+    def test_hole_block_defaults_to_the_banked_block_and_configs_are_unmoved(self):
+        self.assertEqual(runner.Config().hole_block, HOLE_BLOCK_PROTOCOL)
+        for name in ("decomp-whole.config.json", "decomp-redraft.config.json",
+                     "decomp-holes.config.json"):
+            config = runner.Config.load(HERE / "experiment" / name)
+            self.assertEqual(config.hole_block, HOLE_BLOCK_PROTOCOL, name)
+
+    def test_an_unknown_hole_block_is_refused_by_the_config(self):
+        with self.assertRaises(SystemExit) as raised:
+            runner.Config(hole_block="freestyle").validate()
+        self.assertIn("hole_block", str(raised.exception))
+
+    def test_hole_block_is_echoed_on_every_record(self):
+        """E1 and E2 are per-block rates whose numerator lives on fill records
+        and whose denominator on skeleton records, so a pooled pilot
+        `records.jsonl` has to partition on this one field."""
+        records, _, _ = self._run(
+            [_HOLED_ACCEPTED, _HOLELESS_ACCEPTED], [_HOLED_ACCEPTED_FILL],
+            hole_block=HOLE_BLOCK_CHECKER_HOLED)
+        self.assertTrue(records)
+        for record in records:
+            self.assertEqual(record["hole_block"], HOLE_BLOCK_CHECKER_HOLED)
+        roles = {record["role"] for record in records}
+        self.assertIn("fill", roles, "the echo is pinned on a fill record too")
+
+    # -- the unselected arms, byte-identical ---------------------------------
+
+    def test_the_other_three_blocks_never_seed_however_rejected_the_draft(self):
+        """The pinning discipline the whole plan runs on: a block that does
+        not ask for `hole_at_error` gets a round that never calls it, and the
+        records to prove it. `_THEN_BRANCH_REJECTED` is the draft B3 cuts
+        successfully, so this is the strongest possible negative case."""
+        for block in (HOLE_BLOCK_PROTOCOL, HOLE_BLOCK_EXEMPLAR,
+                      HOLE_BLOCK_HOLE_REQUIRED):
+            records, summary, backend = self._run(
+                [_THEN_BRANCH_REJECTED], max_draws_per_task=1, hole_block=block,
+                fill_gate=runner.FILL_GATE_WELL_SCOPED)
+            skeleton = self._by_role(records, "skeleton")[0]
+            self.assertEqual(skeleton["funnel_outcome"], "typecheck", block)
+            self.assertFalse(skeleton["checker_holed_eligible"], block)
+            self.assertFalse(skeleton["checker_holed"], block)
+            self.assertEqual(skeleton["checker_holed_source"], "", block)
+            self.assertEqual(backend.fill_prompts, [], block)
+            self.assertEqual(summary["protocol"]["checker_holed_seeds"], 0, block)
+            self.assertNotIn("Checker-holed seeds",
+                             runner.render_report(summary, records), block)
+
+    def test_the_prompt_identical_blocks_produce_identical_records(self):
+        """Not merely "no seed": `§3-block` and `hole-required` build the same
+        prompt bytes (§2.2) and, at `hole_required_rounds: 0`, must produce the
+        same round field for field. `hole_block` is the only key allowed to
+        differ, because it is the arm label. `exemplar` is excluded here and
+        only here: it legitimately changes the prompt, which moves
+        `tokens_prompt` — its no-seeding property is pinned by the test
+        above."""
+        shape = {}
+        for block in (HOLE_BLOCK_PROTOCOL, HOLE_BLOCK_HOLE_REQUIRED):
+            records, _, _ = self._run(
+                [_THEN_BRANCH_REJECTED], max_draws_per_task=1, hole_block=block,
+                fill_gate=runner.FILL_GATE_WELL_SCOPED)
+            shape[block] = [
+                {k: v for k, v in record.items()
+                 if k not in ("hole_block", "latency_s")}
+                for record in records]
+        self.assertEqual(shape[HOLE_BLOCK_HOLE_REQUIRED], shape[HOLE_BLOCK_PROTOCOL])
+
+    # -- the mechanism -------------------------------------------------------
+
+    def test_a_typecheck_rejection_is_seeded_and_the_seed_reaches_a_fill(self):
+        """The round §2.2 B3 describes, end to end: the model's draft is
+        rejected at typecheck, the checker's own error path names a cut site,
+        the repaired draft typechecks (SPEC §2.6 — the hole cannot be wrong),
+        and the fill path runs against it. The skeleton record still reports
+        what the *model* wrote, which is what it is answerable for."""
+        records, summary, backend = self._run(
+            [_THEN_BRANCH_REJECTED], [_HOLED_ACCEPTED_FILL],
+            max_draws_per_task=2, hole_block=HOLE_BLOCK_CHECKER_HOLED)
+        skeleton = self._by_role(records, "skeleton")[0]
+        self.assertEqual(skeleton["source"], _THEN_BRANCH_REJECTED,
+                         "the record reports the model's draft, not the harness's")
+        self.assertEqual(skeleton["funnel_outcome"], "typecheck")
+        self.assertEqual(skeleton["holes"], 0)
+        self.assertTrue(skeleton["checker_holed_eligible"])
+        self.assertTrue(skeleton["checker_holed"])
+        self.assertEqual(skeleton["checker_holed_reason"], "")
+        self.assertEqual(skeleton["checker_holed_source"], _THEN_BRANCH_SEEDED)
+        self.assertEqual(skeleton["checker_holed_goal"], "Bool")
+        self.assertEqual(skeleton["checker_holed_path"], "2.2.2")
+        self.assertEqual(skeleton["checker_holed_outcome"], ACCEPTED)
+        self.assertEqual(len(backend.fill_prompts), 1,
+                         "the seeded hole reached a fill draw")
+        candidate = self._by_role(records, "candidate")[0]
+        self.assertTrue(candidate["checker_holed"],
+                        "the round's outcome is attributable to the seed")
+        self.assertEqual(summary["protocol"]["checker_holed_eligible"], 1)
+        self.assertEqual(summary["protocol"]["checker_holed_seeds"], 1)
+        self.assertEqual(summary["protocol"]["checker_holed_accepted"], 1)
+        report = runner.render_report(summary, records)
+        self.assertIn("Checker-holed seeds (§2.2 B3):** 1 of 1", report)
+        self.assertIn("barred from the primary family", report,
+                      "the report must not let B3 read as a primary arm")
+
+    def test_a_refused_cut_leaves_the_round_exactly_as_it_was(self):
+        """B3 refuses far more often than it cuts, and a refusal must be inert
+        rather than degrading: the round falls back to plain §8.3 narrowing,
+        which is what the other blocks would have done anyway."""
+        records, summary, backend = self._run(
+            [_HOLELESS_REJECTED, _HOLELESS_ACCEPTED], max_draws_per_task=2,
+            hole_block=HOLE_BLOCK_CHECKER_HOLED,
+            fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        skeleton = self._by_role(records, "skeleton")[0]
+        self.assertTrue(skeleton["checker_holed_eligible"])
+        self.assertFalse(skeleton["checker_holed"])
+        self.assertIn("bare-hole rule", skeleton["checker_holed_reason"])
+        self.assertEqual(skeleton["checker_holed_source"], "")
+        self.assertEqual(backend.fill_prompts, [])
+        self.assertIn("rejected by the typecheck layer", backend.skeleton_prompts[1],
+                      "§8.3 narrowing is untouched by the refusal")
+        self.assertEqual(summary["protocol"]["checker_holed_seeds"], 0)
+        self.assertEqual(
+            list(summary["protocol"]["checker_holed_refusals"].values()), [1])
+
+    def test_an_accepted_draft_is_never_eligible(self):
+        """B3 runs on a typecheck rejection and nothing else. An accepted draft
+        has no failing node, and a parse/scope/references rejection has no
+        meaningful error path into a term (§2.1's table is why those three
+        layers block a fill at all)."""
+        for draft in (_HOLELESS_ACCEPTED, "(def Bool", "(def Bool (var 7))"):
+            records, _, _ = self._run(
+                [draft], max_draws_per_task=1,
+                hole_block=HOLE_BLOCK_CHECKER_HOLED,
+                fill_gate=runner.FILL_GATE_WELL_SCOPED)
+            skeleton = self._by_role(records, "skeleton")[0]
+            self.assertNotEqual(skeleton["funnel_outcome"], "typecheck", draft)
+            self.assertFalse(skeleton["checker_holed_eligible"], draft)
+            self.assertFalse(skeleton["checker_holed"], draft)
+
+    # -- the seed is judged, not exempted ------------------------------------
+
+    def test_the_seed_is_admitted_by_the_accepted_gate_on_its_own_merits(self):
+        """"Straight to the fill path" is not "past the gate". A cut that
+        repairs the typecheck failure produces a draft the *default* gate
+        accepts, so B3 needs no relaxation to work — which matters, because a
+        mechanism that only functions under a second manipulation cannot be
+        told apart from that manipulation."""
+        records, _, backend = self._run(
+            [_THEN_BRANCH_REJECTED], [_HOLED_ACCEPTED_FILL], max_draws_per_task=2,
+            hole_block=HOLE_BLOCK_CHECKER_HOLED,
+            fill_gate=runner.FILL_GATE_ACCEPTED)
+        self.assertEqual(records[0]["checker_holed_outcome"], ACCEPTED)
+        self.assertEqual(len(backend.fill_prompts), 1)
+
+    def test_a_seed_that_still_fails_typecheck_is_refused_by_the_accepted_gate(self):
+        """§1.2's finding, mechanized: the cut repairs the error it replaced
+        and leaves every sibling error standing. Such a seed is *not* waved
+        through — under the default gate it gets no fill at all, and only the
+        §2.1 relaxation admits it."""
+        for gate, expected_fills in ((runner.FILL_GATE_ACCEPTED, 0),
+                                     (runner.FILL_GATE_WELL_SCOPED, 1)):
+            records, _, backend = self._run(
+                [_TWO_ERRORS_REJECTED], [_HOLED_ACCEPTED_FILL],
+                max_draws_per_task=2, hole_block=HOLE_BLOCK_CHECKER_HOLED,
+                fill_gate=gate)
+            skeleton = records[0]
+            self.assertTrue(skeleton["checker_holed"], gate)
+            self.assertEqual(skeleton["checker_holed_outcome"], "typecheck", gate)
+            self.assertEqual(len(backend.fill_prompts), expected_fills, gate)
+
+    def test_a_relaxed_round_is_capped_on_the_models_draft_not_on_the_seed(self):
+        """§2.1 consequence 4 caps a round whose *draft* the funnel did not
+        accept. A cut that repairs the draft must not buy the harness a
+        full-purse round it did not earn — so the cap is read off the
+        skeleton draw, before any seeding."""
+        records, _, backend = self._run(
+            [_THEN_BRANCH_REJECTED], ["(def Bool (lit i64 1))"],
+            max_draws_per_task=6, hole_block=HOLE_BLOCK_CHECKER_HOLED,
+            fill_gate=runner.FILL_GATE_WELL_SCOPED)
+        self.assertEqual(records[0]["checker_holed_outcome"], ACCEPTED,
+                         "the seed itself typechecks; the model's draft did not")
+        per_round: dict[int, int] = {}
+        for fill in self._by_role(records, "fill"):
+            per_round[fill["round"]] = per_round.get(fill["round"], 0) + 1
+        self.assertTrue(per_round, "the seeded rounds did reach the fill path")
+        self.assertEqual(set(per_round.values()), {1},
+                         "one fill draw per round, per §2.1 consequence 4 — not "
+                         "the §4.3.6 constants the seed's own acceptance would buy")
+
+    def test_b3_does_not_change_the_prompt_bytes(self):
+        """§2.2: `checker-holed` is a runner-level mechanism. Its skeleton
+        prompt is the `§3-block` prompt, so the pilot's B0-vs-B3 contrast is
+        the seeding and nothing else."""
+        under_b3 = self._run(
+            [_THEN_BRANCH_REJECTED], max_draws_per_task=1,
+            hole_block=HOLE_BLOCK_CHECKER_HOLED)[2].skeleton_prompts
+        under_b0 = self._run(
+            [_THEN_BRANCH_REJECTED], max_draws_per_task=1,
+            hole_block=HOLE_BLOCK_PROTOCOL)[2].skeleton_prompts
+        self.assertEqual(under_b3, under_b0)
 
 
 if __name__ == "__main__":  # pragma: no cover

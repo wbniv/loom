@@ -24,6 +24,11 @@ exemplar block is built and driven through the real funnel.
   and asserts byte-identity with the corpus definition, and runs the leak checks.
 * **power** — the primary's power at the **measured** whole-arm baseline
   (3/64 = 0.047), not the 0.03 the 2026-08-25 plan planned against.
+* **check10** — §4.7's check 10, over every banked typecheck-rejected skeleton:
+  `hole_at_error` returns a draft that parses, keeps its declared type and is
+  not a bare hole, or `None`, and never anything else. Also sizes B3 — how
+  often the cut is available at all, and what the seeded draft then typechecks
+  as. `hole_elicitation_stub_check.py` runs this same definition of the check.
 
 Run from `prototype/`::
 
@@ -51,10 +56,13 @@ from .evaluate import run_funnel
 from .masker import PRUNER_NAMES, build_masker
 from .prompts import (
     FEW_SHOT_NAMES,
+    bare_hole_body,
+    checker_holed_cut,
     closed_subtask_type,
     declared_type_of,
     eta_skeleton,
     held_out_tasks,
+    hole_at_error,
     hole_obligations,
     peel_arrows,
     splice_fill,
@@ -503,9 +511,125 @@ def power(reps: int = 6000) -> None:
     print()
 
 
+# --------------------------------------------------------------------------
+# check10 — `hole_at_error` refuses rather than guesses (§4.7 check 10)
+# --------------------------------------------------------------------------
+
+
+#: Check 10's verdict vocabulary. `CHECK_TEN_CUT` and `CHECK_TEN_REFUSED` are
+#: the two the check *permits*; everything else is a violation, and the check
+#: is "no draft over the banked records lands on any other verdict".
+CHECK_TEN_CUT = "cut"
+CHECK_TEN_REFUSED = "refused"
+CHECK_TEN_ALLOWED = (CHECK_TEN_CUT, CHECK_TEN_REFUSED)
+
+
+def check_ten_verdict(draft_source: str, error_path: str, resolver) -> str:
+    """One draft's check-10 verdict (2026-08-26 plan §4.7 check 10).
+
+    > Over every banked typecheck-rejected skeleton, `hole_at_error` either
+    > returns a draft that parses, keeps its declared type, and is not a bare
+    > hole, or returns `None`. Never anything else.
+
+    So the verdict is `"refused"` for `None`, `"cut"` for a repaired draft that
+    satisfies all three clauses, and a **named violation** for anything else —
+    the violation names being what a failing check has to print in order to be
+    actionable. Re-derives each clause from the funnel's own machinery
+    (`transcode_source`, `declared_type_of`, `bare_hole_body`) rather than
+    trusting `hole_at_error`'s internal enforcement, since trusting the thing
+    under test is not a check.
+
+    Exported rather than inlined into `check10` below because
+    `hole_elicitation_stub_check.py` — the gate on GPU spend (deliverable 6) —
+    runs the same check over the same records and must run *this* definition of
+    it, not a second one that could drift.
+    """
+    try:
+        repaired = hole_at_error(draft_source, error_path, resolver)
+    except Exception as error:  # noqa: BLE001 - a raise is itself a violation
+        return f"VIOLATION: raised {type(error).__name__}: {error}"
+    if repaired is None:
+        return CHECK_TEN_REFUSED
+    if not isinstance(repaired, str):
+        return f"VIOLATION: returned a {type(repaired).__name__}, not a str or None"
+    try:
+        transcode.transcode_source(repaired)
+    except Exception as error:  # noqa: BLE001
+        return f"VIOLATION: the repaired draft does not parse: {error}"
+    if declared_type_of(repaired) != declared_type_of(draft_source):
+        return "VIOLATION: the repaired draft's declared type moved"
+    if bare_hole_body(repaired):
+        return "VIOLATION: the repaired draft is a bare hole (§3's rule)"
+    return CHECK_TEN_CUT
+
+
+def check_ten_rows(rows: list[dict]) -> list[dict]:
+    """The population check 10 is defined over: **typecheck-rejected skeletons**.
+
+    `role != "candidate"` is `draws`' own rule (a candidate is an assembly, not
+    a draw); the typecheck filter is check 10's own wording. A `whole`-arm draw
+    is a skeleton in this sense — it is the definition the model wrote in one
+    piece — which is what lets the check run over all three banked arms and
+    2,281 draws rather than the 747 of one.
+    """
+    return [row for row in draws(rows) if row["funnel_outcome"] == "typecheck"]
+
+
+def check10() -> None:
+    resolver = ExperimentResolver()
+    print("### Check 10 — `hole_at_error` refuses rather than guesses\n")
+    print("Over every banked typecheck-rejected skeleton: a draft that parses,\n"
+          "keeps its declared type and is not a bare hole, or `None`. Never\n"
+          "anything else. Refusal is the default answer, not the fallback.\n")
+    totals: collections.Counter = collections.Counter()
+    refusals: collections.Counter = collections.Counter()
+    fillable = 0
+    seeded_outcomes: collections.Counter = collections.Counter()
+    for arm in ARMS:
+        rows = check_ten_rows(load(arm))
+        counts: collections.Counter = collections.Counter()
+        for row in rows:
+            verdict = check_ten_verdict(row["source"], row.get("error_path") or "", resolver)
+            counts[verdict] += 1
+            totals[verdict] += 1
+            if verdict != CHECK_TEN_CUT:
+                if verdict == CHECK_TEN_REFUSED:
+                    cut = checker_holed_cut(row["source"], row.get("error_path") or "", resolver)
+                    refusals[cut.reason] += 1
+                continue
+            repaired = hole_at_error(row["source"], row.get("error_path") or "", resolver)
+            seeded_outcomes[run_funnel(repaired, resolver).outcome] += 1
+            if any(o.fillable for o in hole_obligations(repaired, resolver)):
+                fillable += 1
+        violations = sum(n for v, n in counts.items() if v not in CHECK_TEN_ALLOWED)
+        print(f"  {arm:<9} typecheck-rejected {len(rows):>5}   "
+              f"cut {counts[CHECK_TEN_CUT]:>4}   refused {counts[CHECK_TEN_REFUSED]:>5}   "
+              f"violations {violations}")
+    violations = {v: n for v, n in totals.items() if v not in CHECK_TEN_ALLOWED}
+    print(f"\n  total     cut {totals[CHECK_TEN_CUT]}   "
+          f"refused {totals[CHECK_TEN_REFUSED]}   violations {sum(violations.values())}")
+    for verdict, count in sorted(violations.items()):
+        print(f"    {count:>5}  {verdict}")
+    print(f"\n  CHECK 10: {'PASS' if not violations else 'FAIL'}\n")
+
+    print("  Refusals, by reason (refusing is the mechanism working):")
+    for reason, count in refusals.most_common():
+        print(f"    {count:>5}  {reason}")
+    print("\n  Seeded drafts, by funnel outcome (a hole inhabits its goal type by")
+    print("  fiat — SPEC §2.6 — so a cut often repairs the failure outright):")
+    for outcome, count in seeded_outcomes.most_common():
+        print(f"    {count:>5}  {outcome}")
+    total_draws = sum(len(draws(load(arm))) for arm in ARMS)
+    print(f"\n  seeds with >= 1 fillable hole: {fillable} "
+          f"= {fillable / total_draws:.2%} of all {total_draws} banked draws")
+    print("  (B3's reference value for §4.2's fill-reaching draw rate, on drafts\n"
+          "   drawn under the OTHER blocks — a floor, not a prediction.)\n")
+
+
 SECTIONS = {
     "census": census, "blame": blame, "gate": gate,
     "mask": mask, "exemplars": exemplars, "power": power,
+    "check10": check10,
 }
 
 

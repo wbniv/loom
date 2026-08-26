@@ -107,10 +107,21 @@ Hole elicitation (2026-08-26 hole-elicitation plan §2.2, §4.2)
                    in full (draft, sub-task, fill) and `corpus/maybe/map` shown
                    as draft + sub-task. No header, no prose — four lines of
                    definition surface, 847 characters, ~565 tokens.
-``hole-required``  and ``checker-holed`` name runner-level mechanisms (a
-                   hole-demand note, and `hole_at_error` draft seeding) that
-                   this module does not implement; both build the same prompt
-                   bytes as `§3-block` until their own deliverables land.
+``hole-required``  and ``checker-holed`` name *runner*-level mechanisms — a
+                   hole-demand note appended to §8.3 narrowing, and
+                   `hole_at_error` draft seeding — so both build the same
+                   prompt bytes as `§3-block`, permanently and by design. The
+                   manipulation lives in `runner.py`'s round, not here; only
+                   `exemplar` moves what `build_prompt` emits.
+
+`hole_at_error` (§2.2 B3) is the one function in this module that reads a
+*checker verdict* rather than a draft alone, and it is therefore the one place
+where the harness — not the model — chooses where to cut. That is why B3 is
+pre-committed out of the primary family (§2.2: it breaks 2026-08-25 §2.1's
+no-oracle property) and why check 10 exists: the function must refuse rather
+than guess. It still never sees a `Task`, so the blindness the fill path is
+built on is unaffected — the cut is a function of the draft, the draft's own
+declared type, and the error path the checker reported on that draft.
 
 `hole_exemplar_block` is built the same blind way as the fill path above: a
 pure function of the resolver's own fixtures, never handed a `Task`, so it
@@ -127,12 +138,14 @@ confused after the fact.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import corpus_registry
 import prelude
 import sexpr
+from scope import forall_prefix
 from transcode import (
     def_to_surface,
     term_to_surface,
@@ -140,6 +153,7 @@ from transcode import (
     type_to_ir,
     type_to_surface,
 )
+from typecheck import constructor_fields
 
 from .resolver import KIND_DEFINITION, KIND_EXTERN, ExperimentResolver, Resolved
 
@@ -1009,6 +1023,264 @@ def bare_hole_body(source: str) -> bool:
     while term[0] == 3:  # lam
         term = term[2]
     return term[0] == 11  # hole
+
+
+# --------------------------------------------------------------------------
+# `hole_at_error` — the `checker-holed` block's cut (2026-08-26 plan §2.2 B3)
+# --------------------------------------------------------------------------
+#
+# B3 is the pilot's diagnostic arm and is **barred from the primary family by
+# pre-commitment**: 2026-08-25 §2.1's interpretability property is "the harness
+# never chooses where to cut", and this is the harness choosing where to cut.
+# What lives here is therefore built to *refuse* — `None` is the default answer,
+# not the fallback — and §4.7's check 10 is the mechanical statement of that:
+# over every banked typecheck-rejected skeleton, this either returns a draft
+# that parses, keeps its declared type and is not a bare hole, or returns
+# `None`. Never anything else.
+
+_TAG_LAM, _TAG_APP, _TAG_LET, _TAG_CON = 3, 4, 5, 6
+_TAG_MATCH, _TAG_PERFORM, _TAG_HANDLE = 7, 8, 9
+_TAG_FIX, _TAG_HOLE, _TAG_IF = 10, 11, 12
+
+#: `typecheck.py` builds an error path by appending these component names as it
+#: descends. Each `(term tag, component)` maps to the term-IR index it steps
+#: into, which is what lets `_error_term_path` resolve a recorded `error_path`
+#: back to the node the checker was looking at when it failed — the checker's
+#: own descent, replayed rather than re-run.
+#:
+#: Read off `typecheck.py`'s `f"{path}.…"` sites one by one. Note `fix`:
+#: `.measure` is index 3 and `.body` is index 4 (`_check_fix` checks `term[3]`
+#: then `term[4]`), which is the pair easiest to get backwards.
+_ERROR_STEP = {
+    (_TAG_LAM, "body"): 2,
+    (_TAG_APP, "function"): 1, (_TAG_APP, "argument"): 2,
+    (_TAG_LET, "bound"): 2, (_TAG_LET, "body"): 3,
+    (_TAG_MATCH, "scrutinee"): 1,
+    (_TAG_HANDLE, "handled"): 2, (_TAG_HANDLE, "return"): 4,
+    (_TAG_FIX, "measure"): 3, (_TAG_FIX, "body"): 4,
+    (_TAG_IF, "condition"): 1, (_TAG_IF, "then"): 2, (_TAG_IF, "else"): 3,
+}
+
+_ERROR_INDEXED = re.compile(r"([A-Za-z-]+)\[(\d+)\]")
+
+
+def _error_term_path(definition_ir: list, error_path: str) -> tuple[int, ...] | None:
+    """The deepest term-IR path a `typecheck.py` error path names, or `None`.
+
+    Paths are into the **definition** IR and open with `(2,)`, the same
+    convention `HoleObligation.path` and `splice_fill` use, so the two are
+    interchangeable without translation.
+
+    Two deliberate refusals and one deliberate truncation:
+
+    * an error path that is not under `definition.term` — a `definition.type…`
+      failure — names no term node at all, and gets `None`;
+    * a component this table does not know (`.effect-row`, `.function-row`, a
+      component `typecheck.py` grows later) stops the descent at the deepest
+      node the walk *is* sure of. That node is a genuine ancestor of the
+      failure, so stopping there is conservative rather than wrong;
+    * an `arms[i]` / `operations[i]` step lands on an arm clause, which is not
+      a term node; the deepest **term** seen so far is what is returned.
+
+    That last one has a consequence worth stating, because it narrows a cut
+    site §2.2 names. `_check_match` **rewrites** an arm body's own type
+    mismatch back onto the arm (`typecheck.py`: `if exc.path ==
+    f"{arm_path}.body" and exc.message.startswith("type mismatch:")`), so the
+    commonest arm failure arrives as `…arms[i]` with the `.body` erased. This
+    walk stops at the `match` node there rather than descending into the arm on
+    the *assumption* that the body is what failed — an `arms[i]` failure can
+    equally be a binder count or a duplicate constructor, and guessing between
+    them is precisely what §2.2 says this function must not do. The arm-body
+    cut site stays reachable through any deeper path (`…arms[i].body.then`),
+    which the rewrite leaves alone.
+    """
+    if not error_path:
+        return None
+    components = error_path.split(".")
+    if components[:2] != ["definition", "term"]:
+        return None
+    node, path, kind = definition_ir[2], (2,), "term"
+    deepest = path
+    for component in components[2:]:
+        indexed = _ERROR_INDEXED.fullmatch(component)
+        step: tuple[int, ...] | None = None
+        following = "term"
+        if indexed and kind == "term":
+            name, index = indexed.group(1), int(indexed.group(2))
+            if name == "args" and node[0] in (_TAG_CON, _TAG_PERFORM) and index < len(node[3]):
+                step = (3, index)
+            elif name == "arms" and node[0] == _TAG_MATCH and index < len(node[2]):
+                step, following = (2, index), "arm"
+            elif name == "operations" and node[0] == _TAG_HANDLE and index < len(node[3]):
+                step, following = (3, index), "operation"
+        elif kind == "arm":
+            step = (2,) if component == "body" else None
+        elif kind == "operation":
+            step = (1,) if component == "body" else None
+        elif kind == "term":
+            index = _ERROR_STEP.get((node[0], component))
+            step = None if index is None else (index,)
+        if step is None:
+            break
+        for item in step:
+            node = node[item]
+        path += step
+        kind = following
+        if kind == "term":
+            deepest = path
+    return deepest
+
+
+def _checking_goals(node, goal, path: tuple[int, ...], registry, out: dict) -> None:
+    """Every term position whose required type is derivable from the declared
+    type and the annotations above it, as `path -> type IR`.
+
+    §2.2 B3 enumerates the positions this walk descends and this walk descends
+    no others: `lam` body, `let` body, `if` branch, `match` arm body, and `con`
+    argument under a known data type. Each is a position whose type falls out of
+    the goal already in hand plus a written annotation — never out of a
+    *synthesized* type, which is why an `app` argument (its domain comes from
+    synthesizing the function) and a `fix` measure are absent even though the
+    checker checks them.
+
+    `registry` is `None` when no resolver was supplied, and then a `con`
+    argument is simply not a known position: "under a **known** data type" is a
+    property of what can be looked up, so an unresolvable constructor makes the
+    walk stop rather than guess.
+    """
+    out[path] = goal
+    tag = node[0]
+    if tag == _TAG_LAM:
+        # Only when the checker itself would descend: `check` requires the
+        # expected type to be a `fn` whose domain is the written annotation,
+        # and fails *at the lam* otherwise. A mismatch means the body has no
+        # derivable goal, not that the goal is the codomain anyway.
+        if goal[0] == 2 and node[1] == goal[1]:
+            _checking_goals(node[2], goal[3], path + (2,), registry, out)
+    elif tag == _TAG_LET:
+        # A `let` synthesizes its body's type, so the body's required type is
+        # whatever the `let` itself owed. The *bound* term is checked at the
+        # written annotation and is equally derivable — §2.2 does not list it,
+        # so it is not a cut site here.
+        _checking_goals(node[3], goal, path + (3,), registry, out)
+    elif tag == _TAG_IF:
+        _checking_goals(node[2], goal, path + (2,), registry, out)
+        _checking_goals(node[3], goal, path + (3,), registry, out)
+    elif tag == _TAG_MATCH:
+        for index, arm in enumerate(node[2]):
+            _checking_goals(arm[2], goal, path + (2, index, 2), registry, out)
+    elif tag == _TAG_CON and registry is not None:
+        if goal[0] == 1 and node[1] == goal[1]:
+            try:
+                fields = constructor_fields(registry, goal, node[2], "definition.term")
+            except Exception:  # noqa: BLE001 - an unresolvable data type is a refusal
+                return
+            if len(fields) == len(node[3]):
+                for index, (argument, field) in enumerate(zip(node[3], fields)):
+                    _checking_goals(argument, field, path + (3, index), registry, out)
+
+
+class CheckerHoledCut(NamedTuple):
+    """Where §2.2 B3 cut a rejected draft, or why it refused to.
+
+    `source` is `""` exactly when no cut was made, and `reason` is `""` exactly
+    when one was — so the two together are the runner's whole telemetry for the
+    arm, and `hole_at_error` is this minus the explanation.
+    """
+
+    source: str = ""
+    path: tuple[int, ...] = ()
+    goal_surface: str = ""
+    reason: str = ""
+
+
+def checker_holed_cut(
+    draft_source: str, error_path: str, resolver: ExperimentResolver | None = None,
+) -> CheckerHoledCut:
+    """`hole_at_error` with its refusal explained (§2.2 B3, §4.7 check 10).
+
+    Walk from the failing node **up** to the nearest ancestor in checking
+    position whose goal is derivable from the draft's own declared type and the
+    annotations above it, replace that subtree with `(hole GOAL ())`, and hand
+    the repaired draft back. `None` — here, an empty `source` — whenever any
+    step of that is not available:
+
+    * the draft does not parse, or the error path names no term node;
+    * no ancestor of the failing node has a derivable goal;
+    * the nearest one that does is the whole body, which §3's bare-hole rule
+      refuses. Walking further up only makes a barer draft, so this is a
+      refusal rather than a reason to keep climbing;
+    * the repaired draft does not round-trip, or its declared type moved.
+
+    The last two are check 10's own contract, enforced *inside* the function
+    rather than only asserted about it: a caller cannot get a draft out of here
+    that fails the check.
+
+    Blindness is unchanged from every other function on the fill path: no
+    `Task`, so no `composes` and no `expected_surface`. The declared type read
+    here is `declared_type_of(draft)` in IR form — the **draft's own**, exactly
+    as `closed_subtask_type` reads it (§4.7 check 1b).
+    """
+    try:
+        definition_ir, _, _ = transcode_source(draft_source)
+    except Exception:  # noqa: BLE001 - an unparseable draft is data, not a crash
+        return CheckerHoledCut(reason="the draft does not parse")
+    target = _error_term_path(definition_ir, error_path)
+    if target is None:
+        return CheckerHoledCut(
+            reason="the error path names no term node (it is empty, or under definition.type)")
+    registry = getattr(resolver, "declarations", None)
+    goals: dict[tuple[int, ...], list] = {}
+    try:
+        _prefix, quantified = forall_prefix(definition_ir[1])
+        _checking_goals(definition_ir[2], quantified, (2,), registry, goals)
+    except Exception:  # noqa: BLE001 - a malformed declared type is a refusal
+        return CheckerHoledCut(reason="the draft's declared type is not walkable")
+    for depth in range(len(target), 0, -1):
+        candidate = target[:depth]
+        if candidate not in goals:
+            continue
+        goal_ir = goals[candidate]
+        try:
+            goal_surface = type_to_surface(goal_ir)
+            repaired = def_to_surface(
+                _replace_at(definition_ir, candidate, [_TAG_HOLE, goal_ir, []]))
+        except Exception:  # noqa: BLE001
+            return CheckerHoledCut(reason="the repaired draft does not render")
+        if bare_hole_body(repaired):
+            return CheckerHoledCut(
+                reason="the nearest holeable ancestor is the whole body; "
+                       "§3's bare-hole rule refuses it")
+        try:
+            round_trip, _, _ = transcode_source(repaired)
+        except Exception:  # noqa: BLE001
+            return CheckerHoledCut(reason="the repaired draft does not parse")
+        if type_to_surface(round_trip[1]) != type_to_surface(definition_ir[1]):
+            return CheckerHoledCut(reason="the repaired draft's declared type moved")
+        return CheckerHoledCut(
+            source=repaired, path=candidate, goal_surface=goal_surface)
+    return CheckerHoledCut(
+        reason="no ancestor of the failing node has a goal derivable from the declared type")
+
+
+def hole_at_error(
+    draft_source: str, error_path: str, resolver: ExperimentResolver | None = None,
+) -> str | None:
+    """§2.2 B3's pure function: the draft with the failing subterm holed, or
+    `None` when no ancestor in checking position has a derivable goal.
+
+    `resolver` is the plan's signature plus one optional argument, and it buys
+    exactly one of §2.2's five cut sites: a `con` argument's type is a
+    constructor field, which is a lookup in the data declaration, not something
+    the term writes down. Without a resolver that site is simply not "under a
+    **known** data type" and the walk climbs past it — the function stays a
+    pure function of its arguments either way, and never consults a store for
+    anything else.
+
+    See `checker_holed_cut` for the same answer with its refusal explained;
+    this is the plan's named surface and returns `None` rather than a reason.
+    """
+    return checker_holed_cut(draft_source, error_path, resolver).source or None
 
 
 class SpliceError(ValueError):
