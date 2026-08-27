@@ -27,8 +27,13 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-
-
+- [T5] [model-scale-arm] The 2026-08-26 pilot's §6 row 1 puts the model-scale
+  arm on the table: the same held-out battery on a larger or unquantized model,
+  as the honest question 2026-08-25 §6 row 3 anticipated. T5 because the next
+  step is Will's call, not a dispatch: which model (e.g. 14B/32B Coder, or the
+  7B unquantized), what hardware it needs (24 GB L4 won't hold 32B), and the
+  spend envelope. Once decided, the design item gets ranked fresh.
+  See [pilot report](docs/results/2026-08-27-hole-elicitation-pilot-report.md).
 
 
 
@@ -50,6 +55,13 @@ Check conformance with `task todo:lint`.
 
 
 ## Watch
+
+- Feedback-legibility standalone effect — the narrowing-note repr fix (8ed72cd)
+  landed before the pilot, so its effect on the *standard* protocol is unmeasured
+  in isolation (pilot §6 row 1 names it the cheaper lever). Check: next GPU run
+  under `redraft`/`whole` — compare draw-level funnel acceptance against the
+  2026-08-26 decomp baselines (28/53 of ~770). Promote to Open if it moves
+  acceptance materially or when any next-lever run is being designed.
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
   the single-stream question is **measured and closed** (3.15 ms/token warm,
