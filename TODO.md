@@ -27,13 +27,25 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T5] [model-scale-arm] The 2026-08-26 pilot's §6 row 1 puts the model-scale
-  arm on the table: the same held-out battery on a larger or unquantized model,
-  as the honest question 2026-08-25 §6 row 3 anticipated. T5 because the next
-  step is Will's call, not a dispatch: which model (e.g. 14B/32B Coder, or the
-  7B unquantized), what hardware it needs (24 GB L4 won't hold 32B), and the
-  spend envelope. Once decided, the design item gets ranked fresh.
-  See [pilot report](docs/results/2026-08-27-hole-elicitation-pilot-report.md).
+- [T1] [scale14-fetch] Fetch + verify the 14B GGUF (8,988,110,272 bytes) and
+  assert `vocab_size == 152064` against the banked 7B telemetry — the mask is
+  built over the vocabulary, so this is the compatibility gate for the whole
+  arm. Deliverable 1 of [plan](docs/plans/2026-08-27-model-scale-arm.md).
+
+- [T1] [scale14-configs] Two configs + runlist as byte-copies of pilot_b0 /
+  pilot_b2 with only `output_dir` changed, plus a re-run of the unchanged CPU
+  stub gate with output pasted into the plan. Deliverables 2-3 of
+  [plan](docs/plans/2026-08-27-model-scale-arm.md).
+
+- [T2] [scale14-compare] `experiment/scale_compare.py` (E1 per block, E2 pooled,
+  S1 two-proportion vs banked 7B, exit code per §6) plus the powered MDE for S1
+  via corpus_size_sweep_power.py, pasted into §2.1 before launch. Deliverables
+  4-5 of [plan](docs/plans/2026-08-27-model-scale-arm.md).
+
+- [T5] [scale14-run] The 14B arm itself: 2 blocks x 16 cells, Spot first with
+  on-demand fallback, budget ceiling $4.50. Gated on the three items above and
+  an explicit launch go. E1/E2/S1 decide whether the 32B arm is worth an A100
+  quota request. Report per plan D7.
 
 
 
