@@ -21,6 +21,7 @@ from pathlib import Path
 
 import corpus_registry
 import declarations
+import typecheck
 from experiment import prompts, runner
 from experiment.addressability_audit import HAND_SOLVED
 from experiment.backends import BackendUnavailable, StubBackend, make_backend
@@ -2637,6 +2638,97 @@ class NarrowingNoteRenderingTest(unittest.TestCase):
                 total_rejected += 1
         self.assertEqual(total_raw, 0, "every arm must move identically, to exactly 0 raw-IR notes")
         self.assertGreater(total_rejected, 2000, "sanity: all three banked arms were replayed")
+
+    def test_the_render_seam_defaults_to_surface_untouched(self):
+        """`[legib-seam]` (2026-08-27 feedback-legibility plan §3 deliverable 1):
+        with nothing ever calling `set_narrowing_note_render`, the seam's own
+        `ContextVar` default must be `"surface"` — not merely a config default
+        that happens to select it — so every caller that never goes through
+        the runner (`store_admit.py`, `obligations.py`, a bare
+        `typecheck.validate_source`, this very test file) renders exactly what
+        `8ed72cd` left behind."""
+        self.assertEqual(typecheck._narrowing_note_render.get(), typecheck.NARROWING_NOTE_SURFACE)
+        funnel = run_funnel(BROKEN_TYPE, self.resolver)
+        note = narrowing_note(funnel)
+        self.assertNotRegex(note, _REPR_ARTEFACT)
+        self.assertIn(type_to_surface([0, 1]), note)
+
+    def test_repr_mode_reproduces_the_banked_pre_fix_bytes_exactly(self):
+        """Deliverable 2: the seam is verified against the banked bytes, not
+        against intent (§2.1). With the seam set to `"repr"`, every one of the
+        **2,159** banked rejected draws across all three decomposition arms
+        (734 `whole` + 719 `redraft` + 706 `holes`, §3's own count) must
+        reconstruct its recorded `error_message` **byte for byte** — the
+        pre-`8ed72cd` rendering, undone at render time rather than by the
+        rejected second-checkout design (§2.1, §2.3). Anything less and the
+        control arm is an approximation of the pre-fix condition, not the
+        condition itself, and §7 says the arm does not launch on that.
+
+        Classification (`funnel.outcome`) is re-asserted here too — C3 in
+        both directions (§2.4): a rendering-only seam cannot move which layer
+        a banked draw is bucketed under, under either setting.
+        """
+        typecheck.set_narrowing_note_render(typecheck.NARROWING_NOTE_REPR)
+        self.addCleanup(typecheck.set_narrowing_note_render, typecheck.NARROWING_NOTE_SURFACE)
+        per_arm = {}
+        total_rejected = 0
+        for arm in ("whole", "redraft", "holes"):
+            path = HERE / "runs" / f"decomp-{arm}" / "records.jsonl"
+            with path.open(encoding="utf-8") as handle:
+                records = [json.loads(line) for line in handle]
+            rejected = [
+                r for r in records
+                if r.get("role") != "candidate" and r.get("funnel_outcome") not in (None, ACCEPTED)]
+            self.assertGreater(len(rejected), 0, arm)
+            per_arm[arm] = len(rejected)
+            for record in rejected:
+                funnel = run_funnel(record["source"], self.resolver)
+                self.assertEqual(funnel.outcome, record["funnel_outcome"], (arm, record.get("draw")))
+                self.assertEqual(
+                    funnel.error_message, record.get("error_message"),
+                    (arm, record.get("draw")))
+                total_rejected += 1
+        self.assertEqual(per_arm, {"whole": 734, "redraft": 719, "holes": 706})
+        self.assertEqual(total_rejected, 2159, "the plan's own count of banked rejected draws (§3)")
+
+
+class NarrowingNoteRenderConfigTest(unittest.TestCase):
+    """`[legib-seam]`'s `Config` field and runner wiring (§3 deliverable 1)."""
+
+    def test_surface_is_the_default_so_every_older_config_is_unmoved(self):
+        self.assertEqual(runner.Config().narrowing_note_render, typecheck.NARROWING_NOTE_SURFACE)
+        for name in ("addr-full.config.json", "phase_a.config.json", "phase_b.config.json"):
+            config = runner.Config.load(HERE / "experiment" / name)
+            self.assertEqual(config.narrowing_note_render, typecheck.NARROWING_NOTE_SURFACE, name)
+
+    def test_an_unknown_render_is_refused_by_name(self):
+        with self.assertRaises(SystemExit) as raised:
+            runner.Config(narrowing_note_render="pretty").validate()
+        self.assertIn("pretty", str(raised.exception))
+        self.assertIn("repr", str(raised.exception))
+
+    def test_a_repr_cell_narrows_with_the_pre_fix_rendering_and_a_surface_cell_does_not(self):
+        """End-to-end through the runner: `run_task` sets the seam once per
+        cell from `config.narrowing_note_render` (§2.1), and the next draft's
+        prompt — built from `narrowing_note` — carries the difference."""
+        resolver = ExperimentResolver()
+        for render, should_leak in (
+                (typecheck.NARROWING_NOTE_REPR, True),
+                (typecheck.NARROWING_NOTE_SURFACE, False)):
+            with self.subTest(render=render):
+                config = protocol_config(
+                    prompts.PROTOCOL_REDRAFT, max_draws_per_task=2,
+                    narrowing_note_render=render)
+                backend = _ScriptedBackend([BROKEN_TYPE])
+                records, _ = runner.run(config, resolver=resolver, backend=backend)
+                self.assertEqual(len(records), 2)
+                self.assertEqual(len(backend.prompts), 2)
+                leaked = bool(_REPR_ARTEFACT.search(backend.prompts[1]))
+                self.assertEqual(leaked, should_leak, backend.prompts[1])
+        # The seam is a runner set-site, not a lingering global: the last
+        # cell run above (`surface`) must leave the ContextVar there, not
+        # wherever the loop happened to end up under a different ordering.
+        self.assertEqual(typecheck._narrowing_note_render.get(), typecheck.NARROWING_NOTE_SURFACE)
 
 
 if __name__ == "__main__":

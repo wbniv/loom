@@ -304,6 +304,45 @@ section, named as a deviation, before the verdict.
    and `funnel_outcome` unchanged on every one. **This is the gate on the whole arm** —
    if the control arm is not the pre-fix condition exactly, there is nothing to compare.
    *(T2.)*
+    **Output.** `NarrowingNoteRenderingTest.test_repr_mode_reproduces_the_banked_pre_fix_bytes_exactly`
+    (`prototype/test_experiment.py`) asserts this as a unit test; the same replay, run inline below
+    over all 2,159 banked rejected draws across the three decomposition arms:
+
+    ```
+    === Deliverable 2 replay: narrowing_note_render seam vs banked bytes ===
+
+    --- repr mode: byte-identity check of error_message against the banked bytes ---
+    whole    : 734/734 byte-identical, 0 mismatches, 0 classification changes
+    redraft  : 719/719 byte-identical, 0 mismatches, 0 classification changes
+    holes    : 706/706 byte-identical, 0 mismatches, 0 classification changes
+    TOTAL    : 2159/2159 byte-identical, 0 mismatches
+
+    --- surface mode: repr-leak check (0% target) + classification invariance ---
+    whole    : 734 rejected, 0 leaked (0.00%), 0 classification changes
+    redraft  : 719 rejected, 0 leaked (0.00%), 0 classification changes
+    holes    : 706 rejected, 0 leaked (0.00%), 0 classification changes
+    TOTAL    : 2159 rejected, 0 leaked (0.00%)
+
+    VERDICT: byte-identity YES; surface leak 0.00%; classification changes 0 in both directions
+    ```
+
+    And the test-suite run of the same assertion:
+
+    ```
+    $ python3 -m unittest test_experiment.NarrowingNoteRenderingTest.test_repr_mode_reproduces_the_banked_pre_fix_bytes_exactly -v
+    test_repr_mode_reproduces_the_banked_pre_fix_bytes_exactly (test_experiment.NarrowingNoteRenderingTest.test_repr_mode_reproduces_the_banked_pre_fix_bytes_exactly)
+    Deliverable 2: the seam is verified against the banked bytes, not ... ok
+
+    ----------------------------------------------------------------------
+    Ran 1 test in 5.444s
+
+    OK
+    ```
+
+    **Verdict: gate clears.** Byte-identity holds on all 2,159/2,159 banked rejected draws under
+    `"repr"`; `"surface"` reproduces 0 % leak with `funnel_outcome` unchanged on every draw, in
+    both directions. The control arm is the pre-fix condition exactly — the arm may launch on this
+    gate.
 3. **CPU stub gate** — re-run `hole_elicitation_stub_check.py` unchanged (regression),
    and add the arm's own checks: C2 (`whole` is inert), the two configs differing from
    `decomp-redraft.config.json` by `output_dir` and `narrowing_note_render` only, and a

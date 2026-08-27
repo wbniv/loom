@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import copy
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,6 +43,37 @@ def _fail(path: str, message: str) -> None:
     raise TypingError(path, message)
 
 
+#: The 2026-08-27 feedback-legibility plan §2.1's seam. `"surface"` is
+#: `8ed72cd`'s fix: `_render`/`_render_row` emit the canonical type surface.
+#: `"repr"` undoes it at render time — the nine `_fail` sites read back
+#: exactly what they embedded before `8ed72cd`, Python `repr()` — for the
+#: arm's control condition, without a second checkout (§2.1's rejected
+#: alternative).
+NARROWING_NOTE_SURFACE = "surface"
+NARROWING_NOTE_REPR = "repr"
+NARROWING_NOTE_RENDERS = (NARROWING_NOTE_SURFACE, NARROWING_NOTE_REPR)
+
+#: Set once per cell by the runner (`experiment/runner.py:run_task`) from
+#: `Config.narrowing_note_render`. Defaults to `"surface"`, so any caller that
+#: never goes through the runner — `store_admit.py`, `obligations.py`, the
+#: test suite, a bare `typecheck.validate_source` call — renders exactly what
+#: `8ed72cd` left behind: existing configs and callers are byte-identical.
+_narrowing_note_render: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "narrowing_note_render", default=NARROWING_NOTE_SURFACE)
+
+
+def set_narrowing_note_render(mode: str) -> None:
+    """The runner's per-cell set-site. Raises on anything but §2.1's two
+    values — the config-level check (`Config.validate`) is expected to have
+    already refused a bad value by name, so reaching here with one would be a
+    caller bug, not a user-facing config error."""
+    if mode not in NARROWING_NOTE_RENDERS:
+        raise ValueError(
+            f"unknown narrowing_note_render {mode!r}; known renders: "
+            f"{', '.join(NARROWING_NOTE_RENDERS)}")
+    _narrowing_note_render.set(mode)
+
+
 def _render(node) -> str:
     """Render a type-IR node into error text as its canonical surface, never
     Python `repr`. `evaluate.narrowing_note` hands this text back to the model
@@ -51,7 +83,13 @@ def _render(node) -> str:
     Falls back to `repr` only when `node` is not itself a well-formed type-IR
     node (defense in depth for the few call sites, e.g. malformed-input
     diagnostics, where that is not guaranteed structurally).
+
+    Under the feedback-legibility seam's `"repr"` setting, skips straight to
+    `repr()` — reconstructing what every one of the nine `_fail` sites did
+    before `8ed72cd`, unconditionally, not just as a fallback.
     """
+    if _narrowing_note_render.get() == NARROWING_NOTE_REPR:
+        return repr(node)
     try:
         return type_to_surface(node)
     except SurfaceError:
@@ -61,7 +99,12 @@ def _render(node) -> str:
 def _render_row(row) -> str:
     """Render a closed effect row (a tuple of 32-byte ability digests) the
     same way `type_to_surface` renders one inside a `fn` type: each ability
-    as `0x<hex>`, space-joined and parenthesized."""
+    as `0x<hex>`, space-joined and parenthesized.
+
+    Under `"repr"`, `repr(row)` — the pre-`8ed72cd` rendering, from before
+    `_render_row` existed at all."""
+    if _narrowing_note_render.get() == NARROWING_NOTE_REPR:
+        return repr(row)
     return "(" + " ".join(f"0x{item.hex()}" for item in row) + ")"
 
 

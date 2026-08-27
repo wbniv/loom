@@ -57,6 +57,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import contracts
+import typecheck
 
 from .backends import NO_MASK_BACKEND_MESSAGE, BackendUnavailable, grammar_text, make_backend
 from .evaluate import (
@@ -244,6 +245,15 @@ class Config:
     #: whole mechanism is `hole_at_error` seeding in the round loop below.
     #: Read only by the `holes` protocol — `whole` and `redraft` never see it.
     hole_block: str = HOLE_BLOCK_PROTOCOL
+    #: The 2026-08-27 feedback-legibility plan §2.1's seam:
+    #: `typecheck._render`/`_render_row`'s rendering of a type-IR node
+    #: embedded in a `TypingError` message, which `evaluate.narrowing_note`
+    #: relays to the model verbatim (§8.3). `"surface"` (default) is
+    #: `8ed72cd`'s fix, so every config written before this field existed
+    #: runs byte for byte what it ran. `"repr"` reconstructs the pre-`8ed72cd`
+    #: rendering — the feedback-legibility arm's control condition — without
+    #: a second checkout of `typecheck.py`.
+    narrowing_note_render: str = typecheck.NARROWING_NOTE_SURFACE
     stop_on_semantic_success: bool = False
     output_dir: str = "runs/phase-a"
     #: Truncation applied to the raw model text stored in the JSONL record. The
@@ -372,6 +382,10 @@ class Config:
             raise SystemExit(
                 f"unknown hole_block {self.hole_block!r}; known hole blocks: "
                 f"{', '.join(HOLE_BLOCKS)}")
+        if self.narrowing_note_render not in typecheck.NARROWING_NOTE_RENDERS:
+            raise SystemExit(
+                f"unknown narrowing_note_render {self.narrowing_note_render!r}; known "
+                f"renders: {', '.join(typecheck.NARROWING_NOTE_RENDERS)}")
         if self.hole_required_rounds < 0:
             raise SystemExit(
                 "hole_required_rounds must be >= 0; plan §2.2 B2's pilot arm "
@@ -1118,9 +1132,14 @@ def run_task(task, condition, regime, seed, backend, resolver, config, grammar, 
     Which loop runs is `config.generation_protocol`, and the budget rule is the
     same object in both (`_CellRun`): every draw a round makes, skeleton or
     fill, is an ordinary full-cap draw against the one per-cell purse.
+
+    The feedback-legibility seam (§2.1) is set here, once per cell, from
+    `config.narrowing_note_render` — every `_fail` site `typecheck.py` reaches
+    for the rest of this cell renders under whichever value this config carries.
     """
     if condition == CONDITION_TYPEMASK and masker is None:  # pragma: no cover - `run` builds it
         raise BackendUnavailable(NO_MASK_BACKEND_MESSAGE.format(backend=backend.name))
+    typecheck.set_narrowing_note_render(config.narrowing_note_render)
     cell = _CellRun(
         task, condition, regime, seed, backend, resolver, config, grammar, masker, sink)
     if config.generation_protocol == PROTOCOL_HOLES:
