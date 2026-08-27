@@ -36,6 +36,7 @@ VALUES = {
     "parallel_slots": "1",
     "remote_config_key": "config/run.config.json",
     "remote_output_dir": "runs/phase-b",
+    "runlist_key": "",
 }
 
 #: A single `${name}` that Terraform interpolates. `$${name}` is an escaped

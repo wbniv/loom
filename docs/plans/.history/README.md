@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-27](https://github.com/wbniv/loom/commit/b2c3613) | Index the driver-survivability and feedback-legibility plans |
 | [2026-08-26](https://github.com/wbniv/loom/commit/be15a77) | Index the model-scale-arm plan; record Stage 0's outcome on its row |
 | [2026-08-26](https://github.com/wbniv/loom/commit/cf45689) | Plan index: add the 2026-08-26 hole-elicitation row |
 | [2026-08-25](https://github.com/wbniv/loom/commit/8d7cbb0) | Plan index: row for the spine-goal mask plan |
@@ -57,6 +58,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+b2c3613	author	Will Norris
+b2c3613	added	2
+b2c3613	deleted	0
+b2c3613	files	1
+b2c3613	body	Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013ycMbBKz71NDfdtCACWEub
 be15a77	author	Will Norris
 be15a77	added	2
 be15a77	deleted	1

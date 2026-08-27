@@ -25,7 +25,7 @@ locals {
     artifacts_bucket   = var.artifacts_bucket
     run_id             = var.run_id
     zone               = var.zone
-    instance_name      = "${var.project}-experiment-runner"
+    instance_name      = local.instance_name
     llama_cpp_repo     = var.llama_cpp_repo
     llama_cpp_revision = var.llama_cpp_revision
     gguf_filename      = var.gguf_filename

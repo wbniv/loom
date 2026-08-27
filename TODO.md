@@ -57,12 +57,22 @@ Check conformance with `task todo:lint`.
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
 
-- [wip T2] [runner-self-delete] <!-- agent:a3ce7e34110aba4cf --> The runner's self-delete was refused on 2026-08-27
-  and fell back to `shutdown -h now`, which is why a 150 GB disk kept billing
-  overnight. Diagnose the refusal (`startup-script.sh.tftpl:79-81`, the
-  `runner_self_delete` IAM member) and make self-delete actually work — it
-  takes the driver off the cost-safety path entirely. T2: bounded IAM/startup
-  diagnosis with the failure already localized.
+- [T1] [selfdelete-taskfile] Wire `scripts/tests/test-runner-self-delete.sh` into
+  `Taskfile.yml`. Held until [aws-driver-port] lands — that agent is editing
+  Taskfile.yml concurrently. T1: one task entry, recipe established.
+
+- [T2] [render-values-derive] `render-gcp-startup-script.py`'s representative-
+  values dict is hand-maintained and went stale (missing `runlist_key` blocked
+  the self-delete guard from rendering). Derive it from `variables.tf` defaults
+  so a new template var can't go stale silently. T2: one script, clear goal,
+  parsing judgment.
+
+- [T2] [runner-log-survival] The scale14 startup/llama logs died with the
+  bucket; a future incident shouldn't be diagnosed by code inspection alone.
+  Make runner logs survive independent of the bucket's 7-day lifecycle —
+  e.g. driver fetches logs on every exit path incl. resume, or a separate
+  retention prefix. T2: one seam in driver/startup script, design settled by
+  the incident.
 
 - [wip T2] [aws-driver-port] <!-- agent:ab101f501d1a5b73f --> Port durable log, run manifest, `--resume`/`--detach`
   and the `jq` preflight declaration to the AWS sibling
@@ -101,6 +111,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [runner-self-delete] Proven: template got unsuffixed `instance_name` while instance+IAM used `local.instance_name` — every suffixed root's delete hit a nonexistent name. 1-line fix in the shared module + mocked-provider drift guard, fail-then-pass. See [plan](docs/plans/2026-08-27-runner-self-delete.md).
 - ✅ 2026-08-27 — [bucket-restore] `loom-diversity-artifacts` recreated from the reviewed plan: 3 added (bucket + 2 IAM members), 0 changed, 0 destroyed; state back to 6 resources. Unblocks [legib-run]'s upload path.
 - ✅ 2026-08-27 — [feedback-legibility-arm] Pre-registered the repr-fix isolation arm: 2 concurrent arms via a render seam, L1 repair-locality primary (MDE RR 1.20 @ 64 cells), $4.55 ceiling; banked baseline kept as anchor only. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
 - ✅ 2026-08-27 — [driver-fetch-loss] Root cause proven from the journal: host suspended mid-poll and lost power, no signal ever reached the trap. Driver gains durable log, manifest, `--resume`/`--fetch-only`/`--detach`; 24-check offline guard. Commit 7df1f93.
@@ -271,4 +282,7 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [ ] **(triage)** Wire `scripts/tests/test-runner-self-delete.sh` into `Taskfile.yml` (e.g. alongside `experiment:remote-gcp:test`) so it runs the same way the driver-resume guard does. Left undone here: `Taskfile.yml` was out of this task's scope (`infrastructure/`, `scripts/tests/`, and this plan doc only). — _from [2026-08-27-runner-self-delete.md](docs/plans/2026-08-27-runner-self-delete.md)_  <!-- fp:5144878a8362bad0 -->
+- [ ] **(triage)** Consider whether `scripts/render-gcp-startup-script.py`'s `VALUES` dict should instead be derived from the module's `variables.tf` defaults programmatically, so a future new template variable can't silently go stale there again the way `runlist_key` did. — _from [2026-08-27-runner-self-delete.md](docs/plans/2026-08-27-runner-self-delete.md)_  <!-- fp:0f5d1a0ef8b47df2 -->
+- [ ] **(triage)** No serial-log or startup-script-log capture currently survives instance teardown by default; consider always `gsutil cp`-ing the startup log to a location that outlives the run bucket's lifecycle rule, so a future incident like this one doesn't have to be diagnosed by code inspection alone. — _from [2026-08-27-runner-self-delete.md](docs/plans/2026-08-27-runner-self-delete.md)_  <!-- fp:79aaf50ff83c2b16 -->
 <!-- END auto-captured-deferrals -->
