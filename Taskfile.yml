@@ -58,6 +58,17 @@ tasks:
     cmds:
       - bash scripts/run-remote-experiment-gcp.sh {{.CLI_ARGS}}
 
+  experiment:remote-gcp:resume:
+    desc: "Re-enter a GCP run whose driver died: fetch every arm's results and tear the instance down (pass -- --resume-from prototype/runs/logs/driver-<tag>.json --fetch-only)"
+    deps: [setup]
+    cmds:
+      - bash scripts/run-remote-experiment-gcp.sh {{.CLI_ARGS}}
+
+  experiment:remote-gcp:test:
+    desc: "Offline regression guard for the remote driver's kill/resume path (no GCP, no network)"
+    cmds:
+      - bash scripts/tests/test-driver-resume.sh
+
   infra:destroy-diversity:
     desc: "Destroy the diversity-harvest root completely (safe: it shares no resource with any other run)"
     cmds:
