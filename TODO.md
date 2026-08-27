@@ -27,18 +27,55 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-_Nothing open. The next candidate is the feedback-legibility lever in Watch —
-the model-scale arm's §6 row 3 hands the track back to it; it needs a tier
-before it can be dispatched._
+- [T5] [bucket-restore] Recreate `loom-diversity-artifacts` (destroyed by the
+  driver-fix agent's early harness draft — plan §7). Terraform plan is reviewed:
+  3 to add, 0 to change, 0 to destroy; the apply was blocked by the permission
+  classifier and needs Will's go. T5: one inline apply, gated on a human.
+
+- [T2] [legib-seam] Land `narrowing_note_render: surface|repr` — the
+  `contextvars` seam in `typecheck.py` + `Config` + runner wiring, per
+  [plan](docs/plans/2026-08-27-feedback-legibility-arm.md) §3 deliverable 1.
+  T2: one seam, exact spec in the plan.
+
+- [T2] [legib-replay] Extend 8ed72cd's replay harness: 2,159 banked rejected
+  draws reproduce **byte-identically** under `repr`, and `surface` shows 0%
+  leak with unchanged classification. This gates the arm (plan §7: no
+  byte-identity, no launch). T2: bounded, but the byte-identity bar is the
+  whole job — escalate on any diff rather than explaining one away.
+
+- [T1] [legib-configs] `legib_legible.config.json`, `legib_repr.config.json`,
+  `legibility-runlist.json` as byte-copies of `decomp-redraft` (only
+  `output_dir` + the new field differ), plus `test_legibility_arm.py` pinning
+  them by difference. T1: the recipe is established (test_scale_arm.py).
+
+- [T2] [legib-compare] `experiment/legibility_compare.py` — L1/L2/C1 verdicts,
+  exit codes per plan §6, sharing L1's predicate with `legibility_power.py`
+  rather than carrying a second copy. T2: one script, spec settled.
+
+- [T2] [legib-stub] Stub gate: `hole_elicitation_stub_check.py` regression
+  re-run + C2 (`whole`-protocol inertness proved on CPU) + config-difference
+  checks; paste output into the plan. Gates GPU spend. T2.
+
+- [T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
+  first, ceiling $4.55, pre-committed degradation to 40 cells/arm (never fewer
+  arms). Gated on legib-replay + legib-stub and an explicit launch go — and on
+  [bucket-restore], since the driver uploads through that bucket. Use the new
+  `--detach` driver mode. Report per plan D7.
+
+- [T2] [runner-self-delete] The runner's self-delete was refused on 2026-08-27
+  and fell back to `shutdown -h now`, which is why a 150 GB disk kept billing
+  overnight. Diagnose the refusal (`startup-script.sh.tftpl:79-81`, the
+  `runner_self_delete` IAM member) and make self-delete actually work — it
+  takes the driver off the cost-safety path entirely. T2: bounded IAM/startup
+  diagnosis with the failure already localized.
+
+- [T2] [aws-driver-port] Port durable log, run manifest, `--resume`/`--detach`
+  and the `jq` preflight declaration to the AWS sibling
+  `scripts/run-remote-experiment.sh`, which has the identical shape and
+  identical exposure. T2: the pattern is designed and tested; this is its
+  second instantiation in one file.
 
 ## Watch
-
-- Feedback-legibility standalone effect — the narrowing-note repr fix (8ed72cd)
-  landed before the pilot, so its effect on the *standard* protocol is unmeasured
-  in isolation (pilot §6 row 1 names it the cheaper lever). Check: next GPU run
-  under `redraft`/`whole` — compare draw-level funnel acceptance against the
-  2026-08-26 decomp baselines (28/53 of ~770). Promote to Open if it moves
-  acceptance materially or when any next-lever run is being designed.
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
   the single-stream question is **measured and closed** (3.15 ms/token warm,
@@ -69,6 +106,8 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [feedback-legibility-arm] Pre-registered the repr-fix isolation arm: 2 concurrent arms via a render seam, L1 repair-locality primary (MDE RR 1.20 @ 64 cells), $4.55 ceiling; banked baseline kept as anchor only. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
+- ✅ 2026-08-27 — [driver-fetch-loss] Root cause proven from the journal: host suspended mid-poll and lost power, no signal ever reached the trap. Driver gains durable log, manifest, `--resume`/`--fetch-only`/`--detach`; 24-check offline guard. Commit 7df1f93.
 - ✅ 2026-08-27 — [scale14-run] Both blocks ran (Spot preempted at once, on-demand fallback, ≈$3.97 of $4.50): no block clears E1, E2 NOT CLEAR, §6 row 3 fired — scale track stops, 32B unlicensed. See [report](docs/results/2026-08-27-model-scale-arm-report.md).
 - ✅ 2026-08-27 — [scale14-fetch] 14B GGUF fetched (8,988,110,272 bytes, exact) and the compatibility gate PASSES: banked telemetry, 7B and 14B all report n_vocab 152,064, so the mask indexes the same space. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [scale14-compare] `scale_compare.py` (§6 rows executed, exit codes) + `scale14_power.py`; measured S1 power at a doubled rate = 0.54, which corrected the plan's §2.1 claim and re-keyed §6 row 2 to a descriptive threshold. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
@@ -236,7 +275,4 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
-- [ ] **(triage)** The runner's self‑delete was refused on 2026‑08‑27 and it fell back to `shutdown -h now` — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:fafddf594b0918ee -->
-- [ ] **(triage)** `jq` is a hard dependency of runlist mode but is absent from the `command -v` preflight — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:9e86125dde048fbe -->
-- [ ] **(triage)** The AWS sibling `scripts/run-remote-experiment.sh` has the same — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:77b2302635f53f90 -->
 <!-- END auto-captured-deferrals -->
