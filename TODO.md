@@ -32,12 +32,12 @@ Check conformance with `task todo:lint`.
   3 to add, 0 to change, 0 to destroy; the apply was blocked by the permission
   classifier and needs Will's go. T5: one inline apply, gated on a human.
 
-- [T2] [legib-seam] Land `narrowing_note_render: surface|repr` — the
+- [wip T2] [legib-seam] <!-- agent:a1eefd3dcad59d87e --> Land `narrowing_note_render: surface|repr` — the
   `contextvars` seam in `typecheck.py` + `Config` + runner wiring, per
   [plan](docs/plans/2026-08-27-feedback-legibility-arm.md) §3 deliverable 1.
   T2: one seam, exact spec in the plan.
 
-- [T2] [legib-replay] Extend 8ed72cd's replay harness: 2,159 banked rejected
+- [wip T2] [legib-replay] <!-- agent:a1eefd3dcad59d87e --> Extend 8ed72cd's replay harness: 2,159 banked rejected
   draws reproduce **byte-identically** under `repr`, and `surface` shows 0%
   leak with unchanged classification. This gates the arm (plan §7: no
   byte-identity, no launch). T2: bounded, but the byte-identity bar is the
@@ -48,7 +48,7 @@ Check conformance with `task todo:lint`.
   `output_dir` + the new field differ), plus `test_legibility_arm.py` pinning
   them by difference. T1: the recipe is established (test_scale_arm.py).
 
-- [T2] [legib-compare] `experiment/legibility_compare.py` — L1/L2/C1 verdicts,
+- [wip T2] [legib-compare] <!-- agent:ae3006110e2588068 --> `experiment/legibility_compare.py` — L1/L2/C1 verdicts,
   exit codes per plan §6, sharing L1's predicate with `legibility_power.py`
   rather than carrying a second copy. T2: one script, spec settled.
 
@@ -62,14 +62,14 @@ Check conformance with `task todo:lint`.
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
 
-- [T2] [runner-self-delete] The runner's self-delete was refused on 2026-08-27
+- [wip T2] [runner-self-delete] <!-- agent:a3ce7e34110aba4cf --> The runner's self-delete was refused on 2026-08-27
   and fell back to `shutdown -h now`, which is why a 150 GB disk kept billing
   overnight. Diagnose the refusal (`startup-script.sh.tftpl:79-81`, the
   `runner_self_delete` IAM member) and make self-delete actually work — it
   takes the driver off the cost-safety path entirely. T2: bounded IAM/startup
   diagnosis with the failure already localized.
 
-- [T2] [aws-driver-port] Port durable log, run manifest, `--resume`/`--detach`
+- [wip T2] [aws-driver-port] <!-- agent:ab101f501d1a5b73f --> Port durable log, run manifest, `--resume`/`--detach`
   and the `jq` preflight declaration to the AWS sibling
   `scripts/run-remote-experiment.sh`, which has the identical shape and
   identical exposure. T2: the pattern is designed and tested; this is its
