@@ -33,13 +33,6 @@ Check conformance with `task todo:lint`.
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
 
-- [wip T2] [runner-log-survival] <!-- agent:aa3a86ccad6b9ca8b --> The scale14 startup/llama logs died with the
-  bucket; a future incident shouldn't be diagnosed by code inspection alone.
-  Make runner logs survive independent of the bucket's 7-day lifecycle —
-  e.g. driver fetches logs on every exit path incl. resume, or a separate
-  retention prefix. T2: one seam in driver/startup script, design settled by
-  the incident.
-
 ## Watch
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
@@ -71,6 +64,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [runner-log-survival] 120 s heartbeat upload in the startup template (per-arm retarget in runlist mode); driver fetch side already covered every exit path; guard green on the final combination.
 - ✅ 2026-08-27 — [render-values-derive] Variable coverage now derived from `variables.tf` (stdlib parser) + loud-failure OVERRIDES; unknown-var and new-defaulted-var cases simulated; both guards green.
 - ✅ 2026-08-27 — [legib-compare] `legibility_compare.py` + shared `legibility_endpoints.py` predicate (power script refactored, output byte-identical); §6 exit codes tested across all rows; 956 green.
 - ✅ 2026-08-27 — [legib-stub] `legibility_stub_check.py`: regression + C2 inertness + config-diff + scripted cells all PASS, pasted into the plan; GPU gate open. Suite 947 green.
