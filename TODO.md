@@ -27,11 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T5] [bucket-restore] Recreate `loom-diversity-artifacts` (destroyed by the
-  driver-fix agent's early harness draft — plan §7). Terraform plan is reviewed:
-  3 to add, 0 to change, 0 to destroy; the apply was blocked by the permission
-  classifier and needs Will's go. T5: one inline apply, gated on a human.
-
 - [wip T2] [legib-seam] <!-- agent:a1eefd3dcad59d87e --> Land `narrowing_note_render: surface|repr` — the
   `contextvars` seam in `typecheck.py` + `Config` + runner wiring, per
   [plan](docs/plans/2026-08-27-feedback-legibility-arm.md) §3 deliverable 1.
@@ -106,6 +101,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [bucket-restore] `loom-diversity-artifacts` recreated from the reviewed plan: 3 added (bucket + 2 IAM members), 0 changed, 0 destroyed; state back to 6 resources. Unblocks [legib-run]'s upload path.
 - ✅ 2026-08-27 — [feedback-legibility-arm] Pre-registered the repr-fix isolation arm: 2 concurrent arms via a render seam, L1 repair-locality primary (MDE RR 1.20 @ 64 cells), $4.55 ceiling; banked baseline kept as anchor only. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
 - ✅ 2026-08-27 — [driver-fetch-loss] Root cause proven from the journal: host suspended mid-poll and lost power, no signal ever reached the trap. Driver gains durable log, manifest, `--resume`/`--fetch-only`/`--detach`; 24-check offline guard. Commit 7df1f93.
 - ✅ 2026-08-27 — [scale14-run] Both blocks ran (Spot preempted at once, on-demand fallback, ≈$3.97 of $4.50): no block clears E1, E2 NOT CLEAR, §6 row 3 fired — scale track stops, 32B unlicensed. See [report](docs/results/2026-08-27-model-scale-arm-report.md).
