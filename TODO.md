@@ -27,12 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T1] [scale14-fetch] Fetch + verify the 14B GGUF (8,988,110,272 bytes) and
-  assert `vocab_size == 152064` against the banked 7B telemetry — the mask is
-  built over the vocabulary, so this is the compatibility gate for the whole
-  arm. Deliverable 1 of [plan](docs/plans/2026-08-27-model-scale-arm.md).
-
-- [T5] [scale14-run] The 14B arm itself: 2 blocks x 16 cells, Spot first with
+- [wip T5] [scale14-run] The 14B arm itself: 2 blocks x 16 cells, Spot first with
   on-demand fallback, budget ceiling $4.50. Gated on the three items above and
   an explicit launch go. E1/E2/S1 decide whether the 32B arm is worth an A100
   quota request. Report per plan D7.
@@ -94,6 +89,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [scale14-fetch] 14B GGUF fetched (8,988,110,272 bytes, exact) and the compatibility gate PASSES: banked telemetry, 7B and 14B all report n_vocab 152,064, so the mask indexes the same space. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [scale14-compare] `scale_compare.py` (§6 rows executed, exit codes) + `scale14_power.py`; measured S1 power at a doubled rate = 0.54, which corrected the plan's §2.1 claim and re-keyed §6 row 2 to a descriptive threshold. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [scale14-configs] Two configs + runlist as byte-copies (one line differs each), validated; CPU stub gate re-run unchanged, 12/12 PASS, pasted into the plan with check 1d's coverage gap stated. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [elicit-pilot-run] Stage 0 ran, 4/4 arms SUCCEEDED: no block clears E1 (best 3.47% vs 10% bar), 31 fill draws 0 spliced; §6 row 1 — Stage 1 not launched, $4.55 unspent. See [report](docs/results/2026-08-27-hole-elicitation-pilot-report.md).
