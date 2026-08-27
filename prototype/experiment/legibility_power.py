@@ -51,12 +51,13 @@ prints a table. No GPU, no store, no network.
 
 from __future__ import annotations
 
-import collections
 import json
 import pathlib
 
 import numpy as np
 from scipy import optimize, special, stats
+
+from .legibility_endpoints import per_cell_counts
 
 SEED = 0
 
@@ -78,56 +79,26 @@ N_PERMS = 999
 # Endpoint extraction from the banked records
 # --------------------------------------------------------------------------
 
-def _segments(path: str | None) -> list[str]:
-    return [] if not path else path.split(".")
-
-
 def banked_endpoints(runs_dir: pathlib.Path) -> dict[str, tuple]:
     """Per-cell (draws, hits) for each endpoint, off the banked control arm.
 
     L1's denominator is narrowed draws whose predecessor was rejected (the
     draws that actually carry a note); L2's is every charged draw, which is
-    what the 53/772 baseline counts.
+    what the 53/772 baseline counts. The cell-grouping walk and the L1
+    predicate both live in `legibility_endpoints.py`, imported rather than
+    restated, so `legibility_compare.py` reads the identical definition.
     """
     path = runs_dir / BANKED_RUN / "records.jsonl"
-    by_cell: dict[tuple[str, int], list[dict]] = collections.defaultdict(list)
     with path.open() as handle:
-        for line in handle:
-            row = json.loads(line)
-            by_cell[(row["task"], row["seed"])].append(row)
-
-    l1: dict[tuple[str, int], list[int]] = collections.defaultdict(
-        lambda: [0, 0])
-    l2: dict[tuple[str, int], list[int]] = collections.defaultdict(
-        lambda: [0, 0])
-    for cell, rows in by_cell.items():
-        rows.sort(key=lambda r: r["round"])
-        for index, row in enumerate(rows):
-            l2[cell][0] += 1
-            if row["funnel_outcome"] == "accepted":
-                l2[cell][1] += 1
-            if index == 0 or row.get("narrowed") is not True:
-                continue
-            previous = rows[index - 1]
-            if previous["funnel_outcome"] == "accepted":
-                continue
-            noted = _segments(previous.get("error_path"))
-            landed = _segments(row.get("error_path"))
-            shared = 0
-            for left, right in zip(noted, landed):
-                if left != right:
-                    break
-                shared += 1
-            l1[cell][0] += 1
-            if row["funnel_outcome"] == "accepted" or shared >= len(noted):
-                l1[cell][1] += 1
+        records = [json.loads(line) for line in handle]
+    counts = per_cell_counts(records)
 
     def pack(table):
         ns = np.array([v[0] for v in table.values()], dtype=np.int64)
         ks = np.array([v[1] for v in table.values()], dtype=np.int64)
         return ns, ks
 
-    return {"L1": pack(l1), "L2": pack(l2)}
+    return {"L1": pack(counts["L1"]), "L2": pack(counts["L2"])}
 
 
 # --------------------------------------------------------------------------
