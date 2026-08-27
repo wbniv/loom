@@ -37,13 +37,13 @@ Check conformance with `task todo:lint`.
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
 
-- [T2] [render-values-derive] `render-gcp-startup-script.py`'s representative-
+- [wip T2] [render-values-derive] <!-- agent:a923d5e231b11289b --> `render-gcp-startup-script.py`'s representative-
   values dict is hand-maintained and went stale (missing `runlist_key` blocked
   the self-delete guard from rendering). Derive it from `variables.tf` defaults
   so a new template var can't go stale silently. T2: one script, clear goal,
   parsing judgment.
 
-- [T2] [runner-log-survival] The scale14 startup/llama logs died with the
+- [wip T2] [runner-log-survival] <!-- agent:aa3a86ccad6b9ca8b --> The scale14 startup/llama logs died with the
   bucket; a future incident shouldn't be diagnosed by code inspection alone.
   Make runner logs survive independent of the bucket's 7-day lifecycle —
   e.g. driver fetches logs on every exit path incl. resume, or a separate
