@@ -255,4 +255,7 @@ condition that would unpark it._
 _Auto-added from plan "Out of scope"/"Deferred" sections at commit time. Triage each into M1/M2/etc. and delete it here — it will not come back._
 
 <!-- BEGIN auto-captured-deferrals (managed by audit-plan-deferrals.sh — triage these into the curated sections above; the fingerprint ledger means a deleted item is NOT re-added) -->
+- [ ] **(triage)** The runner's self‑delete was refused on 2026‑08‑27 and it fell back to `shutdown -h now` — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:fafddf594b0918ee -->
+- [ ] **(triage)** `jq` is a hard dependency of runlist mode but is absent from the `command -v` preflight — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:9e86125dde048fbe -->
+- [ ] **(triage)** The AWS sibling `scripts/run-remote-experiment.sh` has the same — _from [2026-08-27-driver-survivability-and-resume.md](docs/plans/2026-08-27-driver-survivability-and-resume.md)_  <!-- fp:77b2302635f53f90 -->
 <!-- END auto-captured-deferrals -->
