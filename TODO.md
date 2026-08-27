@@ -27,29 +27,9 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T5] [scale14-run] The 14B arm itself: 2 blocks x 16 cells, Spot first with
-  on-demand fallback, budget ceiling $4.50. Gated on the three items above and
-  an explicit launch go. E1/E2/S1 decide whether the 32B arm is worth an A100
-  quota request. Report per plan D7.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+_Nothing open. The next candidate is the feedback-legibility lever in Watch —
+the model-scale arm's §6 row 3 hands the track back to it; it needs a tier
+before it can be dispatched._
 
 ## Watch
 
@@ -89,6 +69,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [scale14-run] Both blocks ran (Spot preempted at once, on-demand fallback, ≈$3.97 of $4.50): no block clears E1, E2 NOT CLEAR, §6 row 3 fired — scale track stops, 32B unlicensed. See [report](docs/results/2026-08-27-model-scale-arm-report.md).
 - ✅ 2026-08-27 — [scale14-fetch] 14B GGUF fetched (8,988,110,272 bytes, exact) and the compatibility gate PASSES: banked telemetry, 7B and 14B all report n_vocab 152,064, so the mask indexes the same space. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [scale14-compare] `scale_compare.py` (§6 rows executed, exit codes) + `scale14_power.py`; measured S1 power at a doubled rate = 0.54, which corrected the plan's §2.1 claim and re-keyed §6 row 2 to a descriptive threshold. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [scale14-configs] Two configs + runlist as byte-copies (one line differs each), validated; CPU stub gate re-run unchanged, 12/12 PASS, pasted into the plan with check 1d's coverage gap stated. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
