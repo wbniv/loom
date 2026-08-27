@@ -45,12 +45,47 @@ LOG=/var/log/loom-experiment.log
 SERVER_LOG=/var/log/llama-server.log
 STATUS=FAILED
 
+# Which bucket prefix the log heartbeat below is currently uploading to:
+# $RUN_ID for a single run or the aggregate end of a runlist, and the current
+# arm's own run_id while run_arm() is executing one. A plain file rather than
+# a variable because the heartbeat runs in a background process and would
+# only ever see the value this script had at the moment it forked.
+mkdir -p "$WORK"
+CURRENT_LOG_TARGET="$WORK/current-log-target.txt"
+printf '%s\n' "$RUN_ID" > "$CURRENT_LOG_TARGET"
+HEARTBEAT_INTERVAL_SECONDS=120
+
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# finish()'s own log upload only runs if the script gets an EXIT trap at all —
+# SIGKILL and host death skip it (measured in
+# docs/plans/2026-08-27-driver-survivability-and-resume.md), and it is the
+# instance dying that this heartbeat is for: the 2026-08-27 scale14 run's logs
+# lived only in the bucket's 7-day-lifecycle results prefix because they were
+# never uploaded until the very end. Uploading periodically, independent of
+# whether the run ever reaches finish(), means a dead instance still leaves a
+# log behind — best-effort, so its own failure never fails the run.
+log_heartbeat() {
+  local target
+  while sleep "$HEARTBEAT_INTERVAL_SECONDS"; do
+    target="$(cat "$CURRENT_LOG_TARGET" 2>/dev/null || echo "$RUN_ID")"
+    gsutil -q cp "$LOG" "gs://$BUCKET/results/$target/logs/startup-script.log" 2>/dev/null || true
+    if [ -f "$SERVER_LOG" ]; then
+      gsutil -q cp "$SERVER_LOG" "gs://$BUCKET/results/$target/logs/llama-server.log" 2>/dev/null || true
+    fi
+  done
+}
+log_heartbeat &
+HEARTBEAT_PID=$!
 
 finish() {
   local code=$?
   set +e
   log "finish: exit code $code, status $STATUS"
+
+  # Stop the heartbeat so it can't race the final upload below.
+  kill "$HEARTBEAT_PID" 2>/dev/null || true
+  wait "$HEARTBEAT_PID" 2>/dev/null || true
 
   # Results first, then the logs, then the marker. The driver only reads the
   # marker once the objects it names are already in place.
@@ -141,6 +176,10 @@ log "model: $MODEL_PATH"
 # function; one path is battle-tested, the other is new).
 run_arm() {
   local cfg_key="$1" out_dir="$2" arm_id="$3" arm_status=FAILED
+  # Point the log heartbeat at this arm's own prefix for the duration — a mid-
+  # arm death then leaves a partial log under the arm that was actually
+  # running, not stale under whichever arm ran before it.
+  printf '%s\n' "$arm_id" > "$CURRENT_LOG_TARGET"
   log "arm $arm_id: fetching config $cfg_key"
   if ! gsutil -q cp "gs://$BUCKET/$cfg_key" "$WORK/arm.config.json"; then
     log "arm $arm_id: config fetch failed"
@@ -179,6 +218,10 @@ PY
   gsutil -q cp "$LOG" "gs://$BUCKET/results/$arm_id/logs/startup-script.log" || true
   printf '%s\n' "$arm_status" | gsutil -q cp - "gs://$BUCKET/status/$arm_id.txt" || true
   log "arm $arm_id: $arm_status"
+  # This arm's own log is already uploaded above; point the heartbeat back at
+  # the aggregate target so a death in the gap before the next arm starts
+  # doesn't keep writing to a prefix that just finished.
+  printf '%s\n' "$RUN_ID" > "$CURRENT_LOG_TARGET"
   [ "$arm_status" = SUCCEEDED ]
 }
 
