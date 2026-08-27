@@ -1,11 +1,17 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/6883a2b) | Hole-elicitation Stage 0 pilot: no block clears E1, Stage 1 not launched |
 | [2026-08-26](https://github.com/wbniv/loom/commit/cd30c1e) | Hole-elicitation deliverable 6: the stub-backend gate on GPU spend |
 | [2026-08-26](https://github.com/wbniv/loom/commit/154c863) | B3 review notes: STEP fix-body correction (immaterial to §1, replay-verified) + arm-rewrite cut-site note |
 | [2026-08-26](https://github.com/wbniv/loom/commit/2519e72) | Probe: size B3 and the feedback-legibility defect from the same column |
 | [2026-08-26](https://github.com/wbniv/loom/commit/e0073bd) | Design: hole-elicitation re-run, pre-registered as a new plan |
 
 <!--history-meta v1
+6883a2b	author	Will Norris
+6883a2b	added	31
+6883a2b	deleted	0
+6883a2b	files	1
+6883a2b	body	All four arms SUCCEEDED (4 blocks x 16 cells). pilot_select.py exits 2:\nthe best block, hole-required (B2), reaches a 3.47% Wilson lower bound\nagainst the pre-registered 10% bar. Section 6 row 1 fires -- hole-directed\ndecomposition is not elicitable at this model scale under prompt (B1) or\nfeedback (B2) pressure. Stage 1 is not launched and $4.55 is not spent.\n\nE2 is vacuous rather than merely unmet: 31 fill draws attempted across\nthe pilot, none spliced (29 fill-rejected, 2 splice-error), so the\nassembly stage E2 evaluates was never reached and section 1.2's blame\ntest has an empty population under treatment.\n\nB2's demand note did move hole production -- 42 notes, 2.7x the reference\nholes-per-candidate, fill draws 3 -> 10 -- but holes_per_accepted_skeleton\nis 0.0: every induced hole landed in a draft the funnel rejected.\n\nDeliverable 9 report plus a section 10 addendum on the plan, which also\nfiles the section 4.8 deviation: two Spot attempts found no preemptible\nL4 capacity in us-central1-a, so the run went on-demand at ~$3.45 against\nthe pre-registered ~$1.30. Cost only, not validity -- same hardware string\nand model identity, no section 4.2 quantity touched. Instance self-deleted;\nteardown verified by direct listing.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AsFhorikXSngWTna5Hw2Bz
 cd30c1e	author	Will Norris
 cd30c1e	added	300
 cd30c1e	deleted	0

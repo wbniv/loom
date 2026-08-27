@@ -1160,9 +1160,11 @@ Three things this file said in advance, checked against what happened:
 
 ### Deviation filed under §4.8 — Spot → on-demand, ≈ $3.45 against ≈ $1.30
 
-Two launch attempts (21:20:30Z, 23:47:05Z) applied cleanly but returned
-`instance_name = ""` — no preemptible L4 capacity in us‑central1‑a. The third
-(23:52:42Z) used `--on-demand` and got an instance. Cost was ≈ $3.45 rather than the
-pre-registered ≈ $1.30, at $0.85/h for ≈ 4.0 h. **Cost only, not validity**: same
-`g2-standard-4 L4 24GB` hardware string, same model identity, no §4.2 quantity
-touched. Filed here as well as in the deliverable-9 report, per §4.8.
+Two Spot attempts (21:20:30Z, 23:47:05Z) were **preempted 29 min and 3 min after
+creation**, before either reached arm work — evening us‑central1‑a, the 2026‑08‑23
+pattern. The pre-committed fallback then ran the whole pilot on-demand and
+non-preemptible from 23:52:42Z. Cost was ≈ $3.74 rather than the pre-registered
+≈ $1.30: ≈ $0.15 for the two preempted attempts plus ≈ $3.57 for ≈ 4.2 h at
+$0.85/h. **Cost only, not validity**: same `g2-standard-4 L4 24GB` hardware string,
+same model identity, no §4.2 quantity touched. The deliverable-9 report's cost
+table is authoritative; this is the §4.8 filing pointing at it.
