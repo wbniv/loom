@@ -27,18 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] [legib-seam] <!-- agent:a1eefd3dcad59d87e --> Land `narrowing_note_render: surface|repr` — the
-  `contextvars` seam in `typecheck.py` + `Config` + runner wiring, per
-  [plan](docs/plans/2026-08-27-feedback-legibility-arm.md) §3 deliverable 1.
-  T2: one seam, exact spec in the plan.
-
-- [wip T2] [legib-replay] <!-- agent:a1eefd3dcad59d87e --> Extend 8ed72cd's replay harness: 2,159 banked rejected
-  draws reproduce **byte-identically** under `repr`, and `surface` shows 0%
-  leak with unchanged classification. This gates the arm (plan §7: no
-  byte-identity, no launch). T2: bounded, but the byte-identity bar is the
-  whole job — escalate on any diff rather than explaining one away.
-
-- [T1] [legib-configs] `legib_legible.config.json`, `legib_repr.config.json`,
+- [wip T1] [legib-configs] <!-- agent:af4660e146603f5f4 --> `legib_legible.config.json`, `legib_repr.config.json`,
   `legibility-runlist.json` as byte-copies of `decomp-redraft` (only
   `output_dir` + the new field differ), plus `test_legibility_arm.py` pinning
   them by difference. T1: the recipe is established (test_scale_arm.py).
@@ -47,7 +36,7 @@ Check conformance with `task todo:lint`.
   exit codes per plan §6, sharing L1's predicate with `legibility_power.py`
   rather than carrying a second copy. T2: one script, spec settled.
 
-- [T2] [legib-stub] Stub gate: `hole_elicitation_stub_check.py` regression
+- [wip T2] [legib-stub] <!-- agent:af4660e146603f5f4 --> Stub gate: `hole_elicitation_stub_check.py` regression
   re-run + C2 (`whole`-protocol inertness proved on CPU) + config-difference
   checks; paste output into the plan. Gates GPU spend. T2.
 
@@ -56,10 +45,6 @@ Check conformance with `task todo:lint`.
   arms). Gated on legib-replay + legib-stub and an explicit launch go — and on
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
-
-- [T1] [selfdelete-taskfile] Wire `scripts/tests/test-runner-self-delete.sh` into
-  `Taskfile.yml`. Held until [aws-driver-port] lands — that agent is editing
-  Taskfile.yml concurrently. T1: one task entry, recipe established.
 
 - [T2] [render-values-derive] `render-gcp-startup-script.py`'s representative-
   values dict is hand-maintained and went stale (missing `runlist_key` blocked
@@ -73,12 +58,6 @@ Check conformance with `task todo:lint`.
   e.g. driver fetches logs on every exit path incl. resume, or a separate
   retention prefix. T2: one seam in driver/startup script, design settled by
   the incident.
-
-- [wip T2] [aws-driver-port] <!-- agent:ab101f501d1a5b73f --> Port durable log, run manifest, `--resume`/`--detach`
-  and the `jq` preflight declaration to the AWS sibling
-  `scripts/run-remote-experiment.sh`, which has the identical shape and
-  identical exposure. T2: the pattern is designed and tested; this is its
-  second instantiation in one file.
 
 ## Watch
 
@@ -111,6 +90,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [selfdelete-taskfile] `task infra:test-self-delete` wired, absorbed inline with the AWS-port commit.
+- ✅ 2026-08-27 — [aws-driver-port] Durable log, manifest, `--resume`/`--fetch-only`/`--detach`, marker-gated teardown + grace poll ported to the AWS driver; 5-block offline guard passes; no self-delete drift analogue on AWS. Commit pending in same tree.
+- ✅ 2026-08-27 — [legib-replay] Gate clears: 2,159/2,159 banked draws byte-identical under `repr`, 0.00% leak / 0 reclassifications under `surface`; raw output pasted into the plan. Commit 5a4d622.
+- ✅ 2026-08-27 — [legib-seam] `narrowing_note_render: surface|repr` contextvars seam in typecheck + Config + per-cell set-site; default pinned byte-identical; suite 943 green. Commit 5a4d622.
 - ✅ 2026-08-27 — [runner-self-delete] Proven: template got unsuffixed `instance_name` while instance+IAM used `local.instance_name` — every suffixed root's delete hit a nonexistent name. 1-line fix in the shared module + mocked-provider drift guard, fail-then-pass. See [plan](docs/plans/2026-08-27-runner-self-delete.md).
 - ✅ 2026-08-27 — [bucket-restore] `loom-diversity-artifacts` recreated from the reviewed plan: 3 added (bucket + 2 IAM members), 0 changed, 0 destroyed; state back to 6 resources. Unblocks [legib-run]'s upload path.
 - ✅ 2026-08-27 — [feedback-legibility-arm] Pre-registered the repr-fix isolation arm: 2 concurrent arms via a render seam, L1 repair-locality primary (MDE RR 1.20 @ 64 cells), $4.55 ceiling; banked baseline kept as anchor only. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).

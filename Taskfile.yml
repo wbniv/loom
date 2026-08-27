@@ -52,6 +52,17 @@ tasks:
     cmds:
       - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
 
+  experiment:remote:resume:
+    desc: "Re-enter an AWS run whose driver died: fetch its results and tear the instance down (pass -- --resume-from prototype/runs/logs/driver-<tag>.json --fetch-only)"
+    deps: [setup]
+    cmds:
+      - bash scripts/run-remote-experiment.sh {{.CLI_ARGS}}
+
+  experiment:remote:test:
+    desc: "Offline regression guard for the AWS remote driver's kill/resume path (no AWS, no network)"
+    cmds:
+      - bash scripts/tests/test-driver-resume-aws.sh
+
   experiment:remote-gcp:
     desc: Run Phase A on a rented g2-standard-4 (L4) in us-central1 and bring runs/ back (~$0.60)
     deps: [setup]
@@ -68,6 +79,11 @@ tasks:
     desc: "Offline regression guard for the remote driver's kill/resume path (no GCP, no network)"
     cmds:
       - bash scripts/tests/test-driver-resume.sh
+
+  infra:test-self-delete:
+    desc: "Offline guard: the runner instance and its own startup script's INSTANCE_NAME cannot drift apart (mocked provider, no GCP)"
+    cmds:
+      - bash scripts/tests/test-runner-self-delete.sh
 
   infra:destroy-diversity:
     desc: "Destroy the diversity-harvest root completely (safe: it shares no resource with any other run)"
