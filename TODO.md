@@ -27,18 +27,9 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T1] [legib-configs] <!-- agent:af4660e146603f5f4 --> `legib_legible.config.json`, `legib_repr.config.json`,
-  `legibility-runlist.json` as byte-copies of `decomp-redraft` (only
-  `output_dir` + the new field differ), plus `test_legibility_arm.py` pinning
-  them by difference. T1: the recipe is established (test_scale_arm.py).
-
 - [wip T2] [legib-compare] <!-- agent:ae3006110e2588068 --> `experiment/legibility_compare.py` — L1/L2/C1 verdicts,
   exit codes per plan §6, sharing L1's predicate with `legibility_power.py`
   rather than carrying a second copy. T2: one script, spec settled.
-
-- [wip T2] [legib-stub] <!-- agent:af4660e146603f5f4 --> Stub gate: `hole_elicitation_stub_check.py` regression
-  re-run + C2 (`whole`-protocol inertness proved on CPU) + config-difference
-  checks; paste output into the plan. Gates GPU spend. T2.
 
 - [T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
   first, ceiling $4.55, pre-committed degradation to 40 cells/arm (never fewer
@@ -90,6 +81,8 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [legib-stub] `legibility_stub_check.py`: regression + C2 inertness + config-diff + scripted cells all PASS, pasted into the plan; GPU gate open. Suite 947 green.
+- ✅ 2026-08-27 — [legib-configs] Both arm configs + runlist as byte-copies (2 fields differ), pinned by difference in `test_legibility_arm.py`; AddressBook allowlist updated per 5f697dc precedent.
 - ✅ 2026-08-27 — [selfdelete-taskfile] `task infra:test-self-delete` wired, absorbed inline with the AWS-port commit.
 - ✅ 2026-08-27 — [aws-driver-port] Durable log, manifest, `--resume`/`--fetch-only`/`--detach`, marker-gated teardown + grace poll ported to the AWS driver; 5-block offline guard passes; no self-delete drift analogue on AWS. Commit pending in same tree.
 - ✅ 2026-08-27 — [legib-replay] Gate clears: 2,159/2,159 banked draws byte-identical under `repr`, 0.00% leak / 0 reclassifications under `surface`; raw output pasted into the plan. Commit 5a4d622.
