@@ -41,7 +41,7 @@ Check conformance with `task todo:lint`.
 
 
 
-- [T3] [elicit-pilot-run] Stage 0 pilot: 4 blocks × 16 cells, ≈$1.30, gated on
+- [wip T5] [elicit-pilot-run] Stage 0 pilot: 4 blocks × 16 cells, ≈$1.30, gated on
   [elicit-stub] + explicit launch go; E1 (fill-reaching ≥10% Wilson-lower) and
   E2 (≥1 four-layer assembly) decide Stage 1 (96 cells, ≈$4.55, separate go).
   Report per plan D9.
