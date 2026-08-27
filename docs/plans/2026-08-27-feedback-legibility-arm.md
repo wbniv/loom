@@ -348,6 +348,67 @@ section, named as a deviation, before the verdict.
    `decomp-redraft.config.json` by `output_dir` and `narrowing_note_render` only, and a
    scripted stub driving one cell of each arm. Output pasted into this file before
    launch. *(T2.)*
+
+    **Output.** `experiment/legibility_stub_check.py`
+    (`python3 -m experiment.legibility_stub_check`, from `prototype/`):
+
+    ```
+    ### Check 1 — hole_elicitation_stub_check.py, re-run unchanged (regression)
+
+      exit code: 0
+      ### Deliverable 6 verdict: ALL CHECKS PASS — the GPU gate is open
+
+      result: PASS
+
+    ### Check 2 — C2: protocol invariance (`whole` is inert to the render seam)
+
+      _narrows(protocol='whole'    condition='gbnf'          ) = False (expected False)  ok
+      _narrows(protocol='whole'    condition='gbnf+typemask' ) = False (expected False)  ok
+      _narrows(protocol='whole'    condition='gbnf+rejection') = True  (expected True )  ok
+      _narrows(protocol='redraft'  condition='gbnf'          ) = True  (expected True )  ok
+      _narrows(protocol='redraft'  condition='gbnf+typemask' ) = True  (expected True )  ok
+      _narrows(protocol='holes'    condition='gbnf'          ) = True  (expected True )  ok
+      render=surface draws=2  funnel_outcomes=['typecheck', 'typecheck']
+      render=repr    draws=2  funnel_outcomes=['typecheck', 'typecheck']
+      whole-protocol prompts, surface vs repr: byte-identical
+
+      result: PASS
+
+    ### Check 3 — the two arm configs vs decomp-redraft.config.json (§3 deliverable 4)
+
+      decomp-redraft.config.json carries no narrowing_note_render key: True
+      legib_legible.config.json    only-two-fields-differ=True  output_dir='runs/legib-legible'  narrowing_note_render='surface'  validates=True  ok
+      legib_repr.config.json       only-two-fields-differ=True  output_dir='runs/legib-repr'  narrowing_note_render='repr'  validates=True  ok
+
+      result: PASS
+
+    ### Check 4 — a scripted stub drives one cell of each shipped arm config
+
+      note: driven at condition `gbnf` (the mask needs a real vocabulary) with the
+            draw cap overridden to 2 and the backend replaced with a stub; every
+            other field — including `narrowing_note_render` — is the arm's own
+            shipped config, loaded from disk rather than reconstructed.
+
+      legib-legible  narrowing_note_render=surface draws=2 outcomes=['typecheck', 'typecheck'] round-1-prompt-leaks-repr=False (expected False)  ok
+      legib-repr     narrowing_note_render=repr    draws=2 outcomes=['typecheck', 'typecheck'] round-1-prompt-leaks-repr=True (expected True)  ok
+      classification invariance (C3), across arms: match — {'legib-legible': ['typecheck', 'typecheck'], 'legib-repr': ['typecheck', 'typecheck']}
+
+      result: PASS
+
+    ### Deliverable 3 verdict: ALL CHECKS PASS — the GPU gate is open
+    ```
+
+    **Verdict: gate clears.** The regression check re-ran `hole_elicitation_stub_check.py`
+    unchanged and it still passes, so nothing this arm's seam touched broke that gate. C2
+    holds both by construction (`_narrows` is `False` for `whole` under every condition but
+    `gbnf+rejection`, unconditionally `True` for `redraft`/`holes`) and empirically (a
+    scripted `whole` cell produces byte-identical prompts under both renders). The two
+    shipped configs differ from `decomp-redraft.config.json` by exactly `output_dir` and
+    `narrowing_note_render`, and both validate. A scripted stub driving one cell of each
+    shipped config classifies the same rejected draft identically (C3, at the config level)
+    while the note fed into the next draw's prompt leaks the repr artefact only under
+    `legib-repr`, never under `legib-legible` — each arm's own file behaves exactly as its
+    row in §2.1's table says. The gate is open.
 4. **`legib_legible.config.json`, `legib_repr.config.json`,
    `legibility-runlist.json`** — byte-copies of `decomp-redraft.config.json` with only
    `output_dir` and `narrowing_note_render` changed. Model identity and backend seam are

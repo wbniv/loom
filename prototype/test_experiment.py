@@ -341,6 +341,12 @@ class AddressBookTest(unittest.TestCase):
         # here would be a second changed variable.
         "scale14_b0.config.json": "full",
         "scale14_b2.config.json": "full",
+        # docs/plans/2026-08-27-feedback-legibility-arm.md §3 deliverable 4:
+        # byte-copies of decomp-redraft.config.json, address_book unchanged
+        # at "full" — the arm holds every field but narrowing_note_render
+        # fixed, so a different book here would be a second changed variable.
+        "legib_legible.config.json": "full",
+        "legib_repr.config.json": "full",
     }
 
     def test_every_shipped_config_declares_its_registered_arm(self):

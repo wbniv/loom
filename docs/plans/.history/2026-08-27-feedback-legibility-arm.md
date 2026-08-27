@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-27](https://github.com/wbniv/loom/commit/5a4d622) | Legibility seam landed; replay gate clears at 2,159/2,159 |
 | [2026-08-27](https://github.com/wbniv/loom/commit/b072b6e) | Pre-register the feedback-legibility arm; triage the driver follow-ups |
 
 <!--history-meta v1
+5a4d622	author	Will Norris
+5a4d622	added	39
+5a4d622	deleted	0
+5a4d622	files	1
+5a4d622	body	narrowing_note_render: surface|repr as a contextvars seam in typecheck's\n_render/_render_row — "repr" reproduces what all nine _fail sites did\nbefore 8ed72cd, "surface" is byte-identical to today's path when unset.\nConfig field, validation and per-cell set-site in the runner.\n\nThe launch gate (plan §3 deliverable 2): all 2,159 banked rejected draws\n(734 whole + 719 redraft + 706 holes) reproduce their pre-fix\nerror_message byte-identically under "repr", 0.00% leak and 0\nclassification changes under "surface". Raw output pasted into the plan.\nSuite 943 green; the gate tests re-run independently before this commit.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013ycMbBKz71NDfdtCACWEub
 b072b6e	author	Will Norris
 b072b6e	added	452
 b072b6e	deleted	0

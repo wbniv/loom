@@ -1,0 +1,12 @@
+[
+  {
+    "config_key": "config/legib_legible.config.json",
+    "output_dir": "runs/legib-legible",
+    "run_id": "legib-legible"
+  },
+  {
+    "config_key": "config/legib_repr.config.json",
+    "output_dir": "runs/legib-repr",
+    "run_id": "legib-repr"
+  }
+]
