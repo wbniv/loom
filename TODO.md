@@ -33,12 +33,6 @@ Check conformance with `task todo:lint`.
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
 
-- [wip T2] [render-values-derive] <!-- agent:a923d5e231b11289b --> `render-gcp-startup-script.py`'s representative-
-  values dict is hand-maintained and went stale (missing `runlist_key` blocked
-  the self-delete guard from rendering). Derive it from `variables.tf` defaults
-  so a new template var can't go stale silently. T2: one script, clear goal,
-  parsing judgment.
-
 - [wip T2] [runner-log-survival] <!-- agent:aa3a86ccad6b9ca8b --> The scale14 startup/llama logs died with the
   bucket; a future incident shouldn't be diagnosed by code inspection alone.
   Make runner logs survive independent of the bucket's 7-day lifecycle —
@@ -77,6 +71,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [render-values-derive] Variable coverage now derived from `variables.tf` (stdlib parser) + loud-failure OVERRIDES; unknown-var and new-defaulted-var cases simulated; both guards green.
 - ✅ 2026-08-27 — [legib-compare] `legibility_compare.py` + shared `legibility_endpoints.py` predicate (power script refactored, output byte-identical); §6 exit codes tested across all rows; 956 green.
 - ✅ 2026-08-27 — [legib-stub] `legibility_stub_check.py`: regression + C2 inertness + config-diff + scripted cells all PASS, pasted into the plan; GPU gate open. Suite 947 green.
 - ✅ 2026-08-27 — [legib-configs] Both arm configs + runlist as byte-copies (2 fields differ), pinned by difference in `test_legibility_arm.py`; AddressBook allowlist updated per 5f697dc precedent.
