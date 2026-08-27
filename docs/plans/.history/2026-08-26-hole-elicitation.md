@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-26](https://github.com/wbniv/loom/commit/cd30c1e) | Hole-elicitation deliverable 6: the stub-backend gate on GPU spend |
 | [2026-08-26](https://github.com/wbniv/loom/commit/154c863) | B3 review notes: STEP fix-body correction (immaterial to §1, replay-verified) + arm-rewrite cut-site note |
 | [2026-08-26](https://github.com/wbniv/loom/commit/2519e72) | Probe: size B3 and the feedback-legibility defect from the same column |
 | [2026-08-26](https://github.com/wbniv/loom/commit/e0073bd) | Design: hole-elicitation re-run, pre-registered as a new plan |
 
 <!--history-meta v1
+cd30c1e	author	Will Norris
+cd30c1e	added	300
+cd30c1e	deleted	0
+cd30c1e	files	1
+cd30c1e	body	§4.7's checks on CPU, run and pasted back into the plan. Exit 0, every\ncheck PASS, so the gate is open and the pilot may launch.\n\nTwelve checks in one script, driving landed functions only:\n\n  1a  the four pilot arms differ from `whole` only by their block —\n      byte-level for B0/B1 (prompt-side), byte-identical for B2/B3\n      (runner-side mechanisms `prompts.py` does not implement)\n  1b  `closed_subtask_type` still reads `declared_type_of(draft)` —\n      pinned by signature AND by the runner's single call site\n  1c  no gold surface and no unseen hash in any block; the exemplar\n      block introduces zero new store content\n  1d  the seven shipped configs field by field, `pruners` pinned (§9),\n      and the Stage-1 `holes` config's `hole_block` still in its\n      PLACEHOLDER state — nothing has selected yet\n  2   blindness by signature on every surface this plan added\n  5   context, all seven configs; B1's block costs 566 tokens (+3.1 %)\n  6   no gold leak over four blocks x 8 tasks, skeleton and fill\n  7   a scripted stub cell per pilot arm: the §2.1 four-layer gate one\n      layer at a time (parse/references/scope block, typecheck admits),\n      a *rejected* bare hole refused now that the `funnel.accepted`\n      conjunct is gone, the relaxed round capped at one fill draw, B2's\n      note appearing inside its window and reverting after, B3's cut\n  7e  E1/E2 through `pilot_select`'s own functions, plus every branch of\n      §4.2's selection rule over constructed stats\n  9   both §2.2 exemplars round-trip byte-identically to their fixture\n  10  `hole_at_error` over all 1,851 banked typecheck-rejected drafts,\n      through the probe's `check_ten_verdict` — imported, not restated\n  11  §1's pasted numbers still reproduce from the banked records\n\nChecks 2, 5 and 6 run in extended form only; the 2026-08-25 §4.8\nversions are cited per §4.7 and stand unchanged. Check 11 is beyond\n§4.7's list, because that citation is only as good as §1's premises.\n\nSuite: 928 tests, OK (skipped=9) — unchanged.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01AqWeKNNAVguNfmda2TmpKY
 154c863	author	Will Norris
 154c863	added	13
 154c863	deleted	0

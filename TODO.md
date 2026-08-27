@@ -41,10 +41,6 @@ Check conformance with `task todo:lint`.
 
 
 
-- [wip T5] [elicit-pilot-run] Stage 0 pilot: 4 blocks × 16 cells, ≈$1.30, gated on
-  [elicit-stub] + explicit launch go; E1 (fill-reaching ≥10% Wilson-lower) and
-  E2 (≥1 four-layer assembly) decide Stage 1 (96 cells, ≈$4.55, separate go).
-  Report per plan D9.
 
 
 
@@ -84,6 +80,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [elicit-pilot-run] Stage 0 ran, 4/4 arms SUCCEEDED: no block clears E1 (best 3.47% vs 10% bar), 31 fill draws 0 spliced; §6 row 1 — Stage 1 not launched, $4.55 unspent. See [report](docs/results/2026-08-27-hole-elicitation-pilot-report.md).
 - ✅ 2026-08-26 — [elicit-stub] All 12 gate checks PASS (incl. check 10 over 1,851 banked rejections and §1 reproduction); output pasted into the plan; pilot GPU gate open. Commit cd30c1e.
 - ✅ 2026-08-26 — [elicit-configs] 4 pilot + 3 stage-1 configs + 2 runlists + pilot_select.py (E1/E2, B3 bar, --apply placeholder resolution), all validated, 16 tests; suite 928 green. Commit aaa19f9.
 - ✅ 2026-08-26 — [elicit-block-b3] `hole_at_error`/checker-holed landed, 4 fences, check 10 PASS (0 violations/1,851 banked rejections), 26 tests; probe STEP bug found+fixed (immaterial, replay-proven). Commits cd0f717, 154c863.

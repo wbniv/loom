@@ -1135,3 +1135,34 @@ output is in this file.** Stage 1 launches only on Stage 0's gates, via 7's sele
 - **Someone produces a held-out semantic success on the whole-term harness at a
   *rate*, not as an existence proof.** Then the composition residual has moved
   underneath this plan and §1 must be re-derived before Stage 1 is worth running.
+
+---
+
+## 10. Stage 0 outcome — appended 2026‑08‑27, after the run
+
+Stage 0 ran in full on 2026‑08‑26/27: four blocks × 16 cells, all four arms
+`SUCCEEDED`. **No block clears Gate E1; §6 row 1 fires; Stage 1 is not launched.**
+`pilot_select.py` exited 2. Full verdicts, §4.6 telemetry, and teardown evidence:
+[2026‑08‑27 hole-elicitation pilot report](../results/2026-08-27-hole-elicitation-pilot-report.md).
+
+Three things this file said in advance, checked against what happened:
+
+- **§9 row 1 fired, not row 2.** E2 is not independently informative here: 31 fill
+  draws were attempted and **none** was spliced, so the assembly stage E2 evaluates
+  was never reached. §1.2's blame test has an empty population under treatment and is
+  **not** discharged by this run.
+- **§1.3's prediction held.** The relaxed `well-scoped` gate reached fills in all
+  four blocks where `accepted` would have reached none, and contributed **zero**
+  composed definitions. Row 4's remedy buys mechanism exposure only, as written.
+- **§9's exemplar-leak row did not fire.** Neither exemplar goal type (`Bool`,
+  `Maybe`) appears in any B1 hole; n = 6, so this is weak evidence of absence rather
+  than a clean bill.
+
+### Deviation filed under §4.8 — Spot → on-demand, ≈ $3.45 against ≈ $1.30
+
+Two launch attempts (21:20:30Z, 23:47:05Z) applied cleanly but returned
+`instance_name = ""` — no preemptible L4 capacity in us‑central1‑a. The third
+(23:52:42Z) used `--on-demand` and got an instance. Cost was ≈ $3.45 rather than the
+pre-registered ≈ $1.30, at $0.85/h for ≈ 4.0 h. **Cost only, not validity**: same
+`g2-standard-4 L4 24GB` hardware string, same model identity, no §4.2 quantity
+touched. Filed here as well as in the deliverable-9 report, per §4.8.
