@@ -1,0 +1,12 @@
+[
+  {
+    "config_key": "config/scale14_b0.config.json",
+    "output_dir": "runs/scale14-b0",
+    "run_id": "scale14-b0"
+  },
+  {
+    "config_key": "config/scale14_b2.config.json",
+    "output_dir": "runs/scale14-b2",
+    "run_id": "scale14-b2"
+  }
+]

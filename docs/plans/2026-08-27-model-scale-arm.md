@@ -85,16 +85,39 @@ pruners pinned to `goal-type, de-bruijn, ref-hash`. **32 cells total.**
   lower bound **≥ 10 %**, per block. Stated on the bound, not the point estimate.
 - **E2 (unchanged):** at least one fill draw splices into a four-layer-accepted
   assembly, pooled across both blocks.
-- **S1 (new, the scale test):** B2@14B vs B2@7B fill-reaching draw rate, one-sided
-  two-proportion test at α = 0.05, direction pre-declared as *scale helps*. The 7B
-  side is the banked `pilot-b2` record (10/174), read as fixed, not re-run.
+- **S1 (new, descriptive):** B2@14B vs B2@7B fill-reaching draw rate, one-sided
+  Fisher exact at α = 0.05, direction pre-declared as *scale helps*. The 7B side is
+  the banked `pilot-b2` record (10/174). Reported with its p-value; **no decision is
+  keyed to that p-value** — see the power measurement below and §6's second row,
+  which uses a descriptive 11.5 % threshold instead.
 
-**S1 is a screen, not a confirmatory test, and the plan says so before it runs.**
-At n ≈ 174 draws per side and a 5.75 % baseline, S1 has adequate power only against
-a roughly doubled rate; a true effect of +2–3 points will not reach α = 0.05 here.
-Deliverable 4 computes the exact powered MDE with the existing
-`corpus_size_sweep_power.py` helper and pastes it into this file **before launch**,
-so the arm's blind spot is on the record rather than discovered in the report.
+**S1 is descriptive, not a gate — and it is weaker than this plan first claimed.**
+Deliverable 4 (`experiment/scale14_power.py`, one-sided Fisher exact, α = 0.05,
+4,000 sims, seed 0, both arms resampled) measured it before launch:
+
+```
+    n(14B)       MDE   power@MDE    power@2x (11.5%)
+       140    15.2%        0.83                0.47
+       174    14.2%        0.80                0.54
+       210    14.2%        0.83                0.55
+```
+
+An earlier draft of this section asserted S1 had "adequate power against a roughly
+doubled rate". **That was wrong**: at a doubled rate (11.5 %) S1's power is 0.54 — it
+would miss the effect about half the time. The real 80 %-power threshold is ≈ 14.2 %,
+a **2.5×** increase over 7B.
+
+Worse for S1's usefulness, that threshold nearly coincides with E1's. Clearing E1 at
+n ≈ 174 needs a point estimate of roughly 14.5 %, so **S1 is very close to a
+restatement of E1 at this budget** — if 14B clears E1, S1 is almost certainly
+significant; if it fails E1, S1 is almost certainly null. S1 is therefore reported as
+a descriptive comparison with its p-value, and **no §6 row is keyed to S1 alone**
+(§6's second row reads it only alongside a failed E1, where it functions as a
+direction-of-travel note rather than a test).
+
+Buying real S1 power would mean more cells, which is more money, for a quantity E1
+already answers. That trade is declined here and recorded so the next reader knows it
+was declined deliberately rather than overlooked.
 
 ### 2.2 No peeking
 
@@ -118,9 +141,38 @@ stated.
 3. **CPU stub gate** — re-run `hole_elicitation_stub_check.py` unchanged and paste
    the output here. The protocol is untouched by this arm, so this is a regression
    check, not a new gate; it is still the thing that stands between us and GPU spend.
-   *(T1.)*
-4. **Powered MDE for S1** — via `corpus_size_sweep_power.py`, pasted into §2.1
-   before launch. *(T2.)*
+   **Done, 2026‑08‑27, all 12 checks PASS:** *(T1.)*
+
+   ```
+   Check 1a — the four pilot arms differ from `whole` only by their block result: PASS — 8 tasks x 4 blocks
+   Check 1b — the closure still reads the DRAFT's own declared type result: PASS
+   Check 1c — no gold surface and no unseen hash in any block     result: PASS
+   Check 1d — the seven shipped configs, field by field           result: PASS
+   Check 2 (extended) — the new surfaces take no Task, by signature result: PASS
+   Check 5 (extended) — context_required <= n_ctx - max_tokens_per_draw result: PASS
+   Check 6 (extended) — no gold surface appears in any pilot prompt result: PASS
+   Check 7 — a scripted stub drives one cell of each pilot arm    result: PASS
+   Check 7e — the E1/E2 computation path, through `pilot_select` itself result: PASS
+   Check 9 — both §2.2 exemplars round-trip to their corpus fixture result: PASS
+   Check 10 — `hole_at_error` refuses rather than guesses         result: PASS
+   Check 11 (new) — §1's pasted numbers still reproduce           result: PASS
+   
+   Deliverable 6 verdict: ALL CHECKS PASS — the GPU gate is open
+   ```
+
+   **One gap, stated rather than papered over.** Check 1d validates *the seven
+   shipped configs, field by field* — the four pilot and three Stage-1 configs. It
+   does not know about `scale14_b0` / `scale14_b2`, which did not exist when it was
+   written, and this arm deliberately re-ran it **unchanged** as a regression check.
+   The two new configs are covered instead by `test_scale_arm.py`, which pins them by
+   *difference* from their pilot sources (a field-by-field re-listing would pass even
+   if the pilot's own settings drifted underneath) and re-validates both through
+   `runner.Config`.
+4. **Powered MDE for S1** — `experiment/scale14_power.py`, pasted into §2.1 before
+   launch. The named `corpus_size_sweep_power.py` turned out to be hardcoded to that
+   sweep's corpus sizes, interpolation and recorded rates, so the *method* is reused
+   (one-sided Fisher exact, simulated) and the numbers are not. **Done** — and its
+   result corrected §2.1's power claim downward. *(T2.)*
 5. **`experiment/scale_compare.py`** — reads `runs/scale14-b0`, `runs/scale14-b2` and
    the banked `runs/pilot-b0`, `runs/pilot-b2`, prints E1 per block, E2 pooled, and
    the S1 two-proportion result, and exits on a code per §6's row. The verdict is
@@ -197,8 +249,8 @@ E1 bar: one-sided 95% Wilson lower bound >= 10%.
 | Outcome | What it licenses next |
 |---|---|
 | **E1 clears at 14B** | Elicitation is a scale phenomenon and 7B was simply below threshold. The lever is alive: re-open Stage 1's design against 14B, and make the A100 quota request a priority rather than a background errand. |
-| **E1 fails, S1 significant** | Scale moves elicitation but not far enough at 14B. This is the row that licenses **32B**: the measured 7B→14B slope sizes the extrapolation, and the ≈ $27 A100 run becomes a bet with a number behind it rather than a hope. Request quota and re-plan. |
-| **E1 fails, S1 not significant** | Scale is not the lever at any size reachable from here. **Stop the scale track** — do not buy a 32B run on the strength of two nulls. Hand back the feedback-legibility lever (2026‑08‑26 §2.4), which is already landed and measurable at zero extra GPU cost in any future arm. |
+| **E1 fails, but B2@14B ≥ 11.5 % (a doubling) and B0 < B2** | Scale moves elicitation but not far enough at 14B. This is the row that licenses **32B**: the measured 7B→14B slope sizes the extrapolation, and the ≈ $27 A100 run becomes a bet with a number behind it rather than a hope. Request quota and re-plan. **The trigger is deliberately descriptive, not S1's p-value** — §2.1 measured S1's power at a doubled rate as 0.54, so keying this row to significance would make it fire about half the time when it should, and would leave the 32B decision hostage to a coin flip. S1's p-value is reported alongside as a direction-of-travel note. |
+| **E1 fails and B2@14B < 11.5 %** | Scale is not the lever at any size reachable from here. **Stop the scale track** — do not buy a 32B run on the strength of two nulls. Hand back the feedback-legibility lever (2026‑08‑26 §2.4), which is already landed and measurable at zero extra GPU cost in any future arm. |
 | **E2 clears while E1 fails** | Rare and informative: fills are reaching assembly at a low rate. Report it as the first live fill evidence in the campaign and re-read §1.2's blame analysis against a non-empty population. |
 | **Measured throughput < 6 tok/s** | Stop after B0 and re-size per §4. Not a finding, a budget rule. |
 

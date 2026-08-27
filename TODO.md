@@ -27,20 +27,10 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T1] [scale14-fetch] Fetch + verify the 14B GGUF (8,988,110,272 bytes) and
+- [wip T1] [scale14-fetch] Fetch + verify the 14B GGUF (8,988,110,272 bytes) and
   assert `vocab_size == 152064` against the banked 7B telemetry — the mask is
   built over the vocabulary, so this is the compatibility gate for the whole
   arm. Deliverable 1 of [plan](docs/plans/2026-08-27-model-scale-arm.md).
-
-- [T1] [scale14-configs] Two configs + runlist as byte-copies of pilot_b0 /
-  pilot_b2 with only `output_dir` changed, plus a re-run of the unchanged CPU
-  stub gate with output pasted into the plan. Deliverables 2-3 of
-  [plan](docs/plans/2026-08-27-model-scale-arm.md).
-
-- [T2] [scale14-compare] `experiment/scale_compare.py` (E1 per block, E2 pooled,
-  S1 two-proportion vs banked 7B, exit code per §6) plus the powered MDE for S1
-  via corpus_size_sweep_power.py, pasted into §2.1 before launch. Deliverables
-  4-5 of [plan](docs/plans/2026-08-27-model-scale-arm.md).
 
 - [T5] [scale14-run] The 14B arm itself: 2 blocks x 16 cells, Spot first with
   on-demand fallback, budget ceiling $4.50. Gated on the three items above and
@@ -104,6 +94,8 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [scale14-compare] `scale_compare.py` (§6 rows executed, exit codes) + `scale14_power.py`; measured S1 power at a doubled rate = 0.54, which corrected the plan's §2.1 claim and re-keyed §6 row 2 to a descriptive threshold. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
+- ✅ 2026-08-27 — [scale14-configs] Two configs + runlist as byte-copies (one line differs each), validated; CPU stub gate re-run unchanged, 12/12 PASS, pasted into the plan with check 1d's coverage gap stated. See [plan](docs/plans/2026-08-27-model-scale-arm.md).
 - ✅ 2026-08-27 — [elicit-pilot-run] Stage 0 ran, 4/4 arms SUCCEEDED: no block clears E1 (best 3.47% vs 10% bar), 31 fill draws 0 spliced; §6 row 1 — Stage 1 not launched, $4.55 unspent. See [report](docs/results/2026-08-27-hole-elicitation-pilot-report.md).
 - ✅ 2026-08-26 — [elicit-stub] All 12 gate checks PASS (incl. check 10 over 1,851 banked rejections and §1 reproduction); output pasted into the plan; pilot GPU gate open. Commit cd30c1e.
 - ✅ 2026-08-26 — [elicit-configs] 4 pilot + 3 stage-1 configs + 2 runlists + pilot_select.py (E1/E2, B3 bar, --apply placeholder resolution), all validated, 16 tests; suite 928 green. Commit aaa19f9.

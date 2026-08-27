@@ -334,6 +334,12 @@ class AddressBookTest(unittest.TestCase):
         "decomp2_whole.config.json": "full",
         "decomp2_redraft.config.json": "full",
         "decomp2_holes.config.json": "full",
+        # docs/plans/2026-08-27-model-scale-arm.md §2: byte-copies of the two
+        # pilot blocks the 14B arm carries, address_book unchanged at "full" —
+        # the arm holds every field but the model fixed, so a different book
+        # here would be a second changed variable.
+        "scale14_b0.config.json": "full",
+        "scale14_b2.config.json": "full",
     }
 
     def test_every_shipped_config_declares_its_registered_arm(self):
