@@ -27,10 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] [legib-compare] <!-- agent:ae3006110e2588068 --> `experiment/legibility_compare.py` — L1/L2/C1 verdicts,
-  exit codes per plan §6, sharing L1's predicate with `legibility_power.py`
-  rather than carrying a second copy. T2: one script, spec settled.
-
 - [T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
   first, ceiling $4.55, pre-committed degradation to 40 cells/arm (never fewer
   arms). Gated on legib-replay + legib-stub and an explicit launch go — and on
@@ -81,6 +77,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-27 — [legib-compare] `legibility_compare.py` + shared `legibility_endpoints.py` predicate (power script refactored, output byte-identical); §6 exit codes tested across all rows; 956 green.
 - ✅ 2026-08-27 — [legib-stub] `legibility_stub_check.py`: regression + C2 inertness + config-diff + scripted cells all PASS, pasted into the plan; GPU gate open. Suite 947 green.
 - ✅ 2026-08-27 — [legib-configs] Both arm configs + runlist as byte-copies (2 fields differ), pinned by difference in `test_legibility_arm.py`; AddressBook allowlist updated per 5f697dc precedent.
 - ✅ 2026-08-27 — [selfdelete-taskfile] `task infra:test-self-delete` wired, absorbed inline with the AWS-port commit.
