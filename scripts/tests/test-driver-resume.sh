@@ -159,15 +159,27 @@ case "$sub" in
     "compute instances")
         case "${3:-}" in
             describe)
-                # INSTANCE_GONE_FLAG is a scratch-tree sentinel file the test
-                # toggles per block: present -> "not found" (preempted/gone),
-                # absent -> still standing. Mirrors gcloud's real behaviour
-                # (a describe of a deleted instance fails with "was not
-                # found" on stderr, exit non-zero).
+                # INSTANCE_GONE_FLAG and INSTANCE_STOPPED_FLAG are scratch-tree
+                # sentinel files the test toggles per block:
+                #   GONE_FLAG present    -> "not found" (deleted: preemption)
+                #   STOPPED_FLAG present -> describe succeeds, status TERMINATED
+                #                           (host error / non-preemption stop —
+                #                           instance_termination_action=DELETE
+                #                           only applies to a Spot preemption;
+                #                           automatic_restart=false means any
+                #                           other stop leaves it sitting there)
+                #   neither              -> describe succeeds, status RUNNING
+                # Mirrors gcloud's real behaviour (a describe of a deleted
+                # instance fails with "was not found" on stderr, exit non-zero;
+                # a stopped-but-extant instance succeeds and reports its state).
                 if [ -f "${INSTANCE_GONE_FLAG:-/nonexistent-instance-gone-flag}" ]; then
                     echo "ERROR: (gcloud.compute.instances.describe) Could not fetch resource:
  - The resource 'projects/x/zones/y/instances/z' was not found" >&2
                     exit 1
+                fi
+                if [ -f "${INSTANCE_STOPPED_FLAG:-/nonexistent-instance-stopped-flag}" ]; then
+                    echo TERMINATED
+                    exit 0
                 fi
                 echo RUNNING ;;
             *) ;;                               # list: no foreign runner standing
@@ -220,6 +232,7 @@ export LOOM_DRIVER_LOG_DIR="$TMP/logdir"
 # front, so a driver already running in the background still picks up a
 # change the moment the test creates or removes the file underneath it.
 export INSTANCE_GONE_FLAG="$TMP/instance-gone"
+export INSTANCE_STOPPED_FLAG="$TMP/instance-stopped"
 export STATUS_FLAKY_ONCE_FLAG="$TMP/status-flaky-once"
 # The driver prepends $HOME/.local/bin to PATH itself, which outranks the line
 # above; LOOM_DRIVER_BIN_OVERRIDE is the seam that outranks *that*.
@@ -649,7 +662,7 @@ else
 fi
 
 if grep -q 'runner reported: SUCCEEDED' "$TMP/block7.out" \
-   && grep -q 'normal self-delete' "$TMP/block7.out"; then
+   && grep -q 'instance deleted — treating as normal completion' "$TMP/block7.out"; then
     pass "recognised the gone instance's marker and proceeded as a normal completion"
 else
     fail "did not recognise the marker on the recheck"
@@ -660,6 +673,90 @@ if [ -f "$TMP/dest-selfdelete/records.jsonl" ]; then
     pass "results were still fetched"
 else
     fail "results were not fetched despite the run having succeeded"
+fi
+
+# --- Block 8: stopped-but-not-deleted is not "alive" forever ------------------
+# Found on review of 3212b58: instance_termination_action=DELETE only fires on
+# a Spot preemption. automatic_restart=false means a GCP host error, or any
+# other non-preemption stop, leaves the instance EXISTING in TERMINATED rather
+# than removed. `describe` then succeeds every single pass — a naive "gone ==
+# not found" check would read that as "still alive" forever and blind-poll to
+# the timeout exactly like the bug this item exists to kill, just via a rarer
+# path. INSTANCE_STOPPED_FLAG makes the shim report TERMINATED without ever
+# reporting "not found", so this exercises that branch specifically.
+block "8. instance stopped (TERMINATED, not deleted) with no marker -> immediate loud exit"
+
+STOPPED_RUN_ID=stoppedtest-20260828
+rm -f "$MOCK_GCS/$BUCKET/status/$STOPPED_RUN_ID.txt"
+rm -f "$INSTANCE_GONE_FLAG" "$INSTANCE_STOPPED_FLAG"
+
+stopped_args=(
+    --model-identity "Qwen2.5-Coder-14B-Instruct GGUF Q4_K_M"
+    --models-dir "$TMP/models"
+    --gguf fake-14b.gguf
+    --config "$TMP/run.config.json"
+    --bucket "$BUCKET"
+    --tf-dir "$TFROOT"
+    --instance-suffix stopped
+    --run-id "$STOPPED_RUN_ID"
+    --dest "$TMP/dest-stopped"
+    --skip-quota-check
+    --poll-seconds 1
+    --timeout-seconds 600
+)
+
+bash "$DRIVER" "${stopped_args[@]}" >"$TMP/block8.out" 2>&1 &
+stopped_pid=$!
+
+reached_wait=false
+for _ in $(seq 1 200); do
+    if grep -q 'still running' "$TMP/block8.out" 2>/dev/null; then
+        reached_wait=true
+        break
+    fi
+    kill -0 "$stopped_pid" 2>/dev/null || break
+    sleep 0.2
+done
+
+if [ "$reached_wait" = true ]; then
+    pass "driver reached the poll loop before the simulated host-error stop"
+else
+    fail "driver never reached the poll loop; output follows"
+    sed 's/^/      /' "$TMP/block8.out" | tail -25
+fi
+
+# The instance stops without ever being deleted, and no marker is ever
+# written — a host error, not a preemption and not a normal completion.
+touch "$INSTANCE_STOPPED_FLAG"
+
+stopped_rc=0
+wait "$stopped_pid" 2>/dev/null || stopped_rc=$?
+rm -f "$INSTANCE_STOPPED_FLAG"
+
+if [ "$stopped_rc" -ne 0 ]; then
+    pass "exited non-zero ($stopped_rc) on the simulated stop"
+else
+    fail "exited 0 despite the instance sitting TERMINATED with no status marker"
+fi
+
+if grep -qi 'stopped' "$TMP/block8.out" && ! grep -q 'is gone and no status marker' "$TMP/block8.out"; then
+    pass "said the instance was stopped, not deleted (the preemption wording)"
+else
+    fail "did not describe this as a stop distinct from a preemption/delete"
+    sed 's/^/      /' "$TMP/block8.out" | tail -25
+fi
+
+if grep -qi 'billing' "$TMP/block8.out"; then
+    pass "warned that the still-existing instance and disk may still be billing"
+else
+    fail "no warning that a stopped-but-extant instance keeps billing"
+fi
+
+if grep -q -- '--resume-from .*driver-stopped.json --fetch-only' "$TMP/block8.out"; then
+    pass "named the exact resume command"
+else
+    fail "did not name a usable resume command"
+    sed 's/^/      /' "$TMP/block8.out" | tail -25
 fi
 
 # --- Verdict -----------------------------------------------------------------
