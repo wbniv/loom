@@ -27,14 +27,6 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:ac0c47eacc638e7ed --> [skeleton-d0] Plan D0, the gate on everything: hand-score the 42 banked
-  14B mechanical-floor draws (12 unique surfaces, 5 tasks) by executing each on
-  the reference interpreter against the task's verified gold term over a concrete
-  input battery — fuel exhaustion or crash on any input is a fail. Extend
-  `decomp_hand_score` past its hard-coded `ARMS` to take a run list; results doc
-  under `docs/results/`; outcome keyed to §6 rows D0-a/b/c (D0-b withdraws the §4
-  ceiling escalation). $0, CPU only. See
-  [plan](docs/plans/2026-08-28-skeleton-lever.md) §7.1.
 
 
 ## Watch
@@ -82,6 +74,7 @@ promotes it back to Open.
 
 ## Done
 
+- ✅ 2026-08-28 — [skeleton-d0] §6 row D0-a: 5/12 banked 14B floor surfaces genuinely succeed by execution; ceiling escalation now live with measured backing. See [results](docs/results/2026-08-28-skeleton-d0-hand-score.md).
 - ✅ 2026-08-28 — [skeleton-lever] Framing overturned: no skeleton starvation — floor conjunction near-disjoint (0.27 %), arity −1 bias gates types; no-spend plan, D0 gates all. See [plan](docs/plans/2026-08-28-skeleton-lever.md).
 - ✅ 2026-08-28 — [gcp-billing-export] BQ export dataset applied + `task gcp:spend` CLI; one console step remains (enable export → `billing_export`). See [plan](docs/plans/2026-08-28-gcp-billing-export.md).
 - ✅ 2026-08-28 — [legib-row4-probe] Reverse effect real, note-caused, exposed-stratum only (−6.71 pts, p=0.0026; placebo null); DEFER with reopen trigger. See [investigation](docs/investigations/2026-08-28-legib-row4-probe.md).
