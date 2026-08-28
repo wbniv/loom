@@ -27,11 +27,22 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
+- [wip T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
   first, ceiling $4.55, pre-committed degradation to 40 cells/arm (never fewer
   arms). Gated on legib-replay + legib-stub and an explicit launch go — and on
   [bucket-restore], since the driver uploads through that bucket. Use the new
   `--detach` driver mode. Report per plan D7.
+- [T5] [legib-verdict] Once both arms land in `prototype/runs/legib-{legible,repr}`:
+  run `legibility_compare.py`, record the exit code and which §6 row fired, check
+  C1 (drift anchor vs banked decomp-redraft) and the throughput budget rule. The
+  row fired is the dispatch input for everything downstream — orchestrator only.
+  Gated on [legib-run].
+- [T3] [legib-report] Plan deliverable 8: `docs/results/2026-08-28-feedback-legibility-report.md`
+  — gate verdicts (D2/D3 pasted outputs), telemetry (tok/s vs the 21.3 estimate,
+  Spot vs on-demand, cells/arm in force), the §6 row + compare output verbatim,
+  cost vs the $4.55 ceiling, and teardown evidence (zero instances, no orphaned
+  disks, bucket standing on lifecycle). Same shape as the model-scale report.
+  Gated on [legib-verdict].
 
 ## Watch
 
