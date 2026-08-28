@@ -37,6 +37,13 @@ Check conformance with `task todo:lint`.
   C1 (drift anchor vs banked decomp-redraft) and the throughput budget rule. The
   row fired is the dispatch input for everything downstream — orchestrator only.
   Gated on [legib-run].
+- [T2] [driver-preemption-detect] The GCP driver's wait loop only polls the status
+  marker, so a preempted instance means blind polling until the timeout — 2.3 h
+  on 2026-08-28 before an operator caught it. Add an instance-liveness /
+  preemption check to the poll loop (`gcloud compute operations list`
+  `operationType=compute.instances.preempted`, or instance-exists) that turns a
+  preemption into an immediate loud exit naming the resume command. Offline
+  guard in the style of the existing 5-block test.
 - [T3] [legib-report] Plan deliverable 8: `docs/results/2026-08-28-feedback-legibility-report.md`
   — gate verdicts (D2/D3 pasted outputs), telemetry (tok/s vs the 21.3 estimate,
   Spot vs on-demand, cells/arm in force), the §6 row + compare output verbatim,
