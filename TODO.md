@@ -27,14 +27,18 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T4] <!-- agent:af3f856cc898c9ad8 --> [legib-row4-probe] Offline probe of the §6 row 4 reverse
-  effect: operationalize the conservatism reading against rivals (note length,
-  wording steer, metric artifact, cell heterogeneity) over the two arms' banked
-  records; deliver `docs/investigations/2026-08-28-legib-row4-probe.md` with a
-  recommendation (follow-up arm / DEFER / defect-first). $0, no GPU — any spend
-  goes back to the plan owner. Authorized 2026-08-28.
 
 ## Watch
+
+- Redraft-prompt content changes (row-4 probe verdict, DEFER 2026-08-28) — the
+  legible note is *active and harmful* in the exposed stratum (−6.71 pts repair
+  locality, p = 0.0026 post-hoc) while the repr note is inert; L1-as-registered
+  partly rewards churn (headline fragile at p = 0.1852 under L1-strict). Trigger:
+  any plan that adds or changes content in the redraft prompt (prefix-primed
+  repair, richer notes, a hole block reaching `redraft`) must carry an
+  inert-control third rendering, the exposed-stratum L1-strict primary, and a
+  power run re-pointed at the exposed stratum (~2× cells). See
+  [investigation](docs/investigations/2026-08-28-legib-row4-probe.md).
 
 - Type-directed masking overhead at batch (SPEC.md §8.2, §13 open problem 3) —
   the single-stream question is **measured and closed** (3.15 ms/token warm,
@@ -65,6 +69,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-28 — [legib-row4-probe] Reverse effect real, note-caused, exposed-stratum only (−6.71 pts, p=0.0026; placebo null); DEFER with reopen trigger. See [investigation](docs/investigations/2026-08-28-legib-row4-probe.md).
 - ✅ 2026-08-28 — [legib-report] Deliverable 8 published: gates, §6 row 4 verbatim, telemetry, cost corrected to ≈$1.98 (ops log), teardown pasted. See [report](docs/results/2026-08-28-feedback-legibility-report.md).
 - ✅ 2026-08-28 — [driver-preemption-detect] Poll-loop liveness check: preemption/stop → loud exit naming the resume command; marker-recheck kills the self-delete false positive; guard 8 blocks green.
 - ✅ 2026-08-28 — [legib-verdict] Exit 5, §6 row 4: L1 REVERSE-significant (repr 39.97% > legible 37.77%, p=0.0215); C1 exact-in; escalated. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
