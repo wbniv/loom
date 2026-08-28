@@ -27,6 +27,15 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [wip T2] <!-- agent:ac0c47eacc638e7ed --> [skeleton-d0] Plan D0, the gate on everything: hand-score the 42 banked
+  14B mechanical-floor draws (12 unique surfaces, 5 tasks) by executing each on
+  the reference interpreter against the task's verified gold term over a concrete
+  input battery — fuel exhaustion or crash on any input is a fail. Extend
+  `decomp_hand_score` past its hard-coded `ARMS` to take a run list; results doc
+  under `docs/results/`; outcome keyed to §6 rows D0-a/b/c (D0-b withdraws the §4
+  ceiling escalation). $0, CPU only. See
+  [plan](docs/plans/2026-08-28-skeleton-lever.md) §7.1.
+
 
 ## Watch
 
@@ -64,11 +73,16 @@ promotes it back to Open.
 
 ## Parked
 
-_Nothing parked. Entries here are plain bullets — intentionally shelved work, with the
-condition that would unpark it._
+- Harness fixes from skeleton-lever §1.7 (plan D8): `narrowing_note` returns `""`
+  on acceptance (9.50 % of 14B rounds got no candidate *and* no feedback) and
+  12–19 % duplicate draws. Deliberately NOT landed now — both change every
+  acceptance denominator, breaking C1′ and orphaning §1's banked comparisons.
+  Unpark: after the skeleton-lever arm has run (or been abandoned). See
+  [plan](docs/plans/2026-08-28-skeleton-lever.md) §3.5.
 
 ## Done
 
+- ✅ 2026-08-28 — [skeleton-lever] Framing overturned: no skeleton starvation — floor conjunction near-disjoint (0.27 %), arity −1 bias gates types; no-spend plan, D0 gates all. See [plan](docs/plans/2026-08-28-skeleton-lever.md).
 - ✅ 2026-08-28 — [gcp-billing-export] BQ export dataset applied + `task gcp:spend` CLI; one console step remains (enable export → `billing_export`). See [plan](docs/plans/2026-08-28-gcp-billing-export.md).
 - ✅ 2026-08-28 — [legib-row4-probe] Reverse effect real, note-caused, exposed-stratum only (−6.71 pts, p=0.0026; placebo null); DEFER with reopen trigger. See [investigation](docs/investigations/2026-08-28-legib-row4-probe.md).
 - ✅ 2026-08-28 — [legib-report] Deliverable 8 published: gates, §6 row 4 verbatim, telemetry, cost corrected to ≈$1.98 (ops log), teardown pasted. See [report](docs/results/2026-08-28-feedback-legibility-report.md).
