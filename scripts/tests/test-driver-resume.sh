@@ -110,6 +110,16 @@ case "$cmd" in
         [ -e "$p" ] && { printf '%s\n' "$target"; exit 0; }
         exit 1 ;;
     cat)
+        # STATUS_FLAKY_ONCE_FLAG, when present, fails exactly the next `cat`
+        # regardless of the object's real content and then deletes itself —
+        # models GCS read-after-write lag for one poll iteration, so a test
+        # can force a real race between the loop's top-of-loop marker check
+        # and the instance-liveness recheck without depending on wall-clock
+        # timing.
+        if [ -n "${STATUS_FLAKY_ONCE_FLAG:-}" ] && [ -f "$STATUS_FLAKY_ONCE_FLAG" ]; then
+            rm -f "$STATUS_FLAKY_ONCE_FLAG"
+            exit 1
+        fi
         p="$(topath "${rest[0]}")"
         [ -f "$p" ] || exit 1
         cat "$p" ;;
@@ -146,7 +156,22 @@ sub="${1:-} ${2:-}"
 case "$sub" in
     "auth print-access-token") echo fake-access-token ;;
     "auth list") echo "tester@example.invalid" ;;
-    "compute instances") ;;                    # no foreign runner standing
+    "compute instances")
+        case "${3:-}" in
+            describe)
+                # INSTANCE_GONE_FLAG is a scratch-tree sentinel file the test
+                # toggles per block: present -> "not found" (preempted/gone),
+                # absent -> still standing. Mirrors gcloud's real behaviour
+                # (a describe of a deleted instance fails with "was not
+                # found" on stderr, exit non-zero).
+                if [ -f "${INSTANCE_GONE_FLAG:-/nonexistent-instance-gone-flag}" ]; then
+                    echo "ERROR: (gcloud.compute.instances.describe) Could not fetch resource:
+ - The resource 'projects/x/zones/y/instances/z' was not found" >&2
+                    exit 1
+                fi
+                echo RUNNING ;;
+            *) ;;                               # list: no foreign runner standing
+        esac ;;
     "compute project-info"|"compute regions") echo '{"quotas":[]}' ;;
     "storage cp")
         args=()
@@ -191,6 +216,11 @@ DRIVER_LOG="$TMP/logdir/driver-scale14.log"
 export PATH="$TMP/bin:$PATH"
 export MOCK_GCS TERRAFORM_CALLS="$CALLS"
 export LOOM_DRIVER_LOG_DIR="$TMP/logdir"
+# Sentinel file *paths* the gcloud/gsutil shims poll for — exported once, up
+# front, so a driver already running in the background still picks up a
+# change the moment the test creates or removes the file underneath it.
+export INSTANCE_GONE_FLAG="$TMP/instance-gone"
+export STATUS_FLAKY_ONCE_FLAG="$TMP/status-flaky-once"
 # The driver prepends $HOME/.local/bin to PATH itself, which outranks the line
 # above; LOOM_DRIVER_BIN_OVERRIDE is the seam that outranks *that*.
 export LOOM_DRIVER_BIN_OVERRIDE="$TMP/bin"
@@ -463,6 +493,173 @@ if [ -n "$child_pid" ]; then
     kill -9 "$child_pid" 2>/dev/null || true
 else
     fail "could not find the detached child to check its session"
+fi
+
+# --- Block 6: preemption mid-poll gets an immediate loud exit -----------------
+# The 2026-08-28 loss this item is named for: a preempted Spot instance meant
+# blind polling to the timeout because the loop only ever looked at the GCS
+# marker. INSTANCE_GONE_FLAG makes the gcloud shim's "describe" report the
+# instance as gone (a real "was not found", exit non-zero); no status marker
+# is ever written for this run, so this must not be mistaken for the ordinary
+# self-delete-after-success case.
+block "6. instance-gone with no marker mid-poll -> immediate loud exit, non-zero, resume command named"
+
+PREEMPT_RUN_ID=preempttest-20260828
+rm -f "$MOCK_GCS/$BUCKET/status/$PREEMPT_RUN_ID.txt"
+rm -f "$INSTANCE_GONE_FLAG"
+
+preempt_args=(
+    --model-identity "Qwen2.5-Coder-14B-Instruct GGUF Q4_K_M"
+    --models-dir "$TMP/models"
+    --gguf fake-14b.gguf
+    --config "$TMP/run.config.json"
+    --bucket "$BUCKET"
+    --tf-dir "$TFROOT"
+    --instance-suffix preempt
+    --run-id "$PREEMPT_RUN_ID"
+    --dest "$TMP/dest-preempt"
+    --skip-quota-check
+    --poll-seconds 1
+    --timeout-seconds 600
+)
+
+bash "$DRIVER" "${preempt_args[@]}" >"$TMP/block6.out" 2>&1 &
+preempt_pid=$!
+
+reached_wait=false
+for _ in $(seq 1 200); do
+    if grep -q 'still running' "$TMP/block6.out" 2>/dev/null; then
+        reached_wait=true
+        break
+    fi
+    kill -0 "$preempt_pid" 2>/dev/null || break
+    sleep 0.2
+done
+
+if [ "$reached_wait" = true ]; then
+    pass "driver reached the poll loop before the simulated preemption"
+else
+    fail "driver never reached the poll loop; output follows"
+    sed 's/^/      /' "$TMP/block6.out" | tail -25
+fi
+
+# The instance vanishes with no marker ever having been written — a genuine
+# preemption, not a race with a normal completion.
+touch "$INSTANCE_GONE_FLAG"
+
+preempt_rc=0
+wait "$preempt_pid" 2>/dev/null || preempt_rc=$?
+rm -f "$INSTANCE_GONE_FLAG"
+
+if [ "$preempt_rc" -ne 0 ]; then
+    pass "exited non-zero ($preempt_rc) on the simulated preemption"
+else
+    fail "exited 0 despite the instance vanishing with no status marker"
+fi
+
+if grep -qi 'preempt' "$TMP/block6.out"; then
+    pass "said plainly the instance was preempted/gone"
+else
+    fail "no preemption wording in the output"
+    sed 's/^/      /' "$TMP/block6.out" | tail -25
+fi
+
+if grep -q -- '--resume-from .*driver-preempt.json --fetch-only' "$TMP/block6.out"; then
+    pass "named the exact resume command"
+else
+    fail "did not name a usable resume command"
+    sed 's/^/      /' "$TMP/block6.out" | tail -25
+fi
+
+# --- Block 7: instance-gone-but-marker-present is normal completion ----------
+# The correctness nuance the item calls out by name: the runner self-deletes
+# its own instance right after writing the status marker, so "instance gone"
+# is ALSO what a completely ordinary finished run looks like. STATUS_FLAKY_ONCE
+# forces the loop's top-of-loop marker read to miss on the very poll where the
+# instance is also reported gone, so this exercises the driver's own recheck
+# (not just the top-of-loop check that would otherwise win the race) — the
+# marker is only visible again once the recheck asks a second time.
+block "7. instance-gone with the marker present is normal completion, not preemption"
+
+SELFDEL_RUN_ID=selfdeletetest-20260828
+rm -f "$MOCK_GCS/$BUCKET/status/$SELFDEL_RUN_ID.txt"
+rm -f "$INSTANCE_GONE_FLAG" "$STATUS_FLAKY_ONCE_FLAG"
+
+selfdel_args=(
+    --model-identity "Qwen2.5-Coder-14B-Instruct GGUF Q4_K_M"
+    --models-dir "$TMP/models"
+    --gguf fake-14b.gguf
+    --config "$TMP/run.config.json"
+    --bucket "$BUCKET"
+    --tf-dir "$TFROOT"
+    --instance-suffix selfdelete
+    --run-id "$SELFDEL_RUN_ID"
+    --dest "$TMP/dest-selfdelete"
+    --skip-quota-check
+    --poll-seconds 1
+    --timeout-seconds 600
+)
+
+bash "$DRIVER" "${selfdel_args[@]}" >"$TMP/block7.out" 2>&1 &
+selfdel_pid=$!
+
+reached_wait=false
+for _ in $(seq 1 200); do
+    if grep -q 'still running' "$TMP/block7.out" 2>/dev/null; then
+        reached_wait=true
+        break
+    fi
+    kill -0 "$selfdel_pid" 2>/dev/null || break
+    sleep 0.2
+done
+
+if [ "$reached_wait" = true ]; then
+    pass "driver reached the poll loop before the simulated self-delete"
+else
+    fail "driver never reached the poll loop; output follows"
+    sed 's/^/      /' "$TMP/block7.out" | tail -25
+fi
+
+# Simulate the real ordering: the runner writes the marker, then deletes its
+# own instance. Both are true by the time the next poll runs; the flaky-once
+# flag forces that poll's *first* marker read to still miss it, so only the
+# liveness-triggered recheck finds it.
+mkdir -p "$MOCK_GCS/$BUCKET/results/$SELFDEL_RUN_ID/runs" "$MOCK_GCS/$BUCKET/results/$SELFDEL_RUN_ID/logs"
+echo '{"ok": true}' > "$MOCK_GCS/$BUCKET/results/$SELFDEL_RUN_ID/runs/records.jsonl"
+echo "log" > "$MOCK_GCS/$BUCKET/results/$SELFDEL_RUN_ID/logs/startup-script.log"
+echo SUCCEEDED > "$MOCK_GCS/$BUCKET/status/$SELFDEL_RUN_ID.txt"
+touch "$STATUS_FLAKY_ONCE_FLAG"
+touch "$INSTANCE_GONE_FLAG"
+
+selfdel_rc=0
+wait "$selfdel_pid" 2>/dev/null || selfdel_rc=$?
+rm -f "$INSTANCE_GONE_FLAG" "$STATUS_FLAKY_ONCE_FLAG"
+
+if [ "$selfdel_rc" -eq 0 ]; then
+    pass "exited 0 — the self-delete race was not mistaken for a preemption"
+else
+    fail "exited $selfdel_rc; a normal self-delete completion should not fail"
+    sed 's/^/      /' "$TMP/block7.out" | tail -25
+fi
+
+if grep -qi 'preempt' "$TMP/block7.out"; then
+    fail "wrongly reported a preemption for a normal self-delete completion"
+else
+    pass "did not report a preemption"
+fi
+
+if grep -q 'runner reported: SUCCEEDED' "$TMP/block7.out" \
+   && grep -q 'normal self-delete' "$TMP/block7.out"; then
+    pass "recognised the gone instance's marker and proceeded as a normal completion"
+else
+    fail "did not recognise the marker on the recheck"
+    sed 's/^/      /' "$TMP/block7.out" | tail -25
+fi
+
+if [ -f "$TMP/dest-selfdelete/records.jsonl" ]; then
+    pass "results were still fetched"
+else
+    fail "results were not fetched despite the run having succeeded"
 fi
 
 # --- Verdict -----------------------------------------------------------------

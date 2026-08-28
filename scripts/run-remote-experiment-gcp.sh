@@ -424,6 +424,10 @@ export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
 STATUS_KEY="status/$RUN_ID.txt"
 RESULTS_PREFIX="results/$RUN_ID/"
+# Shared with preflight_no_foreign_runner and the poll loop's liveness check,
+# so the name is computed exactly once.
+RUNNER_NAME="loom-experiment-runner"
+[ -n "$INSTANCE_SUFFIX" ] && RUNNER_NAME="loom-experiment-runner-$INSTANCE_SUFFIX"
 
 TF_VARS=(
     -var "project_id=$GCP_PROJECT_ID"
@@ -565,11 +569,9 @@ ensure_state_bucket
 # runner that is not this invocation's is already standing, abort before
 # touching any state.
 preflight_no_foreign_runner() {
-    local ours="loom-experiment-runner"
-    [ -n "$INSTANCE_SUFFIX" ] && ours="loom-experiment-runner-$INSTANCE_SUFFIX"
     local standing
     standing="$(gcloud compute instances list \
-        --filter="name~^loom-experiment-runner AND name!=$ours" \
+        --filter="name~^loom-experiment-runner AND name!=$RUNNER_NAME" \
         --format='value(name,zone,status)' 2>/dev/null || true)"
     if [ -n "$standing" ]; then
         die "another experiment runner is already up:
@@ -577,7 +579,7 @@ $standing
 GPU quota here is 1, and a second run would contend for it. Wait for that run
 to finish, or pass a --instance-suffix and confirm quota has been raised."
     fi
-    log "no foreign runner standing (ours would be $ours)"
+    log "no foreign runner standing (ours would be $RUNNER_NAME)"
 }
 preflight_no_foreign_runner
 
@@ -765,6 +767,38 @@ if [ "$TIMEOUT_SECONDS" -eq 0 ]; then
 else
     log "waiting for gs://$BUCKET/$STATUS_KEY (every ${POLL_SECONDS}s, up to ${TIMEOUT_SECONDS}s)"
 fi
+# --- Instance liveness (2026-08-28: 2.3h of blind polling after a preempt) --
+# The wait loop above only ever looked at the GCS marker, so a preempted Spot
+# instance meant polling in silence all the way to TIMEOUT_SECONDS — caught
+# that day only because an operator happened to notice. instance_gone checks
+# every pass, not every Nth: `describe` is one cheap read call, no heavier than
+# the `gsutil cat` marker check already made each pass, and the point is
+# catching a preemption immediately, not eventually.
+#
+# CRITICAL correctness nuance: the runner self-deletes its own instance right
+# after writing the status marker on normal completion, so "instance gone" is
+# ALSO the ordinary end-of-run state, not just a preemption symptom. Whichever
+# path detects the instance is gone therefore re-checks the marker once more
+# before saying anything: present -> normal completion, fall through exactly
+# as if the marker had been read at the top of the loop; absent -> the
+# instance vanished with no proof the run ever finished, and that is the
+# preemption case.
+instance_gone() {
+    local err
+    if err=$(gcloud compute instances describe "$RUNNER_NAME" --zone="$GCP_ZONE" \
+                 --format='value(status)' 2>&1); then
+        return 1   # still standing
+    fi
+    if printf '%s' "$err" | grep -qi 'not found'; then
+        return 0   # confirmed gone
+    fi
+    # Inconclusive — an auth hiccup or a transient API error looks the same as
+    # a real failure here. Treating that as a preemption would turn a flaky
+    # `gcloud` call into a false alarm, so log it and let the next pass decide.
+    log "instance liveness check inconclusive, ignoring this pass: $err"
+    return 1
+}
+
 DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
 RUN_STATUS=""
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
@@ -773,6 +807,20 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         log "runner reported: $RUN_STATUS"
         break
     fi
+
+    if instance_gone; then
+        if RUN_STATUS=$(gsutil -q cat "gs://$BUCKET/$STATUS_KEY" 2>/dev/null); then
+            RUN_STATUS="$(printf '%s' "$RUN_STATUS" | tr -d '[:space:]')"
+            log "runner reported: $RUN_STATUS (instance already gone — normal self-delete)"
+            break
+        fi
+        die "instance $RUNNER_NAME is gone and no status marker exists at
+gs://$BUCKET/$STATUS_KEY — this is preemption (or some other loss of the
+instance), not normal completion, which always writes the marker before
+self-deleting. Nothing more to wait for.
+resume with: ${BASH_SOURCE[0]} --resume-from $MANIFEST_PATH --fetch-only"
+    fi
+
     RUN_STATUS=""
     remaining=$(( DEADLINE - $(date +%s) ))
     log "still running (${remaining}s of budget left)"
