@@ -1,10 +1,16 @@
 | Date | Change |
 |------|--------|
+| [2026-08-28](https://github.com/wbniv/loom/commit/e48a874) | Record legib verdict: §6 row 4, L1 reverse-significant — escalated |
 | [2026-08-27](https://github.com/wbniv/loom/commit/5b0e7f2) | Legibility arm configs + CPU stub gate: ALL CHECKS PASS, GPU gate open |
 | [2026-08-27](https://github.com/wbniv/loom/commit/5a4d622) | Legibility seam landed; replay gate clears at 2,159/2,159 |
 | [2026-08-27](https://github.com/wbniv/loom/commit/b072b6e) | Pre-register the feedback-legibility arm; triage the driver follow-ups |
 
 <!--history-meta v1
+e48a874	author	Will Norris
+e48a874	added	57
+e48a874	deleted	0
+e48a874	files	1
+e48a874	body	Both arms 64/64 cells on one Spot instance, ≈$2.4 of the $4.55 ceiling.\nlegibility_compare exit 5: repr 39.97% > legible 37.77%, p=0.0215. C1 exact-in\n(byte-reproduced the banked run). Promotes legib-run, legib-verdict, and\ndriver-preemption-detect (merged, guard 8 blocks green); legib-report dispatched.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_018oX7GHTgh15KGPDhyosRxC
 5b0e7f2	author	Will Norris
 5b0e7f2	added	61
 5b0e7f2	deleted	0

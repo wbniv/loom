@@ -27,12 +27,12 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T3] <!-- agent:aeb0350bf13413b30 --> [legib-report] Plan deliverable 8: `docs/results/2026-08-28-feedback-legibility-report.md`
-  — gate verdicts (D2/D3 pasted outputs), telemetry (tok/s vs the 21.3 estimate,
-  Spot vs on-demand, cells/arm in force), the §6 row + compare output verbatim,
-  cost vs the $4.55 ceiling, and teardown evidence (zero instances, no orphaned
-  disks, bucket standing on lifecycle). Same shape as the model-scale report.
-  Gated on [legib-verdict].
+- [wip T4] <!-- agent:af3f856cc898c9ad8 --> [legib-row4-probe] Offline probe of the §6 row 4 reverse
+  effect: operationalize the conservatism reading against rivals (note length,
+  wording steer, metric artifact, cell heterogeneity) over the two arms' banked
+  records; deliver `docs/investigations/2026-08-28-legib-row4-probe.md` with a
+  recommendation (follow-up arm / DEFER / defect-first). $0, no GPU — any spend
+  goes back to the plan owner. Authorized 2026-08-28.
 
 ## Watch
 
@@ -65,9 +65,10 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-28 — [legib-report] Deliverable 8 published: gates, §6 row 4 verbatim, telemetry, cost corrected to ≈$1.98 (ops log), teardown pasted. See [report](docs/results/2026-08-28-feedback-legibility-report.md).
 - ✅ 2026-08-28 — [driver-preemption-detect] Poll-loop liveness check: preemption/stop → loud exit naming the resume command; marker-recheck kills the self-delete false positive; guard 8 blocks green.
 - ✅ 2026-08-28 — [legib-verdict] Exit 5, §6 row 4: L1 REVERSE-significant (repr 39.97% > legible 37.77%, p=0.0215); C1 exact-in; escalated. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
-- ✅ 2026-08-28 — [legib-run] Both arms 64/64 cells, one Spot instance (run 20260828T112559Z), ≈$2.4 of $4.55, clean teardown; one preempted attempt. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
+- ✅ 2026-08-28 — [legib-run] Both arms 64/64 cells, one Spot instance (run 20260828T112559Z), ≈$1.98 of $4.55, clean teardown; one preempted attempt. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
 - ✅ 2026-08-27 — [runner-log-survival] 120 s heartbeat upload in the startup template (per-arm retarget in runlist mode); driver fetch side already covered every exit path; guard green on the final combination.
 - ✅ 2026-08-27 — [render-values-derive] Variable coverage now derived from `variables.tf` (stdlib parser) + loud-failure OVERRIDES; unknown-var and new-defaulted-var cases simulated; both guards green.
 - ✅ 2026-08-27 — [legib-compare] `legibility_compare.py` + shared `legibility_endpoints.py` predicate (power script refactored, output byte-identical); §6 exit codes tested across all rows; 956 green.

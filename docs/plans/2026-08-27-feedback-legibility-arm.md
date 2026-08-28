@@ -607,3 +607,5 @@ repr 259,655 tok / 12,157.8 s = 21.4 tok/s — both above the 15 tok/s floor (an
 
 **Escalated to the plan owner per §6 row 4** before any further spend on the
 note-surface design. The repr fix (`8ed72cd`) stands.
+
+Full report: [2026-08-28-feedback-legibility-report](../results/2026-08-28-feedback-legibility-report.md).
