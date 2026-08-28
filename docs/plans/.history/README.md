@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-27](https://github.com/wbniv/loom/commit/d063460) | Runner self-delete: fix the template/instance name drift |
 | [2026-08-27](https://github.com/wbniv/loom/commit/b2c3613) | Index the driver-survivability and feedback-legibility plans |
 | [2026-08-26](https://github.com/wbniv/loom/commit/be15a77) | Index the model-scale-arm plan; record Stage 0's outcome on its row |
 | [2026-08-26](https://github.com/wbniv/loom/commit/cf45689) | Plan index: add the 2026-08-26 hole-elicitation row |
@@ -58,6 +59,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+d063460	author	Will Norris
+d063460	added	1
+d063460	deleted	0
+d063460	files	1
+d063460	body	The refusal was never IAM: the startup-script template received a literal\nunsuffixed "${var.project}-experiment-runner" while the instance resource\nand the self-delete IAM condition were keyed off local.instance_name,\nwhich includes the suffix every real root sets. The script deleted a name\nthat didn't exist. Role, scopes and propagation were each ruled out with\nevidence in the plan.\n\nOne-line fix in the shared module flows to all six roots. Guard: a\nmocked-provider terraform test asserting the instance and its own startup\nscript's INSTANCE_NAME can never drift apart (suffixed and unsuffixed),\nplus shellcheck on the rendered script — fails pre-fix, passes post-fix.\nAlso declares runlist_key in render-gcp-startup-script.py's values dict,\nwhose staleness was blocking the guard from rendering.\n\nTODO: runner-self-delete to Done; follow-ups ranked in (Taskfile wiring\nT1, derive render values from variables.tf T2, runner-log survival T2).\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013ycMbBKz71NDfdtCACWEub
 b2c3613	author	Will Norris
 b2c3613	added	2
 b2c3613	deleted	0
