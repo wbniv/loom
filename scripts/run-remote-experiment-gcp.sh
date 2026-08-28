@@ -424,6 +424,10 @@ export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
 STATUS_KEY="status/$RUN_ID.txt"
 RESULTS_PREFIX="results/$RUN_ID/"
+# Shared with preflight_no_foreign_runner and the poll loop's liveness check,
+# so the name is computed exactly once.
+RUNNER_NAME="loom-experiment-runner"
+[ -n "$INSTANCE_SUFFIX" ] && RUNNER_NAME="loom-experiment-runner-$INSTANCE_SUFFIX"
 
 TF_VARS=(
     -var "project_id=$GCP_PROJECT_ID"
@@ -565,11 +569,9 @@ ensure_state_bucket
 # runner that is not this invocation's is already standing, abort before
 # touching any state.
 preflight_no_foreign_runner() {
-    local ours="loom-experiment-runner"
-    [ -n "$INSTANCE_SUFFIX" ] && ours="loom-experiment-runner-$INSTANCE_SUFFIX"
     local standing
     standing="$(gcloud compute instances list \
-        --filter="name~^loom-experiment-runner AND name!=$ours" \
+        --filter="name~^loom-experiment-runner AND name!=$RUNNER_NAME" \
         --format='value(name,zone,status)' 2>/dev/null || true)"
     if [ -n "$standing" ]; then
         die "another experiment runner is already up:
@@ -577,7 +579,7 @@ $standing
 GPU quota here is 1, and a second run would contend for it. Wait for that run
 to finish, or pass a --instance-suffix and confirm quota has been raised."
     fi
-    log "no foreign runner standing (ours would be $ours)"
+    log "no foreign runner standing (ours would be $RUNNER_NAME)"
 }
 preflight_no_foreign_runner
 
@@ -765,6 +767,57 @@ if [ "$TIMEOUT_SECONDS" -eq 0 ]; then
 else
     log "waiting for gs://$BUCKET/$STATUS_KEY (every ${POLL_SECONDS}s, up to ${TIMEOUT_SECONDS}s)"
 fi
+# --- Instance liveness (2026-08-28: 2.3h of blind polling after a preempt) --
+# The wait loop above only ever looked at the GCS marker, so a preempted Spot
+# instance meant polling in silence all the way to TIMEOUT_SECONDS — caught
+# that day only because an operator happened to notice. instance_gone checks
+# every pass, not every Nth: `describe` is one cheap read call, no heavier than
+# the `gsutil cat` marker check already made each pass, and the point is
+# catching a preemption immediately, not eventually.
+#
+# CRITICAL correctness nuance: the runner self-deletes its own instance right
+# after writing the status marker on normal completion, so "instance gone" is
+# ALSO the ordinary end-of-run state, not just a preemption symptom. Whichever
+# path detects the instance is gone therefore re-checks the marker once more
+# before saying anything: present -> normal completion, fall through exactly
+# as if the marker had been read at the top of the loop; absent -> the
+# instance vanished with no proof the run ever finished, and that is the
+# preemption case.
+#
+# Second nuance, found on review of 3212b58: the runner's scheduling block
+# (infrastructure/gcp/modules/experiment-runner/main.tf) sets
+# instance_termination_action=DELETE for Spot, which is what makes a
+# preemption disappear the instance entirely and the "not found" branch below
+# correct for it — but automatic_restart=false, so a GCP host error, or any
+# stop that is not a Spot preemption, leaves the instance EXISTING in
+# TERMINATED (or STOPPING/STOPPED/SUSPENDED). `describe` then succeeds forever
+# and a check that only looked for "not found" would never fire — the exact
+# blind-poll this item exists to kill, just arriving by a rarer path. So a
+# successful describe is not automatically "alive": its status has to say a
+# state that is actually running or coming up.
+INSTANCE_LOST_REASON=""
+instance_gone() {
+    local out
+    if out=$(gcloud compute instances describe "$RUNNER_NAME" --zone="$GCP_ZONE" \
+                 --format='value(status)' 2>&1); then
+        case "$out" in
+            PROVISIONING|STAGING|RUNNING|REPAIRING) return 1 ;;   # alive
+            *)
+                INSTANCE_LOST_REASON="stopped ($out)"
+                return 0 ;;   # TERMINATED/STOPPING/STOPPED/SUSPENDED/anything else unrecognised
+        esac
+    fi
+    if printf '%s' "$out" | grep -qi 'not found'; then
+        INSTANCE_LOST_REASON="deleted"
+        return 0   # confirmed gone
+    fi
+    # Inconclusive — an auth hiccup or a transient API error looks the same as
+    # a real failure here. Treating that as a preemption would turn a flaky
+    # `gcloud` call into a false alarm, so log it and let the next pass decide.
+    log "instance liveness check inconclusive, ignoring this pass: $out"
+    return 1
+}
+
 DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
 RUN_STATUS=""
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
@@ -773,6 +826,29 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         log "runner reported: $RUN_STATUS"
         break
     fi
+
+    if instance_gone; then
+        if RUN_STATUS=$(gsutil -q cat "gs://$BUCKET/$STATUS_KEY" 2>/dev/null); then
+            RUN_STATUS="$(printf '%s' "$RUN_STATUS" | tr -d '[:space:]')"
+            log "runner reported: $RUN_STATUS (instance $INSTANCE_LOST_REASON — treating as normal completion)"
+            break
+        fi
+        if [ "$INSTANCE_LOST_REASON" = "deleted" ]; then
+            die "instance $RUNNER_NAME is gone and no status marker exists at
+gs://$BUCKET/$STATUS_KEY — this is preemption (or some other loss of the
+instance), not normal completion, which always writes the marker before
+self-deleting. Nothing more to wait for.
+resume with: ${BASH_SOURCE[0]} --resume-from $MANIFEST_PATH --fetch-only"
+        fi
+        die "instance $RUNNER_NAME is $INSTANCE_LOST_REASON, not deleted, and no status
+marker exists at gs://$BUCKET/$STATUS_KEY — normal completion always writes
+the marker before self-deleting, so a stopped instance with no marker means a
+GCP host error or some other non-preemption stop (automatic_restart=false, so
+it will not come back on its own). The instance and its boot disk likely
+still exist and are still billing. Nothing more to wait for.
+resume with: ${BASH_SOURCE[0]} --resume-from $MANIFEST_PATH --fetch-only"
+    fi
+
     RUN_STATUS=""
     remaining=$(( DEADLINE - $(date +%s) ))
     log "still running (${remaining}s of budget left)"
