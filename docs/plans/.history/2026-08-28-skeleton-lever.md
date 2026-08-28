@@ -1,0 +1,11 @@
+| Date | Change |
+|------|--------|
+| [2026-08-28](https://github.com/wbniv/loom/commit/8cfb1ac) | Diagnose skeleton starvation: it is the declared type's arity |
+
+<!--history-meta v1
+8cfb1ac	author	Will Norris
+8cfb1ac	added	712
+8cfb1ac	deleted	0
+8cfb1ac	files	1
+8cfb1ac	body	The [skeleton-lever] framing — "5.5 % skeleton acceptance, find the lever\nthat unstarves the skeleton stage" — does not survive the banked records.\nskeleton_starve_probe.py (7 sections, 13 integrity checks, $0, CPU) shows:\n\n- Skeleton acceptance 5.49 % sits BETWEEN the two concurrent whole-draw\n  controls (redraft 6.87 %, whole 3.67 %); no test separates it from\n  either. There is no skeleton-specific starvation.\n- The mechanical floor is `accepted AND type-exact`. Separately 5.49 %\n  and 16.20 %; together 0.27 %. The conjuncts are won on disjoint task\n  sets (mapOrElse: 36/41 accepted, 0/121 type-exact).\n- The type conjunct is gated by arrow arity: 26.79 % correct, and 63.35 %\n  type-exact given correct arity. 71.11 % of drafts declare exactly one\n  arrow too few — a calibrated estimator with a -1 bias.\n- Extended 2026-08-26 §1.2's sibling finding from 12 drafts to all 706\n  rejects: only 2.97 % are one subterm from typechecking, and no more\n  among arity-correct drafts. Sibling failure is ordinary wrongness.\n- The banked 14B arm already moved arity RR 2.78, type-exactness RR 4.18\n  and the floor RR 19.11, all p < 1e-9 — and its 42 floor draws have\n  never been hand-scored.\n\nskeleton_lever_power.py sizes the follow-up arm from that banked control\nand exits 2: at 14B's measured 8.52 tok/s the $4.55 ceiling affords 16\ncells/arm at 0.56 power against the only effect size the campaign has\nmeasured (RR 1.87). A powered arm needs 32 cells/arm at ~$8.61.\n\nThe pre-registration is therefore written in full but NOT launched. Its\nfirst deliverable D0 costs $0: hand-score the 42 banked 14B floor draws.\nThe plan's §6 rows D0-a/b/c fire before any spend, and D0-b withdraws the\nceiling escalation rather than pressing it.\n\nThe design deliberately does not touch redraft-prompt content, so the\n2026-08-28 legib-row4 Watch trigger does not fire; §7.2 check 3 pins that\nmechanically rather than asserting it.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_018oX7GHTgh15KGPDhyosRxC
+-->

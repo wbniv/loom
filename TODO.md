@@ -27,6 +27,18 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
+- [wip T2] <!-- agent:ac0c47eacc638e7ed --> [skeleton-gates] Plan D3–D6: arm
+  configs + pinning test, `skeleton_lever_compare.py` (§6 exit codes),
+  `skeleton_lever_stub_check.py` (§7.2 ten checks, output pasted into the plan),
+  runlist + resume file. D6's T1 absorbed into the same T2 agent (same
+  subsystem, live context). See [plan](docs/plans/2026-08-28-skeleton-lever.md) §7.4.
+- [T5] [skeleton-run] Launch the powered arm: whole vs redraft at 14B, 32
+  cells/arm, one Spot instance, ceiling $8.61 per Amendment A1 (owner-approved
+  2026-08-28). Gated on [skeleton-gates] + stub check ALL CHECKS PASS. Driver
+  `--detach`; verdict + D7 report downstream.
+- [T3] [skeleton-d7-report] Plan D7: results document — §6 verdict, telemetry,
+  cost against A1's $8.61, teardown evidence. Gated on [skeleton-run].
+
 
 
 ## Watch

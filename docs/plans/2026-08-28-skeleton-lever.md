@@ -710,3 +710,14 @@ these are stable targets and not one block's luck.
   would be superseded rather than amended.
 - **A revision that adds or changes redraft-prompt content.** §3.2's Watch
   trigger then fires and its three deliverables become mandatory before spend.
+
+---
+
+## Amendment A1 — ceiling raised (2026-08-28, plan owner)
+
+D0 reported **row D0-a** (5/12 genuine successes, exit 0; see
+[results](../results/2026-08-28-skeleton-d0-hand-score.md)). On that basis the plan
+owner approved raising this arm's ceiling from the standing $4.55 to **$8.61**,
+buying the §4 powered configuration: **32 cells/arm**, 0.85 power at the banked
+RR 1.87 bound. Launch remains gated on D3–D6 plus §7.2's stub check (ALL CHECKS
+PASS) — the go covers the spend, not a skip of any gate.
