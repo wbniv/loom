@@ -85,6 +85,22 @@ tasks:
     cmds:
       - bash scripts/tests/test-runner-self-delete.sh
 
+  infra:billing-export:
+    desc: "Apply the billing-export root (BigQuery dataset + API enablement for GCP spend export; see docs)"
+    cmds:
+      - |
+        set -euo pipefail
+        TF="$HOME/.local/bin/terraform"
+        [ -x "$TF" ] || TF="$(command -v terraform)"
+        export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+        "$TF" -chdir=infrastructure/gcp/billing-export init -input=false -reconfigure >/dev/null
+        "$TF" -chdir=infrastructure/gcp/billing-export apply {{.CLI_ARGS}}
+
+  gcp:spend:
+    desc: "Query GCP spend from the BigQuery billing export (task gcp:spend -- --days 7, --month YYYY-MM, --by-sku)"
+    cmds:
+      - bash scripts/gcp-spend.sh {{.CLI_ARGS}}
+
   infra:destroy-diversity:
     desc: "Destroy the diversity-harvest root completely (safe: it shares no resource with any other run)"
     cmds:
@@ -135,7 +151,7 @@ tasks:
           cp -aln "$populated"/. "$cache"/ 2>/dev/null || true
         done
         export TF_PLUGIN_CACHE_DIR="$cache"
-        for root in experiment experiment-pair experiment-diversity; do
+        for root in experiment experiment-pair experiment-diversity billing-export; do
           echo "── infrastructure/gcp/$root"
           mkdir -p "$scratch/$root"
           cp infrastructure/gcp/"$root"/*.tf "$scratch/$root/"
@@ -174,6 +190,12 @@ tasks:
           ln -sf "$HOME/.local/google-cloud-sdk/bin/gcloud" "$BIN/gcloud"
           ln -sf "$HOME/.local/google-cloud-sdk/bin/gsutil" "$BIN/gsutil"
           echo "✓ installed: $("$BIN/gcloud" version 2>/dev/null | head -1)"
+        fi
+        # bq ships in the same SDK tree but wasn't symlinked above; scripts/gcp-spend.sh
+        # needs it. Idempotent and outside the if/else so an already-installed SDK
+        # (the "already installed" branch above) still gets the symlink on a re-run.
+        if [ -x "$HOME/.local/google-cloud-sdk/bin/bq" ]; then
+          ln -sf "$HOME/.local/google-cloud-sdk/bin/bq" "$BIN/bq"
         fi
         # ── Rust (Track G: the store/ crate) ────────────────────────────────
         # Pinned exactly, not "stable": the store's own invariant is byte
