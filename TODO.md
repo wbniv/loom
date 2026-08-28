@@ -27,24 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T5] [legib-run] The GPU run itself: 2 arms × 64 cells, one instance, Spot
-  first, ceiling $4.55, pre-committed degradation to 40 cells/arm (never fewer
-  arms). Gated on legib-replay + legib-stub and an explicit launch go — and on
-  [bucket-restore], since the driver uploads through that bucket. Use the new
-  `--detach` driver mode. Report per plan D7.
-- [T5] [legib-verdict] Once both arms land in `prototype/runs/legib-{legible,repr}`:
-  run `legibility_compare.py`, record the exit code and which §6 row fired, check
-  C1 (drift anchor vs banked decomp-redraft) and the throughput budget rule. The
-  row fired is the dispatch input for everything downstream — orchestrator only.
-  Gated on [legib-run].
-- [T2] [driver-preemption-detect] The GCP driver's wait loop only polls the status
-  marker, so a preempted instance means blind polling until the timeout — 2.3 h
-  on 2026-08-28 before an operator caught it. Add an instance-liveness /
-  preemption check to the poll loop (`gcloud compute operations list`
-  `operationType=compute.instances.preempted`, or instance-exists) that turns a
-  preemption into an immediate loud exit naming the resume command. Offline
-  guard in the style of the existing 5-block test.
-- [T3] [legib-report] Plan deliverable 8: `docs/results/2026-08-28-feedback-legibility-report.md`
+- [wip T3] <!-- agent:aeb0350bf13413b30 --> [legib-report] Plan deliverable 8: `docs/results/2026-08-28-feedback-legibility-report.md`
   — gate verdicts (D2/D3 pasted outputs), telemetry (tok/s vs the 21.3 estimate,
   Spot vs on-demand, cells/arm in force), the §6 row + compare output verbatim,
   cost vs the $4.55 ceiling, and teardown evidence (zero instances, no orphaned
@@ -82,6 +65,9 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-28 — [driver-preemption-detect] Poll-loop liveness check: preemption/stop → loud exit naming the resume command; marker-recheck kills the self-delete false positive; guard 8 blocks green.
+- ✅ 2026-08-28 — [legib-verdict] Exit 5, §6 row 4: L1 REVERSE-significant (repr 39.97% > legible 37.77%, p=0.0215); C1 exact-in; escalated. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
+- ✅ 2026-08-28 — [legib-run] Both arms 64/64 cells, one Spot instance (run 20260828T112559Z), ≈$2.4 of $4.55, clean teardown; one preempted attempt. See [plan](docs/plans/2026-08-27-feedback-legibility-arm.md).
 - ✅ 2026-08-27 — [runner-log-survival] 120 s heartbeat upload in the startup template (per-arm retarget in runlist mode); driver fetch side already covered every exit path; guard green on the final combination.
 - ✅ 2026-08-27 — [render-values-derive] Variable coverage now derived from `variables.tf` (stdlib parser) + loud-failure OVERRIDES; unknown-var and new-defaulted-var cases simulated; both guards green.
 - ✅ 2026-08-27 — [legib-compare] `legibility_compare.py` + shared `legibility_endpoints.py` predicate (power script refactored, output byte-identical); §6 exit codes tested across all rows; 956 green.

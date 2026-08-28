@@ -1,9 +1,15 @@
 | Date | Change |
 |------|--------|
+| [2026-08-27](https://github.com/wbniv/loom/commit/5b0e7f2) | Legibility arm configs + CPU stub gate: ALL CHECKS PASS, GPU gate open |
 | [2026-08-27](https://github.com/wbniv/loom/commit/5a4d622) | Legibility seam landed; replay gate clears at 2,159/2,159 |
 | [2026-08-27](https://github.com/wbniv/loom/commit/b072b6e) | Pre-register the feedback-legibility arm; triage the driver follow-ups |
 
 <!--history-meta v1
+5b0e7f2	author	Will Norris
+5b0e7f2	added	61
+5b0e7f2	deleted	0
+5b0e7f2	files	1
+5b0e7f2	body	Deliverable 4: legib_legible / legib_repr configs and the runlist as\nbyte-copies of decomp-redraft differing only in output_dir and\nnarrowing_note_render, pinned by difference in test_legibility_arm.py\n(which also asserts the source carries no render key, so the diff cannot\nbe vacuous). The AddressBookTest allowlist gains both configs — the same\nguard the model-scale configs hit in 5f697dc.\n\nDeliverable 3: legibility_stub_check.py — hole_elicitation_stub_check\nregression re-run unchanged (PASS), C2 protocol invariance (whole/redraft\ninert to the seam, byte-identical prompts under both renders in a\nscripted whole cell), config-difference checks, and a scripted stub cell\nper shipped config with C3 classification invariance and the per-arm leak\nsignature. ALL CHECKS PASS — output pasted into the plan; gate re-run\nindependently before this commit. Suite 947 green.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013ycMbBKz71NDfdtCACWEub
 5a4d622	author	Will Norris
 5a4d622	added	39
 5a4d622	deleted	0

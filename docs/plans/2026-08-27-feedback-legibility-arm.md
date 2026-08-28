@@ -550,3 +550,60 @@ required run directory is missing.
 - **Anything that makes 200+ cells/arm affordable** — a spot price change, a faster
   backend, a smaller purse that still reaches the funnel. L2 becomes a real primary at
   roughly 50× this budget, and only then.
+
+---
+
+## Deliverable 7 verdict record (2026-08-28, appended by the orchestrator)
+
+Both arms ran on one Spot g2-standard-4 (run id `20260828T112559Z`), 64/64 cells each,
+no degradation triggered. `python -m experiment.legibility_compare` **exit code 5 — §6
+row 4 fired**. Raw output verbatim:
+
+```
+### Feedback-legibility arm — legible vs repr, redraft protocol
+
+arm                         draws    cells   L1 rate   L2 rate
+legib-legible (surface)       795  64/64      37.77%     6.42%
+legib-repr    (repr)          772  64/64      39.97%     6.87%
+
+### L1 -- repair locality (PRIMARY GATE)
+
+  legible 258/683 = 37.77%   repr 263/658 = 39.97%   diff -2.20 pts (RR 0.95)
+  paired sign-flip over 64 cell pairs, one-sided (legible > repr),
+  alpha = 0.05, 9999 permutations, seed 0:  p = 0.9786   null
+  powered MDE at this n (deliverable 5): RR 1.20  (39.97% -> 47.96%)
+
+### L2 -- draw-level funnel acceptance (DESCRIPTIVE)
+
+  legible 51/795 = 6.42%   repr 53/772 = 6.87%   diff -0.45 pts (RR 0.93)
+  same test:  p = 0.8498   null
+  Reported only. §2.2 measured L2's power against a 1.25x effect as 0.23,
+  so no §6 row is keyed to this p-value. A null here means "no effect
+  >= 1.75x", not "no effect".
+  secondary, narrowed draws only (post-treatment selection -- see §2.2):
+    legible 47/683 = 6.88%   repr 49/658 = 7.45%
+
+### C1 -- drift anchor against the banked pre-fix run (decomp-redraft)
+
+  L1  banked 263/658 = 39.97%  95% Wilson [36.30%, 43.76%]   repr arm 39.97%  in
+  L2  banked 53/772 = 6.87%  95% Wilson [5.29%, 8.87%]   repr arm 6.87%  in
+  Reported, never decisive (§2.4). OUT means the banked numbers cannot be
+  cited alongside this arm's -- not that the primary is invalid.
+
+### Verdict
+
+  L1 is significant in the REVERSE direction: repr 39.97% > legible 37.77%, p = 0.0215 (§6 row 4).
+  Genuinely surprising, not a rounding error. ESCALATE to the plan
+  owner before any further spend. Do not revert the repr fix on this
+  evidence -- it is a correctness fix independent of this arm.
+```
+
+**C1: PASS**, and exactly — the `repr` arm reproduced the banked decomp-redraft run to the
+draw (L1 263/658, L2 53/772 identical), the deterministic replay §1.2 predicted.
+
+**Throughput budget rule: holds.** legible 259,540 tok / 12,350.9 s = 21.0 tok/s;
+repr 259,655 tok / 12,157.8 s = 21.4 tok/s — both above the 15 tok/s floor (and at the
+§4 21.3 tok/s estimate), so no re-size was triggered.
+
+**Escalated to the plan owner per §6 row 4** before any further spend on the
+note-surface design. The repr fix (`8ed72cd`) stands.
