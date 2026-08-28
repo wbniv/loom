@@ -1,5 +1,6 @@
 | Date | Change |
 |------|--------|
+| [2026-08-28](https://github.com/wbniv/loom/commit/09a1a38) | Add plan-index row for the GCP billing-export plan |
 | [2026-08-27](https://github.com/wbniv/loom/commit/d063460) | Runner self-delete: fix the template/instance name drift |
 | [2026-08-27](https://github.com/wbniv/loom/commit/b2c3613) | Index the driver-survivability and feedback-legibility plans |
 | [2026-08-26](https://github.com/wbniv/loom/commit/be15a77) | Index the model-scale-arm plan; record Stage 0's outcome on its row |
@@ -59,6 +60,11 @@
 | [2026-08-13](https://github.com/wbniv/loom/commit/e22627a) | Record scope validation verification |
 
 <!--history-meta v1
+09a1a38	author	Will Norris
+09a1a38	added	1
+09a1a38	deleted	0
+09a1a38	files	1
+09a1a38	body	Post-commit hook flagged the new plan as missing from docs/plans/README.md.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_018oX7GHTgh15KGPDhyosRxC
 d063460	author	Will Norris
 d063460	added	1
 d063460	deleted	0
