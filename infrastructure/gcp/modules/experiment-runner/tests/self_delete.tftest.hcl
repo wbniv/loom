@@ -30,11 +30,11 @@
 mock_provider "google" {}
 
 variables {
-  project_id        = "test-project"
-  run_id            = "20260827-000000"
-  artifacts_bucket  = "test-bucket"
-  model_identity    = "test-model"
-  instance_suffix   = "diversity"
+  project_id       = "test-project"
+  run_id           = "20260827-000000"
+  artifacts_bucket = "test-bucket"
+  model_identity   = "test-model"
+  instance_suffix  = "diversity"
 }
 
 run "instance_name_matches_startup_script" {

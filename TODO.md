@@ -69,6 +69,7 @@ condition that would unpark it._
 
 ## Done
 
+- ✅ 2026-08-28 — [gcp-billing-export] BQ export dataset applied + `task gcp:spend` CLI; one console step remains (enable export → `billing_export`). See [plan](docs/plans/2026-08-28-gcp-billing-export.md).
 - ✅ 2026-08-28 — [legib-row4-probe] Reverse effect real, note-caused, exposed-stratum only (−6.71 pts, p=0.0026; placebo null); DEFER with reopen trigger. See [investigation](docs/investigations/2026-08-28-legib-row4-probe.md).
 - ✅ 2026-08-28 — [legib-report] Deliverable 8 published: gates, §6 row 4 verbatim, telemetry, cost corrected to ≈$1.98 (ops log), teardown pasted. See [report](docs/results/2026-08-28-feedback-legibility-report.md).
 - ✅ 2026-08-28 — [driver-preemption-detect] Poll-loop liveness check: preemption/stop → loud exit naming the resume command; marker-recheck kills the self-delete false positive; guard 8 blocks green.

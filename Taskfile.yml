@@ -117,6 +117,15 @@ tasks:
         "$TF" -chdir=infrastructure/gcp/experiment-diversity destroy -auto-approve \
           -var "run_id=teardown" -var "model_identity=teardown" -var "launch_runner=false"
 
+  infra:fmt:
+    desc: "terraform fmt -recursive over infrastructure/gcp (write mode; validate only checks)"
+    cmds:
+      - |
+        set -euo pipefail
+        TF="$HOME/.local/bin/terraform"
+        [ -x "$TF" ] || TF="$(command -v terraform)"
+        "$TF" fmt -recursive infrastructure/gcp
+
   infra:validate:
     desc: "terraform fmt + validate every GCP root, without a backend or any GCP call"
     cmds:
