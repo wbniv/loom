@@ -1,0 +1,12 @@
+[
+  {
+    "config_key": "config/skel_redraft14.config.json",
+    "output_dir": "runs/skel-redraft14",
+    "run_id": "skel-redraft14"
+  },
+  {
+    "config_key": "config/skel_whole14.config.json",
+    "output_dir": "runs/skel-whole14",
+    "run_id": "skel-whole14"
+  }
+]

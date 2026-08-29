@@ -721,3 +721,157 @@ owner approved raising this arm's ceiling from the standing $4.55 to **$8.61**,
 buying the §4 powered configuration: **32 cells/arm**, 0.85 power at the banked
 RR 1.87 bound. Launch remains gated on D3–D6 plus §7.2's stub check (ALL CHECKS
 PASS) — the go covers the spend, not a skip of any gate.
+
+---
+
+### Deliverable 5 stub check
+
+D3–D6 landed: `experiment/skel_whole14.config.json`, `experiment/skel_redraft14.config.json`
+(differing by exactly `output_dir` and `generation_protocol`, seeds `[1, 2, 3, 4]` —
+Amendment A1's 32 cells/arm), `experiment/skeleton_lever_compare.py` (E1/E2/C1′
+against §6's exit codes 0/2/3/4/5/6), `experiment/skeleton_lever_stub_check.py`
+(§7.2's ten checks below), `experiment/skeleton-lever-runlist.json`, and
+`test_skeleton_lever_arm.py`. Check 6's "gold type surface" sub-check was narrowed
+from *any prompt* to *the task's own spec text* after check 1 of that check found
+two false positives (`sum`, `reverseThen`) traced to coincidental substring matches
+against unrelated, legitimately-listed address-book signatures (`foldRight` and
+`append`'s own curried types), not a leak — recorded in the check's own `note:`
+line rather than silently dropped. §7.2's own regression clause (check 10) reads
+this file's pasted §1/§4 numbers back out of it and diffs them against a fresh run,
+so it is pasted here, after those numbers, deliberately — anything above this line
+is what check 10 verifies unchanged.
+
+Run from `prototype/`: `python3 -m experiment.skeleton_lever_stub_check`
+
+```
+### Check 1 -- both configs load, validate, differ in exactly two keys
+
+  skel-whole14     loads and validates: True
+  skel-redraft14   loads and validates: True
+  differing keys: ['generation_protocol', 'output_dir']  exactly the two licensed
+
+result: PASS
+
+### Check 2 -- draw 0's prompt bytes are equal across the arms, all 8 tasks
+
+  heldout/list/concatLength        whole==redraft=yes
+  heldout/list/mapLength           whole==redraft=yes
+  heldout/list/reverseThen         whole==redraft=yes
+  heldout/maybe/mapOrElse          whole==redraft=yes
+  heldout/list/headOrElse          whole==redraft=yes
+  heldout/list/sum                 whole==redraft=yes
+  heldout/sample/stampedBytes      whole==redraft=yes
+  heldout/nat/selectNonNegative    whole==redraft=yes
+
+result: PASS
+
+### Check 3 -- Arm B's note == narrowing_note(unmodified renderer), every layer
+
+  parse        funnel.outcome=parse        note-shape-ok=True  ok
+  scope        funnel.outcome=scope        note-shape-ok=True  ok
+  references   funnel.outcome=references   note-shape-ok=True  ok
+  typecheck    funnel.outcome=typecheck    note-shape-ok=True  ok
+  accepted draft carries no note: True
+
+result: PASS
+
+### Check 4 -- Arm A (whole) never narrows: `narrowed` False on every record
+
+  _narrows(protocol='whole'   condition='gbnf+typemask') = False (expected False)  ok
+  _narrows(protocol='whole'   condition='gbnf'        ) = False (expected False)  ok
+  _narrows(protocol='redraft' condition='gbnf+typemask') = True  (expected True )  ok
+  scripted cell (rejected then accepted, 2 draws): narrowed=[False, False]  ok
+
+result: PASS
+
+### Check 5 -- the budget rule: full-cap-or-no-draw, every draw charged,
+###           within purse, ends when no room, cell_done on the last record
+
+  skel-whole14     draws=2 tokens=96/4608
+                   full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True cell_done-on-last-only=True draw-indices-sequential=True  ok
+  skel-redraft14   draws=2 tokens=96/4608
+                   full-cap-or-no-draw=True every-draw-charged=True within-purse=True ends-when-no-room=True cell_done-on-last-only=True draw-indices-sequential=True  ok
+
+result: PASS
+
+### Check 6 -- no gold term in any built prompt; no task's own type surface
+###           spelled out in its own spec text
+
+note: gold TERMS are checked cross-task, against the full built prompt (every
+      task's gold against every prompt -- decomposition_stub_check's own rule,
+      safe because a full composed term is not the kind of string that
+      coincidentally recurs). A gold TYPE SURFACE is checked only against its own
+      task's *spec text*, not the full prompt: type surfaces are built from shared
+      primitives (I64, List, ...), so e.g. sum's 1-arg `List I64 -> I64` surface is
+      a literal substring of foldRight's own (unrelated, legitimately-listed)
+      curried address-book signature -- confirmed by hand, not a leak. §1.3's own
+      claim is the actual thing to regression-guard: "the expected type surface
+      appears verbatim in 0 of 8 task specs" -- spec text, not the whole prompt.
+
+  prompts checked    16 (2 arms x 8 tasks)
+  gold terms searched for   8 (cross-task, full prompt); 8 own-type-surface self-checks (spec text only)
+  heldout_gold.prompt_leak_check(): no offenders
+
+result: PASS
+
+### Check 7 -- a scripted stub drives one cell of each arm end to end (`gbnf`)
+
+  skel-whole14     draws=2 outcomes=['typecheck', 'accepted'] narrowed=[False, False] one-candidate-per-draw=True narrows=False (expected False)  ok
+  skel-redraft14   draws=2 outcomes=['typecheck', 'accepted'] narrowed=[False, True] one-candidate-per-draw=True narrows=True (expected True)  ok
+
+result: PASS
+
+### Check 8 -- skeleton_lever_compare.py: exit codes 0, 2, 3, 4, 5, 6
+
+  expected exit 0: got 0  ok
+  expected exit 2: got 2  ok
+  expected exit 3: got 3  ok
+  expected exit 4: got 4  ok
+  expected exit 5: got 5  ok
+  expected exit 6: got 6  ok
+
+result: PASS
+
+### Check 9 -- prompt + worst-case completion fits the context window
+
+  skel-whole14     worst-case prompt= 18346 tok (narrowing note carried: False)  threshold= 32000  OK
+  skel-redraft14   worst-case prompt= 18465 tok (narrowing note carried: True)  threshold= 32000  OK
+
+result: PASS
+
+### Check 10 -- skeleton_starve_probe / skeleton_lever_power reproduce
+###            this plan's pasted §1/§4 numbers (regression check)
+
+  plan carries pinned line (ok): decomp-holes/skeleton     747    34  4.6%    74  9.9%     1  0.1%   59
+  plan carries pinned line (ok): MECHANICAL FLOOR                 42/400  10.50%    2/364   0.55%  19.1
+  plan carries pinned line (ok): floor draws 42   unique surfaces 12   cells reached 8 of 32
+  plan carries pinned line (ok): 16           32    5.32  $   1.33  $     4.53
+  plan carries pinned line (ok): 32           64   10.13  $   2.53  $     8.61   over ceiling on-demand
+
+  skeleton_starve_probe exit=0 (expected 0)  skeleton_lever_power exit=2 (expected 2)  ok
+  reproduced fresh (ok): decomp-holes/skeleton     747    34  4.6%    74  9.9%     1  0.1%   59
+  reproduced fresh (ok): MECHANICAL FLOOR                 42/400  10.50%    2/364   0.55%  19.1
+  reproduced fresh (ok): floor draws 42   unique surfaces 12   cells reached 8 of 32
+  reproduced fresh (ok): 16           32    5.32  $   1.33  $     4.53
+  reproduced fresh (ok): 32           64   10.13  $   2.53  $     8.61   over ceiling on-demand
+
+result: PASS
+
+### Deliverable 5 verdict: ALL CHECKS PASS — the GPU gate is open
+```
+
+**Gate 2 clears.** All ten checks pass; exit 0. No GPU spend is authorised by this
+alone — Gate 3 (§7.3's C1′) is read at run time by `skeleton_lever_compare.py`
+itself, since no live arm exists yet to check it against.
+
+D6's runlist ships as `experiment/skeleton-lever-runlist.json`, in the same
+`{config_key, output_dir, run_id}` shape `legibility-runlist.json` and
+`scale14-runlist.json` use. No hand-authored `-resume.json` companion is shipped:
+`address-runlist-resume.json` is a relic of the campaign's pre-survivability-plan
+convention (2026‑08‑27‑driver‑survivability‑and‑resume.md); every run since —
+`legibility-runlist.json`, `scale14-runlist.json` — ships one runlist file only,
+and resume goes through `run-remote-experiment-gcp.sh --resume-from
+prototype/runs/logs/driver-skeleton-lever.json`, the manifest the driver itself
+writes at launch. Driver-log retention is the already-landed 120 s heartbeat
+upload (`runner-log-survival`, `ec3f7ed`); nothing in this deliverable needed to
+touch it.

@@ -347,6 +347,11 @@ class AddressBookTest(unittest.TestCase):
         # fixed, so a different book here would be a second changed variable.
         "legib_legible.config.json": "full",
         "legib_repr.config.json": "full",
+        # docs/plans/2026-08-28-skeleton-lever.md §3.1: the arm is one config
+        # field apart (generation_protocol/output_dir), address_book unchanged
+        # at "full" — the same discipline every arm above already keeps.
+        "skel_whole14.config.json": "full",
+        "skel_redraft14.config.json": "full",
     }
 
     def test_every_shipped_config_declares_its_registered_arm(self):

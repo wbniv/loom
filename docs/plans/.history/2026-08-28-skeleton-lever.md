@@ -1,8 +1,14 @@
 | Date | Change |
 |------|--------|
+| [2026-08-28](https://github.com/wbniv/loom/commit/23d672a) | Amendment A1: ceiling $8.61 approved; queue skeleton D3-D6, run, D7 |
 | [2026-08-28](https://github.com/wbniv/loom/commit/8cfb1ac) | Diagnose skeleton starvation: it is the declared type's arity |
 
 <!--history-meta v1
+23d672a	author	Will Norris
+23d672a	added	11
+23d672a	deleted	0
+23d672a	files	1
+23d672a	body	Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_018oX7GHTgh15KGPDhyosRxC
 8cfb1ac	author	Will Norris
 8cfb1ac	added	712
 8cfb1ac	deleted	0
