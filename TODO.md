@@ -27,7 +27,8 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T5] [skeleton-run] Launched 2026-08-29T00:41Z: whole vs redraft at 14B, 32
+- [wip T5] [skeleton-run] On-demand since 2026-08-29T01:05Z (Spot attempt
+  preempted at 23 min — §4's fallback rule): whole vs redraft at 14B, 32
   cells/arm, one Spot instance, ceiling $8.61 per Amendment A1 (owner-approved
   2026-08-28). Gated on [skeleton-gates] + stub check ALL CHECKS PASS. Driver
   `--detach`; verdict + D7 report downstream.
