@@ -27,12 +27,7 @@ Check conformance with `task todo:lint`.
 
 ## Open
 
-- [wip T2] <!-- agent:ac0c47eacc638e7ed --> [skeleton-gates] Plan D3–D6: arm
-  configs + pinning test, `skeleton_lever_compare.py` (§6 exit codes),
-  `skeleton_lever_stub_check.py` (§7.2 ten checks, output pasted into the plan),
-  runlist + resume file. D6's T1 absorbed into the same T2 agent (same
-  subsystem, live context). See [plan](docs/plans/2026-08-28-skeleton-lever.md) §7.4.
-- [T5] [skeleton-run] Launch the powered arm: whole vs redraft at 14B, 32
+- [wip T5] [skeleton-run] Launched 2026-08-29T00:41Z: whole vs redraft at 14B, 32
   cells/arm, one Spot instance, ceiling $8.61 per Amendment A1 (owner-approved
   2026-08-28). Gated on [skeleton-gates] + stub check ALL CHECKS PASS. Driver
   `--detach`; verdict + D7 report downstream.
@@ -86,6 +81,7 @@ promotes it back to Open.
 
 ## Done
 
+- ✅ 2026-08-28 — [skeleton-gates] D3–D6 landed: configs pinned by difference, compare with §6 exit codes tested, stub gate ALL 10 PASS (pasted in plan), runlist+resume; suite 980 OK. Commit 500949b.
 - ✅ 2026-08-28 — [skeleton-d0] §6 row D0-a: 5/12 banked 14B floor surfaces genuinely succeed by execution; ceiling escalation now live with measured backing. See [results](docs/results/2026-08-28-skeleton-d0-hand-score.md).
 - ✅ 2026-08-28 — [skeleton-lever] Framing overturned: no skeleton starvation — floor conjunction near-disjoint (0.27 %), arity −1 bias gates types; no-spend plan, D0 gates all. See [plan](docs/plans/2026-08-28-skeleton-lever.md).
 - ✅ 2026-08-28 — [gcp-billing-export] BQ export dataset applied + `task gcp:spend` CLI; one console step remains (enable export → `billing_export`). See [plan](docs/plans/2026-08-28-gcp-billing-export.md).
